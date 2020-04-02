@@ -3,60 +3,63 @@ module Parser (parseType, run, Type(..)) where
 import ParserCore
 import Lexer
 import Control.Applicative
+import Data.List
 
--- [t], t, or t -> t
-data Type = Array Type | AtomicType AtomicType | Function Type Type deriving (Show, Eq)
+{--
+ TYPE SYSTEM
+ types fall into 6 categories:
+ category         | example         | example value
+ natives          | int             | 5
+ tuples           | (int, string)   | (3, "a")
+ arrays           | [int]           | [3,4,5,2]
+ function         | int -> int      | \x -> x * 2
+ record           | {x:Int, y:Int}  | {x=3, y=2}
+ union            | {x:Int | y:Int} | {x=3 | y:Int} 
+--}
+-- [t], t, t -> t, (t1, t2, ...), {a:t1, b:t2, ...}
+data Type = Array Type | AtomicType AtomicType | Function Type Type | Tuple [Type] | Record [([Char], Type)] | Union [([Char], Type)]
+    deriving (Eq)
 
+instance Show Type where 
+    show (Array t) = "[" ++ show t ++ "]"
+    show (AtomicType t) = show t
+    show (Function f t) = show f ++ " -> " ++ show t
+    show (Tuple arr) = "(" ++ (intercalate ", " (map show arr)) ++ ")"
+    show (Record r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ ": " ++ show y) r) ++ "}"
+    show (Union u) = "{" ++ intercalate " | " (map (\(x, y) -> x ++ ": " ++ show y) u) ++ "}"
 -- Int
-data AtomicType = IntType deriving (Show, Eq)
+data AtomicType = Bits Int Bool  deriving (Eq)
+
+instance Show AtomicType where
+    show (Bits n True) = "int" ++ show n
+    show (Bits n False) = "uint" ++ show n
 
 -- runs parser on tokenstream
 run (Parser ps) ts = ps ts
 
---build (Parser p1) (Parser p2) = (\x -> )
-
--- parses a token of specific type.
-parseToken t = satisfy (\x -> x @@ t)
-
--- for avoiding left recursion.
--- parses the non left recursive left token, 
--- then "builds" b using constructed a. if b cannot be constructed, a is returned
-build :: Parser a -> (a -> Parser a) -> Parser a
-build (Parser a) b = Parser (\ts ->
-    case (a ts) of
-         ParseFailure -> ParseFailure
-         Unrecoverable r -> Unrecoverable r
-         ParseSuccess construct ts2 -> -- ok. try 2nd
-            case (run (b construct) ts2) of 
-                 ParseFailure -> ParseFailure -- ParseSuccess construct ts2
-                 Unrecoverable r2 -> Unrecoverable r2
-                 ParseSuccess nc ts3 -> ParseSuccess nc ts3)
-
--- like build, but will repeatedly apply build.
-infbuild :: Parser a -> (a -> Parser a) -> Parser a
-infbuild (Parser a) b = Parser (\ts ->
-    -- try the original parser
-    case (a ts) of
-         ParseFailure -> ParseFailure
-         Unrecoverable r -> Unrecoverable r
-         ParseSuccess cn ts2 ->
-         -- if original succeeds, we want to
-         -- try the larger parser. 
-            case (run (b cn) ts2) of
-                ParseFailure -> ParseSuccess cn ts2 -- this one fails, so previous is "largest"
-                Unrecoverable r2 -> Unrecoverable r2
-                -- this one succeeds, so we can keep building.
-                -- run a new parser that will always parse the construct, and possibly construct larger result
-                ParseSuccess cn2 ts3 -> run (infbuild (pure cn2) b) ts3)
-                                    
+-- parses an identifier
+parseIdentifier :: Parser [Char]
+parseIdentifier = Parser (\x -> 
+    case x of 
+         (AnnotatedToken (Identifier z) l str):zs -> ParseSuccess z zs
+         _ -> ParseFailure)         
 
 parseType :: Parser Type
-parseType = infbuild (parseIntType <|> parseArrayType) parseFunctionType
+parseType = parseBType <|> (infbuild (parseRecord <|> parseUnion <|> parseIntType <|> parseArrayType <|> parseTuple) parseFunctionType)
+
+-- bracketed type
+parseBType = parseToken (LParen) *> parseType <* parseToken (RParen)
 
 parseIntType :: Parser Type
-parseIntType = parseToken (Identifier "Int") *> pure (AtomicType IntType)
+parseIntType = parseToken (Identifier "Int") *> pure (AtomicType (Bits 64 True))
 
 parseArrayType = parseToken (LSqParen) *> (fmap Array parseType) <* parseToken (RSqParen)
 
--- parseFunctionType = liftA2 Function parseType (parseToken (Arrow) *> parseType)
 parseFunctionType t = liftA2 Function (pure t) (parseToken (Arrow) *> parseType)
+
+parseTuple = fmap Tuple (parseToken (LParen) *> collect parseType (parseToken Comma) <* parseToken (RParen))
+
+parseRecord = fmap Record (parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseType)) (parseToken Comma) <* parseToken RCrParen)
+
+-- future optimization: roll parseRecord and parseUnion into one func
+parseUnion = fmap Union (parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseType)) (parseToken Pipe) <* parseToken RCrParen)

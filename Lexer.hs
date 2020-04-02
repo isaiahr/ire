@@ -67,6 +67,7 @@ lexSym ('&' : str) = Just (Ampersand, str)
 lexSym ('^' : str) = Just (Caret, str)
 lexSym ('|' : str) = Just (Pipe, str)
 lexSym ('!' : str) = Just (Exclamation, str)
+lexSym (':' : str) = Just (Colon, str)
 lexSym (';' : str) = Just (Term, str)
 lexSym ('\n' : str) = Just (Term, str)
 lexSym _ = Nothing

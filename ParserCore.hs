@@ -1,4 +1,4 @@
-module ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy)  where 
+module ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, collect, infbuild, parseToken)  where 
 
 import Lexer
 import Control.Applicative
@@ -7,10 +7,19 @@ import Control.Applicative
 -- typically this is either success, resulting in a parse tree (a) and resulting tokenstream 
 -- or failure. (parsefailure). sometimes the error is unrecoverable, and this is when we disp
 -- "syntax error" to user. in this case use unrecoverable.
-data ParseResult a = ParseSuccess a [AnnotatedToken] | ParseFailure | Unrecoverable [Reason] deriving (Show, Eq)
+data ParseResult a = ParseSuccess a [AnnotatedToken] | ParseFailure | Unrecoverable [Reason] deriving (Eq)
+
+instance (Show a) => Show (ParseResult a) where
+    show (ParseSuccess b ts) = show b
+    show ParseFailure = "Failure"
+    show (Unrecoverable r) = show r
+    
 newtype Parser a = Parser ([AnnotatedToken] -> ParseResult a)
 
 data Reason = Reason {message :: String} deriving (Show, Eq)
+
+
+run (Parser ps) ts = ps ts
 
 -- construct a parser to parse a token
 -- this will not construct anything, so use it with (pure) parser to construct something.
@@ -21,6 +30,8 @@ satisfy fun = Parser(\x ->
 
 (@@) :: AnnotatedToken -> Token -> Bool
 (AnnotatedToken t l str) @@ to = (t == to)
+
+parseToken t = satisfy (\x -> x @@ t)
 
 -- build new parser using a transformation to the output (func)
 instance Functor Parser where
@@ -63,3 +74,32 @@ instance Monad Parser where
              ParseFailure -> ParseFailure
              ParseSuccess a ts2 -> case (f a) of
                 Parser p -> p ts2) -- desuger parser into parser func
+
+
+-- collect: parses p1's seperated by sep into [p1] 
+collect p1 sep = Parser (\ts -> 
+    case (run p1 ts) of
+         ParseFailure -> ParseFailure
+         Unrecoverable r -> Unrecoverable r
+         ParseSuccess cn ts2 -> 
+            case (run (sep *> (collect p1 sep)) ts2) of
+                ParseFailure -> ParseSuccess [cn] ts2
+                Unrecoverable r2 -> Unrecoverable r2
+                ParseSuccess cn2 ts3 -> ParseSuccess (cn:cn2) ts3)
+
+-- like build, but will repeatedly apply build.
+infbuild :: Parser a -> (a -> Parser a) -> Parser a
+infbuild (Parser a) b = Parser (\ts ->
+    -- try the original parser
+    case (a ts) of
+         ParseFailure -> ParseFailure
+         Unrecoverable r -> Unrecoverable r
+         ParseSuccess cn ts2 ->
+         -- if original succeeds, we want to
+         -- try the larger parser. 
+            case (run (b cn) ts2) of
+                ParseFailure -> ParseSuccess cn ts2 -- this one fails, so previous is "largest"
+                Unrecoverable r2 -> Unrecoverable r2
+                -- this one succeeds, so we can keep building.
+                -- run a new parser that will always parse the construct, and possibly construct larger result
+                ParseSuccess cn2 ts3 -> run (infbuild (pure cn2) b) ts3)
