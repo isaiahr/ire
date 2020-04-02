@@ -1,4 +1,4 @@
-module Lexer (Token(..), lexFile) where 
+module Lexer (AnnotatedToken(..), Token(..), lexFile) where 
 
 import Data.List
 import Data.Maybe
@@ -6,7 +6,7 @@ import Data.Char
 import Control.Applicative
 
 data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integer Int | Character Char | String [Char] | Identifier [Char]
-           | Term | Comma | Equals | Return | PlusEquals | Pipe | New | Void | Type | Colon | Dot | If
+           | Term | Comma | Equals | Return | PlusEquals | Pipe | New | Void | Type | Colon | Dot | Arrow | If
            | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals
            | Exclamation | Else | Error deriving (Show, Eq)
 
@@ -48,6 +48,7 @@ where function produces a token and remaining input if successful and nothing ot
 -- symbol
 lexSym ('=' : '=' : str) = Just (DoubleEquals, str)
 lexSym ('+' : '=' : str) = Just (PlusEquals, str)
+lexSym ('-' : '>' : str) = Just (Arrow, str)
 lexSym ('(' : str) = Just (LParen, str)
 lexSym (')' : str) = Just (RParen, str)
 lexSym ('[' : str) = Just (LSqParen, str)

@@ -2,6 +2,7 @@ module Main (main) where
 import System.Environment
 import System.Exit
 import Lexer
+import Parser
 
 main = getArgs >>= process >> exitWith ExitSuccess
 
@@ -10,6 +11,8 @@ process (file:files) = do
     contents <- readFile file
     let result = lexFile contents
     putStrLn (disp result)
+    let b = run parseType result
+    putStrLn (show b)
     
 process _ =  return ()
 
