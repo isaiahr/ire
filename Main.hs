@@ -11,7 +11,7 @@ process (file:files) = do
     contents <- readFile file
     let result = lexFile contents
     putStrLn (disp result)
-    let b = run parseType result
+    let b = run parseFile result
     putStrLn (show b)
     
 process _ =  return ()
