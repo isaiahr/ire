@@ -7,7 +7,7 @@ import Control.Applicative
 
 data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integer Int | Character Char | String [Char] | Identifier [Char]
            | Term | Comma | Equals | Return | PlusEquals | Pipe | New | Void | Type | Colon | Dot | Arrow | If
-           | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals
+           | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals | FSlash | BSlash
            | Exclamation | Else | Error deriving (Show, Eq)
 
 {- an token annotated with other data such as line number, characters held -}
@@ -70,6 +70,8 @@ lexSym ('!' : str) = Just (Exclamation, str)
 lexSym (':' : str) = Just (Colon, str)
 lexSym (';' : str) = Just (Term, str)
 lexSym ('\n' : str) = Just (Term, str)
+lexSym ('\\' : str) = Just (BSlash, str)
+lexSym ('/' : str) = Just (FSlash, str)
 lexSym _ = Nothing
 
 

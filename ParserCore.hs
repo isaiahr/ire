@@ -1,4 +1,4 @@
-module ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, collect, infbuild, parseToken)  where 
+module ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, collect, collectM, infbuild, parseToken)  where 
 
 import Lexer
 import Control.Applicative
@@ -86,6 +86,10 @@ collect p1 sep = Parser (\ts ->
                 ParseFailure -> ParseSuccess [cn] ts2
                 Unrecoverable r2 -> Unrecoverable r2
                 ParseSuccess cn2 ts3 -> ParseSuccess (cn:cn2) ts3)
+                
+-- collectM: (collect multiple) like collect, but allows multiple seperators
+collectM p1 sep = (collect (pure ()) sep) *> (collect p1 (infbuild sep (\x -> pure x *> sep))) <* (collect (pure ()) sep)
+
 
 -- like build, but will repeatedly apply build.
 infbuild :: Parser a -> (a -> Parser a) -> Parser a

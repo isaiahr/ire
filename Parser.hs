@@ -28,11 +28,10 @@ instance Show Type where
     show (Record r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ ": " ++ show y) r) ++ "}"
     show (Union u) = "{" ++ intercalate " | " (map (\(x, y) -> x ++ ": " ++ show y) u) ++ "}"
 -- Int
-data AtomicType = Bits Int Bool  deriving (Eq)
+data AtomicType = Bits Int deriving (Eq)
 
 instance Show AtomicType where
-    show (Bits n True) = "int" ++ show n
-    show (Bits n False) = "uint" ++ show n
+    show (Bits n) = "bits" ++ show n
 
 data Definition = Definition {identifier::[Char],  typeof::Type, value::Expression} deriving (Eq)
 
@@ -40,22 +39,26 @@ instance Show Definition where
     show def = (identifier def) ++ show (typeof def) ++ show (value def)
     showList (ds) = \x -> (intercalate "\n" $ map show ds) ++ x
 
-data Expression = Literal Literal deriving (Show, Eq)
+data Expression = Literal Literal | FunctionCall Expression Expression deriving (Show, Eq)
 
 -- a literal
-data Literal = Constant Int | ArrayLiteral [Expression] | TupleLiteral [Expression] | RecordLiteral [([Char], Expression)] deriving (Eq)
+data Literal = Constant Int | ArrayLiteral [Expression] | TupleLiteral [Expression] | RecordLiteral [([Char], Expression)] | FunctionLiteral String Body deriving (Eq)
 
 instance Show Literal where
     show (Constant i) = show i
     show (ArrayLiteral e) = "[" ++ intercalate ", " (map show e) ++ "]"
     show (TupleLiteral t) = "(" ++ intercalate ", " (map show t) ++ ")"
     show (RecordLiteral r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ " = " ++ show y) r) ++ "}"
+    show (FunctionLiteral p b) = '\\' : p ++ " -> {\n" ++ show b ++ "}"
 
+data Body = Body [Statement] deriving (Show, Eq)
+
+data Statement = Defn Definition | Expr Expression deriving (Show, Eq)
 -- runs parser on tokenstream
 run (Parser ps) ts = ps ts
 
 
-parseFile = collect parseDefinition $ infbuild (parseToken Term) (\x -> pure x *> parseToken Term)
+parseFile = collectM parseDefinition $ parseToken Term
 
 -- parses an identifier
 parseIdentifier :: Parser [Char]
@@ -71,7 +74,7 @@ parseType = parseBType <|> (infbuild (parseRecord <|> parseUnion <|> parseIntTyp
 parseBType = parseToken (LParen) *> parseType <* parseToken (RParen)
 
 parseIntType :: Parser Type
-parseIntType = parseToken (Identifier "Int") *> pure (AtomicType (Bits 64 True))
+parseIntType = parseToken (Identifier "Int") *> pure (AtomicType (Bits 64))
 
 parseArrayType = parseToken (LSqParen) *> (fmap Array parseType) <* parseToken (RSqParen)
 
@@ -87,9 +90,12 @@ parseUnion = fmap Union (parseToken LCrParen *> collect (liftA2 (\x y -> (x, y))
 parseDefinition = liftA3 (\x y z -> Definition {identifier=x, typeof=y, value=z}) parseIdentifier (parseToken Colon *> parseType) (parseToken Equals *> parseExpression)
 
 
-parseExpression = fmap Literal parseLiteral
+parseExpression = infbuild (parseBrExpression <|> parseLiteral) parseFunctionCall
 
-parseLiteral = parseInt <|> parseArrayLiteral <|> parseTupleLiteral <|> parseRecordLiteral 
+-- parse bracketed expression
+parseBrExpression = parseToken LParen *> parseExpression <* parseToken RParen
+
+parseLiteral = fmap Literal $ parseInt <|> parseArrayLiteral <|> parseTupleLiteral <|> parseRecordLiteral  <|> parseFunctionLiteral
 
 parseInt = fmap Constant $ Parser (\x -> 
     case x of
@@ -103,6 +109,15 @@ parseTupleLiteral = fmap ArrayLiteral $ parseToken LParen *> collect parseExpres
 
 parseRecordLiteral = fmap RecordLiteral $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Equals *> parseExpression)) (parseToken Comma) <* parseToken RCrParen
 
+-- \a -> {}
+parseFunctionLiteral = liftA2 FunctionLiteral (parseToken BSlash *> parseIdentifier <* parseToken Arrow) (parseToken LCrParen *> parseBody <* parseToken RCrParen)
+
+parseBody = fmap Body (collectM parseStatement $ parseToken Term)
+
+parseStatement = fmap Defn parseDefinition <|> fmap Expr parseExpression
 -- UnionLiteral (([Char], Expression), [([Char], Type)])
 -- remove union literals for now. not completely sure on syntax for them yet
 -- parseUnionLiteral = fmap UnionLiteral $ parseToken LCrParen *> liftA2 (\x y -> (x, y)) () () <* parseToken RCrParen
+
+
+parseFunctionCall t = liftA2 FunctionCall (pure t) parseExpression
