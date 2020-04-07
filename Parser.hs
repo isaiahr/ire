@@ -40,7 +40,6 @@ instance Show Definition where
     show def = identifier def ++ ": " ++ shw (typeof def) ++ " = " ++ show (value def)
         where shw (Just a) = show a
               shw Nothing = ""
-    showList ds x = intercalate "\n" (map show ds) ++ x
 
 data Expression = Literal Literal | FunctionCall Expression Expression deriving (Eq)
 
@@ -63,18 +62,25 @@ newtype Body = Body [Statement] deriving (Eq)
 instance Show Body where
     show (Body s) = intercalate "\n" (map show s)
 
-data Statement = Defn Definition | Expr Expression deriving (Eq)
+data Statement = Defn Definition | Expr Expression | Assignment String Expression deriving (Eq)
 
 instance Show Statement where
     show (Defn s) = show s
     show (Expr e) = show e
+    show (Assignment ident e) = ident ++ " = " ++ show e
+
+newtype ParseTree = ParseTree [Definition] deriving (Eq)
+
+instance Show ParseTree where
+    show (ParseTree (d:ds)) = show d ++ "\n" ++ show (ParseTree ds)
+    show _ = ""
 
 -- runs parser on tokenstream
 run :: Parser p -> [AnnotatedToken] -> ParseResult p
 run (Parser ps) = ps
 
-parseFile :: Parser [Definition]
-parseFile = collectM parseDefinition $ parseToken Term
+parseFile :: Parser ParseTree
+parseFile = fmap ParseTree $ collectM parseDefinition $ parseToken Term
 
 -- parses an identifier
 parseIdentifier :: Parser String
@@ -146,7 +152,10 @@ parseBody :: Parser Body
 parseBody = fmap Body (collectM parseStatement $ parseToken Term)
 
 parseStatement :: Parser Statement
-parseStatement = fmap Defn parseDefinition <|> fmap Expr parseExpression
+parseStatement = fmap Defn parseDefinition <|> parseAssignment <|> fmap Expr parseExpression
+
+parseAssignment :: Parser Statement
+parseAssignment = liftA2 Assignment (parseIdentifier <* parseToken Equals) parseExpression
 -- UnionLiteral ((String, Expression), [(String, Type)])
 -- remove union literals for now. not completely sure on syntax for them yet
 -- parseUnionLiteral = fmap UnionLiteral $ parseToken LCrParen *> liftA2 (\x y -> (x, y)) () () <* parseToken RCrParen
