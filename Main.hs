@@ -4,17 +4,20 @@ import System.Exit
 import Lexer
 import Parser
 
-main = getArgs >>= process >> exitWith ExitSuccess
+main = getArgs >>= process >> exitSuccess
 
+
+process :: [String] -> IO ()
 process ["-h"] = putStrLn "Usage: [file]"
 process (file:files) = do
     contents <- readFile file
     let result = lexFile contents
-    putStrLn (disp result)
+    putStrLn $ disp result
     let b = run parseFile result
-    putStrLn (show b)
+    print b
     
 process _ =  return ()
 
+disp :: Show a => [a] -> String
 disp (l:ls) = show l ++ "\n" ++ disp ls
 disp [] = ""
