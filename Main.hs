@@ -1,8 +1,16 @@
 module Main (main) where 
+
 import System.Environment
 import System.Exit
+import Data.List
+
 import Lexer
 import Parser
+import ParserCore
+import AST
+import Typer
+
+
 
 main = getArgs >>= process >> exitSuccess
 
@@ -12,12 +20,17 @@ process ["-h"] = putStrLn "Usage: [file]"
 process (file:files) = do
     contents <- readFile file
     let result = lexFile contents
-    putStrLn $ disp result
+    putStrLn $ intercalate "\n" (map show result)
     let b = run parseFile result
-    print b
+    case b of
+         ParseSuccess r ts -> do 
+             putStrLn (disp r)
+             print $ typeAST r
+         ParseFailure -> putStrLn "failure"
+         Unrecoverable r -> putStrLn "big failure"
     
 process _ =  return ()
 
-disp :: Show a => [a] -> String
-disp (l:ls) = show l ++ "\n" ++ disp ls
-disp [] = ""
+displ :: Show a => [a] -> String
+displ (l:ls) = show l ++ "\n" ++ displ ls
+displ [] = ""
