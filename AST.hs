@@ -59,14 +59,14 @@ instance (Disp a) => Disp (Expression a) where
     disp (Variable a) = disp a
 
 -- a literal
-data Literal a = Constant Int | ArrayLiteral [Expression a] | TupleLiteral [Expression a] | RecordLiteral [(String, Expression a)] | FunctionLiteral a (Body a) deriving (Eq)
+data Literal a = Constant Int | ArrayLiteral [Expression a] | TupleLiteral [Expression a] | RecordLiteral [(String, Expression a)] | FunctionLiteral a (Expression a) deriving (Eq)
 
 instance (Disp a) => Disp (Literal a) where
     disp (Constant i) = disp i
     disp (ArrayLiteral e) = "[" ++ intercalate ", " (map disp e) ++ "]"
     disp (TupleLiteral t) = "(" ++ intercalate ", " (map disp t) ++ ")"
     disp (RecordLiteral r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ " = " ++ disp y) r) ++ "}"
-    disp (FunctionLiteral p b) = '\\' : (disp p) ++ " -> {\n" ++ disp b ++ "\n}"
+    disp (FunctionLiteral p b) = '\\' : (disp p) ++ " -> " ++ disp b
 
 newtype Body a = Body [Statement a] deriving (Eq)
 

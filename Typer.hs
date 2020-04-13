@@ -1,87 +1,114 @@
+{-# LANGUAGE FlexibleContexts #-}
+
 module Typer where 
 
 import AST
-import Control.Monad
+import Control.Monad.State
 import qualified Data.Map as Map
 
+data TyCons = TyCons Type Type 
+data TyVar a = TyVar a Type
 
---typeAST :: (Ord a, Num a) => AST a -> Map.Map a (Type)
-typeAST ast = typeDefns ast tbl i 
-    where (tbl, i) = (mkTable ast 0)
+instance Disp (TyCons) where
+    disp (TyCons t1 t2) = disp t1 ++ " ~ " ++ disp t2
+instance (Disp a) => Disp (TyVar a) where
+    disp (TyVar a t) = disp a ++ " = " ++ disp t
 
-typeDefns (AST (d:ds)) tbl i = typeDefns (AST ds) ntbl ni
-    where (ntbl, ni) = inferDefn d tbl i
-typeDefns (AST []) tbl i = tbl
+data ConstraintTbl a = ConstraintTbl Int [TyCons] [TyVar a]
 
--- infers a single definition
-inferDefn d tbl i = case Map.lookup (identifier d) tbl of
-                         Nothing -> undefined -- should never happen
-                         Just ty -> case infer ty (value d) tbl i of -- infer rhs type
-                                         Nothing -> undefined -- we dont need to unify any more, since infer should unify the expected and infered type
-                                         Just (ntbl, nty, ni) -> (Map.insert (identifier d) nty ntbl, ni)
+instance (Disp a) => Disp (ConstraintTbl a) where
+    disp (ConstraintTbl nt x (y:ys)) = disp y ++ "\n" ++ disp (ConstraintTbl nt x ys)
+    disp (ConstraintTbl nt (x:xs) z) = disp x ++ "\n" ++ disp (ConstraintTbl nt xs z)
+    disp (ConstraintTbl nt [] []) = ""
+
+getVar a tvars = case p of
+                      [TyVar b t] -> Just t
+                      _ -> Nothing
+    where p = filter (\x -> case x of TyVar b _ -> b == a) tvars 
     
+newVar :: (Eq a) => a -> State (ConstraintTbl a) Int
+newVar a = state $ \(ConstraintTbl n c v) -> case getVar a v of
+                                                  (Just (General a)) -> (a, (ConstraintTbl n c v))
+                                                  _ -> (n, ConstraintTbl (n+1) c ((TyVar a (General n)):v))
 
--- unifies 2 types to be the same.
--- this updates the table.
-{-
-unify a b tbl
-    -- a general, set it to b
-    | Map.lookup a tbl == (Just (_)) = Map.insert a (Map.lookup b tbl) tbl
-    | Map.lookup b tbl == (Just (_)) = Map.insert b (Map.lookup a tbl) tbl
-    | Map.lookup a tbl == Map.lookup b tbl = tbl -- already unified
-    | otherwise = undefined
+mkCons :: Int -> Type -> State (ConstraintTbl a) ()
+mkCons nt ty = state $ \(ConstraintTbl n c v) -> ((), ConstraintTbl n ((TyCons (General nt) ty):c) v)
 
--}
+getInt :: State (ConstraintTbl a) Int
+getInt = state $ \(ConstraintTbl n c v) -> (n, ConstraintTbl (n+1) c v)
 
-mkTable (AST (x:xs)) i = (Map.insert (identifier x) (General i) tbl, ni)
-    where (tbl, ni) = (mkTable (AST xs) (i+1))
-mkTable (AST []) i = (Map.empty, i)
+getNInts m = state $ \(ConstraintTbl n c v) -> ([n..(n+m-1)], ConstraintTbl (n+m) c v)
 
-{- returns Maybe (map, ty, i)
-infer ty (Literal (ArrayLiteral (x:xs))) tbl i = unify nt nni 
-    where (nm, nt, ni) = infer (General i) x tbl (i+1)
-          (nnm, nnt, nni) = infer nt (Literal (ArrayLiteral (xs))) tbl ni
-infer ty (Literal (ArrayLiteral [])) tbl i = (tbl, General i)
--}
+genConstraints :: (Eq a) => AST a -> ConstraintTbl a
+genConstraints a = snd (runState (genCons a) newTbl)
 
-infer ty (Variable a) tbl i = case (Map.lookup a tbl) of
-                                   Nothing -> Nothing
-                                   (Just m) -> case unify ty m of
-                                                    Nothing -> Nothing
-                                                    (Just nty) -> Just (Map.insert a nty tbl, nty, i)
-infer ty (Literal (Constant c)) tbl i = 
-    case unify ty (AtomicType (Bits 64)) of
-         Nothing -> Nothing
-         (Just a) -> Just (tbl, a, i)
-         
-infer _ _ _ _ = undefined
--- type unification.
--- this is when the system proves t1 = t2, then we unify the types to the
--- "most general" type and can then replace the types with it
+newTbl = ConstraintTbl (0 :: Int) [] []
 
--- can always unify a generic
-unify (General a) t2 = Just t2
-unify t1 (General b) = Just t1
+genCons :: (Eq a1) => AST a1 -> State (ConstraintTbl a1) ()
+genCons (AST (d:ds)) = do
+    genConsDef d
+    genCons (AST (ds))
+    return ()
 
--- only unify premitives if they eq generic or other prim
-unify (AtomicType (Bits n)) (AtomicType (Bits m)) = if n == m then Just (AtomicType (Bits m)) else Nothing
-unify (AtomicType (Bits n)) _ = Nothing
-unify _ (AtomicType (Bits n)) = Nothing
+genCons (AST []) = return ()
 
--- only unify funcs if param and out can be unified
-unify (Function t1 t2) (Function t3 t4) = liftM2 Function (unify t1 t3) (unify t2 t4)
-unify (Function t1 t2) _ = Nothing
-unify _ (Function t1 t2) = Nothing
 
-unify (Array ty1) (Array ty2) = fmap Array (unify ty1 ty2)
-unify (Array t) _ = Nothing
-unify _ (Array t) = Nothing
+-- genConsDef :: Definition a -> State (ConstraintTbl a) b
+genConsDef :: (Eq a1) => Definition a1 -> State (ConstraintTbl a1) ()
+genConsDef d = do
+    n <- newVar (identifier d)
+    genConsExpr (value d) n
+    return ()
 
-unify (Tuple (t:ts)) (Tuple (t2:t2s)) = case (unify t t2) of
-                                             Nothing -> Nothing
-                                             (Just (Tuple r)) -> case (unify (Tuple ts) (Tuple t2s)) of
-                                                                      Nothing -> Nothing
-                                                                      (Just (Tuple r2)) -> Just (Tuple (r ++ r2))
-unify (Tuple []) (Tuple []) = Just $ Tuple []
-unify (Tuple t) _ = Nothing
-unify _ (Tuple t) = Nothing
+genConsExpr :: (Eq a1) => Expression a1 -> Int -> State (ConstraintTbl a1) ()
+genConsExpr (Literal (Constant nt)) n = do
+    mkCons n (AtomicType (Bits 64))
+    return ()
+
+genConsExpr (Literal (ArrayLiteral (r:rs))) n = do
+    nn <- getInt
+    mkCons n (Array (General nn))
+    genConsExpr r nn
+    genConsExpr (Literal (ArrayLiteral (rs))) n
+    return ()
+
+genConsExpr (Literal (ArrayLiteral [])) n = return ()
+
+genConsExpr (Literal (TupleLiteral rs)) n = do
+    nn <- getNInts (length rs)
+    mkCons n (Tuple (fmap General nn))
+    genConsExprL rs nn
+    return ()
+
+genConsExpr (Literal (FunctionLiteral f t)) n = do
+    nf <- newVar f
+    nt <- getInt
+    mkCons n (Function (General nf) (General nt))
+    genConsExpr t nt
+    return ()
+
+-- note we do $3 = (f x) => \x -> $3 ~ f
+genConsExpr (FunctionCall f x) n = do
+    nf <- getInt
+    nx <- getInt
+    mkCons nf (Function (General nx) (General n))
+    genConsExpr f nf
+    genConsExpr x nx
+    return ()
+
+genConsExpr (Variable u) n = do
+    n2 <- newVar u
+    mkCons n (General n2)
+    return ()
+
+
+
+-- PRECONDITION FOR WELL DEFINEDNESS = length e:es == length n:ns. error otherwise.
+genConsExprL (e:es) (n:ns) = do 
+    genConsExpr e n
+    genConsExprL es ns
+    return ()
+
+genConsExprL [] [] = return ()
+
+genConsExprL _ _ = undefined

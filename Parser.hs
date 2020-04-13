@@ -75,14 +75,14 @@ parseArrayLiteral = fmap ArrayLiteral $ parseToken LSqParen *> collect parseExpr
 
 -- change this so (expr) is parseerror
 parseTupleLiteral :: Parser (Literal String)
-parseTupleLiteral = fmap ArrayLiteral $ parseToken LParen *> collect parseExpression (parseToken Comma) <* parseToken RParen
+parseTupleLiteral = fmap TupleLiteral $ parseToken LParen *> collect parseExpression (parseToken Comma) <* parseToken RParen
 
 parseRecordLiteral :: Parser (Literal String)
 parseRecordLiteral = fmap RecordLiteral $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Equals *> parseExpression)) (parseToken Comma) <* parseToken RCrParen
 
 -- \a -> {}
 parseFunctionLiteral :: Parser (Literal String)
-parseFunctionLiteral = liftA2 FunctionLiteral (parseToken BSlash *> parseIdentifier <* parseToken Arrow) (parseToken LCrParen *> parseBody <* parseToken RCrParen)
+parseFunctionLiteral = liftA2 FunctionLiteral (parseToken BSlash *> parseIdentifier <* parseToken Arrow) (parseExpression)
 
 parseBody :: Parser (Body String)
 parseBody = fmap Body (collectM parseStatement $ parseToken Term)
