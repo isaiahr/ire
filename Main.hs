@@ -25,7 +25,9 @@ process (file:files) = do
     case b of
          ParseSuccess r ts -> do 
              putStrLn (disp r)
-             putStrLn $ disp (genConstraints r)
+             let c = genConstraints r
+             putStrLn $ disp c
+             putStrLn $ disp (solve c)
          ParseFailure -> putStrLn "failure"
          Unrecoverable r -> putStrLn "big failure"
     

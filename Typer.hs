@@ -4,6 +4,7 @@ module Typer where
 
 import AST
 import Control.Monad.State
+import Data.List
 import qualified Data.Map as Map
 
 data TyCons = TyCons Type Type 
@@ -112,3 +113,51 @@ genConsExprL (e:es) (n:ns) = do
 genConsExprL [] [] = return ()
 
 genConsExprL _ _ = undefined
+
+data Sub = Sub Int Type deriving (Show, Eq)
+
+instance Disp Sub where
+    disp (Sub nt t) = disp nt ++ " -> " ++  disp t
+
+unify (General a) t2 = Just [Sub a t2]
+unify t1 (General b) = Just [Sub b t1]
+
+unify (Function f1 t1) (Function f2 t2) = do -- liftM2 (++) (unify f1 f2) (unify t1 t2)
+    s <- unify f1 f2
+    u <- unify (subTypeS s t1) (subTypeS s t2)
+    return $ s ++ u
+
+unify (Array t1) (Array t2) = unify t1 t2
+
+unify (Tuple (t1:t1s)) (Tuple (t2:t2s)) = do -- liftM2 (++) (unify t1 t2) (unify (Tuple t1s) (Tuple t2s))
+    s <- unify t1 t2
+    u <- unify (subTypeS s (Tuple t1s)) (subTypeS s (Tuple t2s))
+    return $ s ++ u
+
+unify (Tuple []) (Tuple []) = Just []
+
+unify a b = if a == b then Just [] else Nothing
+
+unifyC (TyCons t1 t2) = case unify t1 t2 of
+                             Just x -> x
+                             Nothing -> undefined
+
+solve tbl@(ConstraintTbl x cons vars) = (solvec tbl 0)
+solvec tbl@(ConstraintTbl x cons vars) i = if (i < length cons) then solvec (performSubs tbl (unifyC (cons !! i))) (i+1) else tbl
+
+performSubs tbl (s:ss) = performSubs (performSub tbl s) ss
+performSubs tbl [] = tbl
+
+performSub (ConstraintTbl x cons vars) sub = ConstraintTbl x (map (subTypeC sub) cons) (map (subVarC sub) vars)
+
+subTypeC sub (TyCons t1 t2) = TyCons (subType sub t1) (subType sub t2)
+subVarC sub (TyVar a t) = TyVar a (subType sub t)
+
+subType (Sub b ty) (General a) = if a == b then ty else General a
+subType sub (Function f t) = Function (subType sub f) (subType sub t)
+subType sub (Array t) = Array (subType sub t)
+subType sub (Tuple ts) = Tuple (map (subType sub) ts)
+subType (Sub b ty) t = t
+
+subTypeS (s:ss) t = subTypeS ss (subType s t)
+subTypeS [] t = t
