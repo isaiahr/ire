@@ -49,7 +49,12 @@ parseUnion :: Parser Type
 parseUnion = fmap Union $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseType)) (parseToken Pipe) <* parseToken RCrParen
 
 parseDefinition :: Parser (Definition String)
-parseDefinition = liftA3 (\x y z -> Definition {identifier=x, typeof=y, value=z}) parseIdentifier ((parseToken Colon *> fmap Just parseType) <|> (parseToken Colon $> Nothing)) (parseToken Equals *> parseExpression)
+parseDefinition = liftA3 (\x y z -> Definition {identifier=x, typeof=y, value=z}) parseIdentifier ((parseToken Colon *> fmap Just parseType) <|> (parseToken Colon $> Nothing)) (parseToken Equals *> parseExpressionA)
+
+
+-- expressionAll. here infx is allowed. typically it isn't, so parseExpression will not parse infx
+parseExpressionA :: Parser (Expression String)
+parseExpressionA = fmap orderOps parseInfixOp
 
 parseExpression :: Parser (Expression String)
 parseExpression = infbuild (parseBrExpression <|> parseLiteral <|> parseVariable) parseFunctionCall
@@ -59,7 +64,7 @@ parseVariable = fmap Variable parseIdentifier
 
 -- parse bracketed expression
 parseBrExpression :: Parser (Expression String)
-parseBrExpression = parseToken LParen *> parseExpression <* parseToken RParen
+parseBrExpression = parseToken LParen *> parseExpressionA <* parseToken RParen
 
 parseLiteral :: Parser (Expression String)
 parseLiteral = fmap Literal $ parseInt <|> parseArrayLiteral <|> parseTupleLiteral <|> parseRecordLiteral  <|> parseFunctionLiteral
@@ -98,3 +103,50 @@ parseAssignment = liftA2 Assignment (parseIdentifier <* parseToken Equals) parse
 
 parseFunctionCall :: (Expression String) -> Parser (Expression String)
 parseFunctionCall t = liftA2 FunctionCall (pure t) parseExpression
+
+-- an infix operation. int = priority, token = lexical token (for example, +)
+data Operation = Operation Int Token String
+
+instance Disp Operation where
+    disp (Operation nt t s) = (show t)
+
+data InfixExpr a = InfixExpr (Expression a) (OpExpr a)
+instance (Disp a) => Disp (InfixExpr a) where
+    disp (InfixExpr e o) = (disp e) ++ (disp o)
+
+data OpExpr a = OpExpr Operation (InfixExpr a) | Null
+instance (Disp a) => Disp (OpExpr a) where
+    disp (OpExpr o a) = (disp o) ++ (disp a)
+    disp Null = ""
+    
+
+
+parseInfixOp :: Parser (InfixExpr String)
+parseInfixOp = Parser (\ts -> 
+    case run parseExpression ts of
+         ParseFailure -> ParseFailure
+         Unrecoverable r -> Unrecoverable r
+         (ParseSuccess expr ts2) -> case run parseOp ts2 of
+                                         ParseFailure -> ParseSuccess (InfixExpr expr Null) ts2
+                                         Unrecoverable r -> Unrecoverable r
+                                         ParseSuccess op ts3 -> run (fmap (\x -> (InfixExpr expr (OpExpr op x))) parseInfixOp) ts3)
+                                         {- case run parseInfixOp ts3 of
+                                                                     ParseFailure -> ParseFailure
+                                                                     Unrecoverable r -> Unrecoverable r
+                                                                     ParseSuccess iexpr ts4 -> ParseSuccess (InfixExpr expr (OpExpr op iexpr)) ts4) -}
+
+parseOp = (parseToken Plus $> Operation 1 Plus "+") <|>
+          (parseToken Mult $> Operation 2 Mult "*") <|> 
+          (parseToken FSlash $> Operation 2 FSlash "/") <|> 
+          (parseToken Minus $> Operation 2 Minus "-")
+
+orderOps iexpr = case (lower 1 (lower 2 iexpr)) of
+                      (InfixExpr e Null) -> e
+                      _ -> error "Operator ordering failure, see Parser.hs. #259374878345789354789" -- number to easily find where the code is 
+
+-- "lowers" an op to an expr.
+lower prior (InfixExpr e (OpExpr (Operation n t st) (InfixExpr e2 rest)))
+    | prior == n = lower prior (InfixExpr (FunctionCall (Variable st) (Literal (TupleLiteral [e, e2]))) rest)
+    | otherwise = (InfixExpr e (OpExpr (Operation n t st) (lower prior (InfixExpr e2 rest))))
+
+lower prior p = p

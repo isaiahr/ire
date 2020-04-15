@@ -1,6 +1,7 @@
 module ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, collect, collectM, infbuild, parseToken)  where 
 
 import Lexer
+import AST
 import Control.Applicative
 
 -- result of running a parser on something.
@@ -9,14 +10,17 @@ import Control.Applicative
 -- "syntax error" to user. in this case use unrecoverable.
 data ParseResult a = ParseSuccess a [AnnotatedToken] | ParseFailure | Unrecoverable [Reason] deriving (Eq)
 
-instance (Show a) => Show (ParseResult a) where
-    show (ParseSuccess b ts) = show b
-    show ParseFailure = "Failure"
-    show (Unrecoverable r) = show r
+instance (Disp a) => Disp (ParseResult a) where
+    disp (ParseSuccess b ts) = disp b
+    disp ParseFailure = "Failure"
+    disp (Unrecoverable r) = disp r
     
 newtype Parser a = Parser ([AnnotatedToken] -> ParseResult a)
 
 newtype Reason = Reason {message :: String} deriving (Show, Eq)
+
+instance Disp Reason where
+    disp r = message r
 
 run :: Parser a -> [AnnotatedToken] -> ParseResult a
 run (Parser ps) = ps
