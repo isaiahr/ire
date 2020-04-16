@@ -1,8 +1,14 @@
+{-# LANGUAGE CPP #-}
+
+#include "build/commitid.h"
 module Main (main) where 
 
 import System.Environment
+import System.IO.Error
+import System.Console.GetOpt
 import System.Exit
 import Data.List
+import Data.Maybe
 
 import Lexer
 import Parser
@@ -11,28 +17,64 @@ import AST
 import Typer
 
 
+data Options = Options {
+    oDumptrees :: Bool,
+    oInput     :: String,
+    oOutput    :: Maybe String,
+    oVersion   :: Bool,
+    oHelp      :: Bool
+} deriving Show
 
-main = getArgs >>= process >> exitSuccess
+defaults = Options {
+    oDumptrees = False,
+    oInput = "",
+    oOutput = Nothing,
+    oVersion = False,
+    oHelp = False
+}
 
 
-process :: [String] -> IO ()
-process ["-h"] = putStrLn "Usage: [file]"
-process (file:files) = do
-    contents <- readFile file
+options = [
+    Option ['v'] ["version"] (NoArg (\x -> x{oVersion = True})) "print version",
+    Option ['h'] ["help"] (NoArg (\x -> x{oHelp = True})) "print this message",
+    Option ['o'] ["output"] (OptArg (\p x -> x{oOutput = p}) "file") "write output to file",
+    Option ['d'] ["dumptrees"] (NoArg (\x -> x{oDumptrees = True})) "write tokenstream, ast to stdout"]
+
+opts ar pn = case getOpt Permute options ar of
+                  (o, [n], []) -> norun (foldl (\x f -> f x) defaults o) msg >> return (foldl (\x f -> f x) defaults{oInput=n} o)
+                  (o, _, er) -> norun (foldl (\x f -> f x) defaults o) msg >> ioError (userError (concat er ++ usageInfo msg options))
+    where msg = "Usage: " ++ pn ++ " [options] file"
+
+
+-- options that dont run the program.
+norun opts msg = do
+    if oVersion opts then
+        putStrLn ("version " ++ VERSION_STRING ++ ", git commit " ++ COMMIT_ID) >> exitSuccess
+                     else if oHelp opts then
+                     putStrLn (usageInfo msg options) >> exitSuccess
+                                        else return ()
+
+
+main = do
+    a <- getArgs
+    pn <- getProgName
+    op <- process a pn 
+    contents <- readFile $ oInput op
     let result = lexFile contents
-    putStrLn $ intercalate "\n" (map show result)
-    let b = run parseFile result
-    case b of
-         ParseSuccess r ts -> do 
-             putStrLn (disp r)
-             let c = genConstraints r
-             putStrLn $ disp c
-             putStrLn $ disp (solve c)
-         ParseFailure -> putStrLn "failure"
-         Unrecoverable r -> putStrLn "big failure"
-    
-process _ =  return ()
+    if oDumptrees op then
+        putStrLn $ intercalate "\n" (map show result)
+                     else return ()
+    let parsetree = run parseFile result
+    case parsetree of
+        ParseSuccess r ts -> do 
+            if oDumptrees op then putStrLn (disp r) else return ()
+            let c = genConstraints r
+            if oDumptrees op then putStrLn (disp c) else return ()
+            let solved = solve c
+            if oDumptrees op then putStrLn (disp solved) else return ()
+        ParseFailure -> putStrLn "failure parsing file"
+        Unrecoverable r -> putStrLn ("failure parsing: " ++ (disp r))
+    return exitSuccess
 
-displ :: Show a => [a] -> String
-displ (l:ls) = show l ++ "\n" ++ displ ls
-displ [] = ""
+process a pn =  catchIOError (opts a pn) (\x -> putStrLn (ioeGetErrorString x) >> exitFailure) >>= return -- putStrLn . show
+
