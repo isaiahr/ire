@@ -15,6 +15,7 @@ import Parser
 import ParserCore
 import AST
 import Typer
+import Namer
 
 
 data Options = Options {
@@ -68,7 +69,9 @@ main = do
     case parsetree of
         ParseSuccess r ts -> do 
             if oDumptrees op then putStrLn (disp r) else return ()
-            let c = genConstraints r
+            let r2 = name r
+            if oDumptrees op then putStrLn (disp r2) else return ()
+            let c = genConstraints r2
             if oDumptrees op then putStrLn (disp c) else return ()
             let solved = solve c
             if oDumptrees op then putStrLn (disp solved) else return ()

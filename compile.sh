@@ -5,4 +5,4 @@ echo "\"" >> build/commitid.h
 echo -n "#define VERSION_STRING \"" >> build/commitid.h
 git describe --abbrev=0 2>/dev/null | tr -d '\n' >> build/commitid.h
 echo "\"" >> build/commitid.h
-ghc Main.hs -o main
+ghc Main.hs -hidir bin -odir bin -o main
