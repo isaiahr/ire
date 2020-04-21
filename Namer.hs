@@ -1,4 +1,4 @@
-module Namer (name) where 
+module Namer (name, Name(..)) where 
 
 import AST
 import Control.Monad.State

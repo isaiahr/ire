@@ -22,6 +22,11 @@ instance (Disp a) => Disp (ConstraintTbl a) where
     disp (ConstraintTbl nt (x:xs) z) = disp x ++ "\n" ++ disp (ConstraintTbl nt xs z)
     disp (ConstraintTbl nt [] []) = ""
 
+
+getType a (ConstraintTbl nt tc tvs) = case getVar a tvs of
+                                           (Just t) -> t
+                                           _ -> error "gettype #0738607346895"
+
 getVar a tvars = case p of
                       [TyVar b t] -> Just t
                       _ -> Nothing

@@ -16,6 +16,7 @@ import ParserCore
 import AST
 import Typer
 import Namer
+import NameTyper
 
 
 data Options = Options {
@@ -75,6 +76,8 @@ main = do
             if oDumptrees op then putStrLn (disp c) else return ()
             let solved = solve c
             if oDumptrees op then putStrLn (disp solved) else return ()
+            let ast = nametypeAST solved r2
+            if oDumptrees op then putStrLn (disp ast) else return ()
         ParseFailure -> putStrLn "failure parsing file"
         Unrecoverable r -> putStrLn ("failure parsing: " ++ (disp r))
     return exitSuccess
