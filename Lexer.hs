@@ -7,7 +7,7 @@ import Data.Bifunctor
 import Control.Applicative
 
 data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integer Int | Character Char | String String | Identifier String
-           | Term | Comma | Equals | Return | PlusEquals | Pipe | New | Void | Type | Colon | Dot | Arrow | If
+           | Term | Comma | Equals | Return | PlusEquals | Pipe | New | Void | Type | Colon | Dot | Arrow | If | Then
            | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals | FSlash | BSlash
            | Exclamation | Else | Error deriving (Show, Eq)
 
@@ -109,6 +109,7 @@ extractNumAsStr str = ("", str)
 lexKw :: String -> Maybe (Token, String)
 lexKw str
     | kwMatch str "if" = Just (If, drop 2 str)
+    | kwMatch str "then" = Just (Then, drop 4 str)
     | kwMatch str "else" = Just (Else, drop 4 str)
     | kwMatch str "true" = Just (Tru, drop 4 str)
     | kwMatch str "false" = Just (Fals, drop 5 str)

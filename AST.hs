@@ -51,7 +51,11 @@ instance (Disp a) => Disp (Definition a) where
         where shw (Just a) = disp a
               shw Nothing = ""
 
-data Expression a = Literal (Literal a) | FunctionCall (Expression a) (Expression a) | Variable a deriving (Eq)
+data Expression a = Literal (Literal a) | -- literal, like 34, or [4,5,6]
+                    Block  [Statement a] | -- block, like {stmt1;stmt2;yield expr}
+                    FunctionCall (Expression a) (Expression a) | -- FunctionCall, like print "hello world"
+                    Variable a | -- variable, like i
+                    IfStmt (Expression a) (Expression a) (Expression a) deriving (Eq) -- if, like if 1==2 then expr1 else expr2
 
 instance (Disp a) => Disp (Expression a) where
     disp (Literal l) = disp l
@@ -73,7 +77,7 @@ newtype Body a = Body [Statement a] deriving (Eq)
 instance (Disp a) => Disp (Body a) where
     disp (Body s) = intercalate "\n" (map disp s)
 
-data Statement a = Defn (Definition a) | Expr (Expression a) | Assignment a (Expression a) deriving (Eq)
+data Statement a = Defn (Definition a) | Expr (Expression a) | Assignment a (Expression a) | Return (Expression a) | Yield (Expression a) deriving (Eq)
 
 instance (Disp a) => Disp (Statement a) where
     disp (Defn s) = disp s

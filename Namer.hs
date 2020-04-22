@@ -65,6 +65,18 @@ nameDefn d = do
     nn <- findSym (identifier d)
     return $ Definition {value=v, typeof=typeof d, identifier=nn}
 
+nameStmt (Defn d) = Defn <$> (nameDefn d)
+
+nameStmt (Expr e) = Expr <$> (nameExpr e)
+
+nameStmt (Assignment a e) = do
+    na <- findSym a
+    ne <- nameExpr e
+    return $ Assignment na ne
+
+nameStmt (Return e) = Return <$> (nameExpr e)
+nameStmt (Yield e) = Yield <$> (nameExpr e)
+
 nameExpr (FunctionCall a b) = do
     na <- nameExpr a
     nb <- nameExpr b
@@ -77,6 +89,22 @@ nameExpr (Literal l) = do
 nameExpr (Variable v) = do
     nv <- findSym v
     return $ Variable nv
+    
+-- liftM3 instead
+nameExpr (IfStmt cond thn els) = do
+    cond2 <- nameExpr cond
+    thn2 <- nameExpr thn
+    els2 <- nameExpr els
+    return $ IfStmt cond2 thn2 els2
+
+nameExpr (Block (s:ss)) = do
+    ns <- nameStmt s
+    nssq <- nameExpr (Block ss)
+    case nssq of
+         (Block nss) -> return $ Block (ns:nss)
+         _ -> error "block -> nonblock naming #0585484835345"
+    
+nameExpr (Block []) = return $ Block []
 
 nameLiteral (Constant c) = return (Constant c)
 

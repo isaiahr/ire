@@ -1,4 +1,4 @@
-module Parser (parseFile, run, Type(..)) where
+module Parser (parseFile, run) where
 
 import ParserCore
 import AST
@@ -57,7 +57,10 @@ parseExpressionA :: Parser (Expression String)
 parseExpressionA = fmap orderOps parseInfixOp
 
 parseExpression :: Parser (Expression String)
-parseExpression = infbuild (parseBrExpression <|> parseLiteral <|> parseVariable) parseFunctionCall
+parseExpression = infbuild (parseBrExpression <|> parseBlock <|> parseIfStmt <|> parseLiteral <|> parseVariable) parseFunctionCall
+
+parseIfStmt :: Parser (Expression String)
+parseIfStmt = liftA3 IfStmt (parseToken If *> parseExpressionA) (parseToken Then *> parseExpressionA) (parseToken Else *> parseExpressionA)
 
 parseVariable :: Parser (Expression String)
 parseVariable = fmap Variable parseIdentifier
@@ -89,8 +92,8 @@ parseRecordLiteral = fmap RecordLiteral $ parseToken LCrParen *> collect (liftA2
 parseFunctionLiteral :: Parser (Literal String)
 parseFunctionLiteral = liftA2 FunctionLiteral (parseToken BSlash *> parseIdentifier <* parseToken Arrow) (parseExpression)
 
-parseBody :: Parser (Body String)
-parseBody = fmap Body (collectM parseStatement $ parseToken Term)
+parseBlock :: Parser (Expression String)
+parseBlock = fmap Block (parseToken LCrParen *> (collectM parseStatement $ parseToken Term) <* parseToken RCrParen)
 
 parseStatement :: Parser (Statement String)
 parseStatement = fmap Defn parseDefinition <|> parseAssignment <|> fmap Expr parseExpression

@@ -27,10 +27,18 @@ instance Functor AST where
 mapdefn :: (a -> b) -> Definition a -> Definition b
 mapdefn fn d = d { identifier = fn (identifier d), value = mapexpr fn (value d) }
 
+mapstmt fn (Defn d) = Defn (mapdefn fn d)
+mapstmt fn (Expr e) = Expr (mapexpr fn e)
+mapstmt fn (Assignment a e) = Assignment (fn a) (mapexpr fn e)
+mapstmt fn (Return r) = Return (mapexpr fn r)
+mapstmt fn (Yield y) = Return (mapexpr fn y)
+
 mapexpr :: (a -> b) -> Expression a -> Expression b
 mapexpr fn (Variable a) = Variable (fn a)
 mapexpr fn (FunctionCall a b) = FunctionCall (mapexpr fn a) (mapexpr fn b)
 mapexpr fn (Literal l) = Literal $ mapliteral fn l
+mapexpr fn (IfStmt i t e) = IfStmt (mapexpr fn i) (mapexpr fn t) (mapexpr fn e)
+mapexpr fn (Block ss) = Block (map (mapstmt fn) ss)
 
 mapliteral fn (ArrayLiteral a) = ArrayLiteral (map (mapexpr fn) a)
 mapliteral fn (TupleLiteral a) = TupleLiteral (map (mapexpr fn) a)

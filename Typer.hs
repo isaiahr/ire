@@ -66,6 +66,25 @@ genConsDef d = do
     genConsExpr (value d) n
     return ()
 
+genConsStmt (Expr e) = do
+    n <- getInt
+    genConsExpr e n
+    return ()
+    
+-- genconsdef d >> return () ?
+genConsStmt (Defn d) = do 
+    genConsDef d
+    return ()
+
+genConsStmt (Assignment a e) = do
+    n2 <- newVar a
+    genConsExpr e n2
+    return ()
+    
+-- special semantics, easier to handle in block. 
+genConsStmt (Return r) = error "handled in blk #234235"
+genConsStmt (Yield y) = error "handled in blk #29588"
+    
 genConsExpr :: (Eq a1) => Expression a1 -> Int -> State (ConstraintTbl a1) ()
 genConsExpr (Literal (Constant nt)) n = do
     mkCons n (AtomicType (Bits 64))
@@ -107,6 +126,27 @@ genConsExpr (Variable u) n = do
     mkCons n (General n2)
     return ()
 
+genConsExpr (IfStmt i t e) n = do
+    ni <- getInt
+    mkCons ni (AtomicType (Bits 1))
+    nt <- getInt
+    ne <- getInt
+    mkCons nt (General ne)
+    mkCons n (General nt)
+    genConsExpr t nt
+    genConsExpr e ne
+    return ()
+
+genConsExpr (Block ((Yield e):ss)) n = do
+    genConsExpr e n
+    genConsExpr (Block ss) n
+    return ()
+
+genConsExpr (Block (s:ss)) n = do
+    genConsStmt s
+    genConsExpr (Block ss) n
+
+genConsExpr (Block []) n = return ()
 
 
 -- PRECONDITION FOR WELL DEFINEDNESS = length e:es == length n:ns. error otherwise.
