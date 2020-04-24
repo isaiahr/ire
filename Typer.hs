@@ -15,15 +15,15 @@ instance Disp (TyCons) where
 instance (Disp a) => Disp (TyVar a) where
     disp (TyVar a t) = disp a ++ " = " ++ disp t
 
-data ConstraintTbl a = ConstraintTbl Int [TyCons] [TyVar a]
+data ConstraintTbl a = ConstraintTbl Int [TyCons] [TyVar a] Type
 
 instance (Disp a) => Disp (ConstraintTbl a) where
-    disp (ConstraintTbl nt x (y:ys)) = disp y ++ "\n" ++ disp (ConstraintTbl nt x ys)
-    disp (ConstraintTbl nt (x:xs) z) = disp x ++ "\n" ++ disp (ConstraintTbl nt xs z)
-    disp (ConstraintTbl nt [] []) = ""
+    disp (ConstraintTbl nt x (y:ys) t) = disp y ++ "\n" ++ disp (ConstraintTbl nt x ys t)
+    disp (ConstraintTbl nt (x:xs) z t) = disp x ++ "\n" ++ disp (ConstraintTbl nt xs z t)
+    disp (ConstraintTbl nt [] [] t) = ""
 
 
-getType a (ConstraintTbl nt tc tvs) = case getVar a tvs of
+getType a (ConstraintTbl nt tc tvs t6) = case getVar a tvs of
                                            (Just t) -> t
                                            _ -> error "gettype #0738607346895"
 
@@ -33,22 +33,29 @@ getVar a tvars = case p of
     where p = filter (\x -> case x of TyVar b _ -> b == a) tvars 
     
 newVar :: (Eq a) => a -> State (ConstraintTbl a) Int
-newVar a = state $ \(ConstraintTbl n c v) -> case getVar a v of
-                                                  (Just (General a)) -> (a, (ConstraintTbl n c v))
-                                                  _ -> (n, ConstraintTbl (n+1) c ((TyVar a (General n)):v))
+newVar a = state $ \(ConstraintTbl n c v ft) -> case getVar a v of
+                                                  (Just (General a)) -> (a, (ConstraintTbl n c v ft))
+                                                  _ -> (n, ConstraintTbl (n+1) c ((TyVar a (General n)):v) ft)
 
 mkCons :: Int -> Type -> State (ConstraintTbl a) ()
-mkCons nt ty = state $ \(ConstraintTbl n c v) -> ((), ConstraintTbl n ((TyCons (General nt) ty):c) v)
+mkCons nt ty = state $ \(ConstraintTbl n c v ft) -> ((), ConstraintTbl n ((TyCons (General nt) ty):c) v ft)
 
 getInt :: State (ConstraintTbl a) Int
-getInt = state $ \(ConstraintTbl n c v) -> (n, ConstraintTbl (n+1) c v)
+getInt = state $ \(ConstraintTbl n c v ft) -> (n, ConstraintTbl (n+1) c v ft)
 
-getNInts m = state $ \(ConstraintTbl n c v) -> ([n..(n+m-1)], ConstraintTbl (n+m) c v)
+getNInts m = state $ \(ConstraintTbl n c v ft) -> ([n..(n+m-1)], ConstraintTbl (n+m) c v ft)
 
 genConstraints :: (Eq a) => AST a -> ConstraintTbl a
 genConstraints a = snd (runState (genCons a) newTbl)
 
-newTbl = ConstraintTbl (0 :: Int) [] []
+getFnType :: State (ConstraintTbl a) Type
+getFnType = state $ \(ConstraintTbl n c v ft) -> (ft, ConstraintTbl n c v ft)
+
+setFnType :: Type -> State (ConstraintTbl a) ()
+setFnType ty = state $ \(ConstraintTbl n c v ft) -> ((), ConstraintTbl n c v ty)
+
+-- error only poked if return not in func, which will never parse.
+newTbl = ConstraintTbl (0 :: Int) [] [] (error "poked error thunk #89432302984")
 
 genCons :: (Eq a1) => AST a1 -> State (ConstraintTbl a1) ()
 genCons (AST (d:ds)) = do
@@ -109,7 +116,10 @@ genConsExpr (Literal (FunctionLiteral f t)) n = do
     nf <- newVar f
     nt <- getInt
     mkCons n (Function (General nf) (General nt))
+    ot <- getFnType
+    setFnType (Function (General nf) (General nt))
     genConsExpr t nt
+    setFnType ot
     return ()
 
 -- note we do $3 = (f x) => \x -> $3 ~ f
@@ -141,6 +151,17 @@ genConsExpr (Block ((Yield e):ss)) n = do
     genConsExpr e n
     genConsExpr (Block ss) n
     return ()
+
+genConsExpr (Block ((Return r):ss)) n = do
+    fn <- getFnType
+    rt <- getInt
+    genConsExpr r rt
+    fnt <- getInt
+    fa <- getInt
+    mkCons fnt (Function (General fa) (General rt))
+    mkCons fnt fn
+    return ()
+    
 
 genConsExpr (Block (s:ss)) n = do
     genConsStmt s
@@ -187,13 +208,13 @@ unifyC (TyCons t1 t2) = case unify t1 t2 of
                              Just x -> x
                              Nothing -> undefined
 
-solve tbl@(ConstraintTbl x cons vars) = (solvec tbl 0)
-solvec tbl@(ConstraintTbl x cons vars) i = if (i < length cons) then solvec (performSubs tbl (unifyC (cons !! i))) (i+1) else tbl
+solve tbl = (solvec tbl 0)
+solvec tbl@(ConstraintTbl x cons vars _) i = if (i < length cons) then solvec (performSubs tbl (unifyC (cons !! i))) (i+1) else tbl
 
 performSubs tbl (s:ss) = performSubs (performSub tbl s) ss
 performSubs tbl [] = tbl
 
-performSub (ConstraintTbl x cons vars) sub = ConstraintTbl x (map (subTypeC sub) cons) (map (subVarC sub) vars)
+performSub (ConstraintTbl x cons vars t04) sub = ConstraintTbl x (map (subTypeC sub) cons) (map (subVarC sub) vars) t04
 
 subTypeC sub (TyCons t1 t2) = TyCons (subType sub t1) (subType sub t2)
 subVarC sub (TyVar a t) = TyVar a (subType sub t)

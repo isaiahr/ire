@@ -59,8 +59,10 @@ data Expression a = Literal (Literal a) | -- literal, like 34, or [4,5,6]
 
 instance (Disp a) => Disp (Expression a) where
     disp (Literal l) = disp l
+    disp (Block s) = "{" ++ (intercalate "\n" (map disp s)) ++ "}"
     disp (FunctionCall e1 e2) = disp e1 ++ " " ++ disp e2
     disp (Variable a) = disp a
+    disp (IfStmt e1 e2 e3) = "if " ++ disp e1 ++ " then " ++ disp e2 ++ " else " ++ disp e3 
 
 -- a literal
 data Literal a = Constant Int | ArrayLiteral [Expression a] | TupleLiteral [Expression a] | RecordLiteral [(String, Expression a)] | FunctionLiteral a (Expression a) deriving (Eq)
@@ -83,6 +85,8 @@ instance (Disp a) => Disp (Statement a) where
     disp (Defn s) = disp s
     disp (Expr e) = disp e
     disp (Assignment ident e) = disp ident ++ " = " ++ disp e
+    disp (AST.Return e) = "return " ++ disp e
+    disp (AST.Yield e) = "yield " ++ disp e
 
 newtype AST a = AST [Definition a] deriving (Eq)
 

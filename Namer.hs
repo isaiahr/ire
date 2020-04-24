@@ -24,7 +24,7 @@ contains _ _ = NameError
 mkError s = NError s
 
 newSym :: String -> State (SymbolTable, Int) Name
-newSym  s = state $ \param -> 
+newSym s = state $ \param -> 
     case param of
          (tbl@(SymbolTable arr e st), i) -> if tbl `contains` s /= NameError then (NameError, (SymbolTable arr (e++[mkError s]) st, i)) else ((Name s i), (SymbolTable (arr ++ [Name s i]) e st, i+1))
 
@@ -53,16 +53,25 @@ nameAST (AST (ds)) = do
     return $ AST res
     
 nameAST2 (d:ds) = do
-    a <- nameDefn d
+    a <- nameDefnS d
     c <- nameAST2 ds
     return $ a:c
 
 nameAST2 [] = return []
 
-nameDefn :: Definition String -> State (SymbolTable, Int) (Definition Name)
-nameDefn d = do
+-- name defn special, expects defn to already be in symtbl.
+-- this is only for top level defns, so they are allowed to refer to
+-- defns occuring later (nonsequential)
+nameDefnS :: Definition String -> State (SymbolTable, Int) (Definition Name)
+nameDefnS d = do
     v <- nameExpr (value d)
     nn <- findSym (identifier d)
+    return $ Definition {value=v, typeof=typeof d, identifier=nn}
+
+nameDefn :: Definition String -> State (SymbolTable, Int) (Definition Name)
+nameDefn d = do
+    nn <- newSym (identifier d)
+    v <- nameExpr (value d)
     return $ Definition {value=v, typeof=typeof d, identifier=nn}
 
 nameStmt (Defn d) = Defn <$> (nameDefn d)

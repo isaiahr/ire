@@ -96,7 +96,13 @@ parseBlock :: Parser (Expression String)
 parseBlock = fmap Block (parseToken LCrParen *> (collectM parseStatement $ parseToken Term) <* parseToken RCrParen)
 
 parseStatement :: Parser (Statement String)
-parseStatement = fmap Defn parseDefinition <|> parseAssignment <|> fmap Expr parseExpression
+parseStatement = fmap Defn parseDefinition <|> parseReturn <|> parseYield <|> parseAssignment <|> fmap Expr parseExpression
+
+parseReturn :: Parser (Statement String)
+parseReturn = fmap AST.Return $ parseToken Lexer.Return *> parseExpressionA
+
+parseYield :: Parser (Statement String)
+parseYield = fmap AST.Yield $ parseToken Lexer.Yield *> parseExpressionA
 
 parseAssignment :: Parser (Statement String)
 parseAssignment = liftA2 Assignment (parseIdentifier <* parseToken Equals) parseExpression
