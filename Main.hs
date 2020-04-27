@@ -10,6 +10,7 @@ import System.Exit
 import Data.List
 import Data.Maybe
 
+import Common
 import Lexer
 import Parser
 import ParserCore

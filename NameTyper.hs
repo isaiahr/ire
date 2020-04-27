@@ -1,5 +1,6 @@
 module NameTyper where
 
+import Common
 import Namer
 import Typer
 import AST

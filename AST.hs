@@ -2,19 +2,9 @@ module AST where
 
 import Lexer
 import Data.List
+import Common
 
 
-class Disp a where
-    disp :: a -> String
-
-instance Disp Int where
-    disp = show
-
-instance Disp Char where
-    disp x = x : ""
-
-instance (Disp a) => Disp [a] where
-    disp x = foldr (++) "" (map disp x)
 {--
  TYPE SYSTEM
  types fall into 6 categories:

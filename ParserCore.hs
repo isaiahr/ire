@@ -1,5 +1,6 @@
 module ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, collect, collectM, infbuild, parseToken)  where 
 
+import Common
 import Lexer
 import AST
 import Control.Applicative

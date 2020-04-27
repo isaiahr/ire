@@ -1,6 +1,8 @@
 module Namer (name, Name(..)) where 
 
 import AST
+import Common
+
 import Control.Monad.State
 
 data Name = Name String Int | NameError deriving Eq

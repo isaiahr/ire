@@ -2,6 +2,7 @@
 
 module Typer where 
 
+import Common
 import AST
 import Control.Monad.State
 import Data.List

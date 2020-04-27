@@ -1,5 +1,6 @@
 module Parser (parseFile, run) where
 
+import Common
 import ParserCore
 import AST
 import Lexer
