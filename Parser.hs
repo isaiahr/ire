@@ -1,10 +1,13 @@
-module Parser (parseFile, run) where
+module Parser (parseFile, passParse, run) where
 
 import Common
 import ParserCore
 import AST
 import Lexer
+import Pass
+
 import Control.Applicative
+import Control.Category
 import Data.List
 import Data.Functor
 
@@ -12,6 +15,13 @@ import Data.Functor
 -- runs parser on tokenstream
 run :: Parser p -> [AnnotatedToken] -> ParseResult p
 run (Parser ps) = ps
+
+passParse :: Pass [AnnotatedToken] (AST String)
+passParse = Pass {pName = Just "Parsing", pFunc = doPs}
+    where doPs x = case run parseFile x of
+                        ParseSuccess n t -> (mempty, Just n)
+                        otherwise -> (messageNoLn "Parsing" "Error parsing" Pass.Error, Nothing)
+
 
 parseFile :: Parser (AST String)
 parseFile = fmap AST $ collectM parseDefinition $ parseToken Term

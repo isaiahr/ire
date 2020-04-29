@@ -3,10 +3,12 @@
 module Typer where 
 
 import Common
+import Pass
 import AST
 import Control.Monad.State
 import Data.List
 import qualified Data.Map as Map
+
 
 data TyCons = TyCons Type Type 
 data TyVar a = TyVar a Type

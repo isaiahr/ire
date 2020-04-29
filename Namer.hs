@@ -1,7 +1,8 @@
-module Namer (name, Name(..)) where 
+module Namer (name, Name(..), passName) where 
 
 import AST
 import Common
+import Pass
 
 import Control.Monad.State
 
@@ -44,6 +45,8 @@ exitScope = state $ \param ->
          (tbl@(SymbolTable arr e (Just (SymbolTable arr2 e2 p2))), i) -> ((), (SymbolTable arr2 (e++e2) p2, i))
          _ -> error "exitScope no parent scope #2618093230914823"
 
+passName = Pass {pName = Just "Naming", pFunc = doName}
+    where doName s = (mempty, Just (name s))
 
 name a = fst (runState (nameAST a) ((SymbolTable [] [] Nothing, 0)))
 

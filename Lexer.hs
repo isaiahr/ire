@@ -1,5 +1,7 @@
-module Lexer (AnnotatedToken(..), Token(..), lexFile) where 
+module Lexer (AnnotatedToken(..), Token(..), lexFile, passLexer) where 
 
+import Common
+import Pass
 import Data.List
 import Data.Maybe
 import Data.Char
@@ -14,11 +16,13 @@ data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integ
 {- an token annotated with other data such as line number, characters held -}
 data AnnotatedToken = AnnotatedToken Token Int String deriving Eq
 
-instance Show AnnotatedToken where
+instance Disp AnnotatedToken where
     -- convert \n to ; to not mess up output
-    show (AnnotatedToken token@Term ln str) = "; line: " ++ show ln ++ " " ++ show token
-    show (AnnotatedToken token ln str) = str ++ " line: " ++ show ln ++ " " ++ show token
+    disp (AnnotatedToken token@Term ln str) = "; line: " ++ show ln ++ " " ++ show token
+    disp (AnnotatedToken token ln str) = str ++ " line: " ++ show ln ++ " " ++ show token
 
+passLexer = Pass {pName = Just "Lexing", pFunc = doLx}
+    where doLx s = let result = lexFile s in (messageNoLn "Lexer" (intercalate "\n" (map disp result)) Debug, Just (result))
 
 lexFile :: String -> [AnnotatedToken]
 lexFile str = lexLine str 1
@@ -44,7 +48,7 @@ nextLine _ = ""
 -- note: partial function is safe here due to Just at end.
 -- also: left must take priority over right.
 lexOne :: String -> (Token, String)
-lexOne str = fromJust (lexSym str <|> lexNum str <|> lexChar str <|> lexKw str <|> lexIdent str <|> lexStr str <|> Just (Error, ""))
+lexOne str = fromJust (lexSym str <|> lexNum str <|> lexChar str <|> lexKw str <|> lexIdent str <|> lexStr str <|> Just (Lexer.Error, ""))
 
 {-
 Lexing functions are string -> maybe (token, string)

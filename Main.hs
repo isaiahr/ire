@@ -11,6 +11,7 @@ import Data.List
 import Data.Maybe
 
 import Common
+import Pass
 import Lexer
 import Parser
 import ParserCore
@@ -61,8 +62,17 @@ norun opts msg = do
 main = do
     a <- getArgs
     pn <- getProgName
-    op <- process a pn 
-    contents <- readFile $ oInput op
+    op <- process a pn
+    let filename = oInput op
+    contents <- readFile filename 
+    let transformations = passLexer >>>
+                          passParse >>>
+                          passName >>>
+                          passType
+                   
+    let (msg, result) = runPass contents transformations
+    putStrLn $ disp msg
+    {-
     let result = lexFile contents
     if oDumptrees op then
         putStrLn $ intercalate "\n" (map show result)
@@ -81,6 +91,7 @@ main = do
             if oDumptrees op then putStrLn (disp ast) else return ()
         ParseFailure -> putStrLn "failure parsing file"
         Unrecoverable r -> putStrLn ("failure parsing: " ++ (disp r))
+        -}
     return exitSuccess
 
 process a pn =  catchIOError (opts a pn) (\x -> putStrLn (ioeGetErrorString x) >> exitFailure) >>= return -- putStrLn . show
