@@ -45,8 +45,8 @@ exitScope = state $ \param ->
          (tbl@(SymbolTable arr e (Just (SymbolTable arr2 e2 p2))), i) -> ((), (SymbolTable arr2 (e++e2) p2, i))
          _ -> error "exitScope no parent scope #2618093230914823"
 
-passName = Pass {pName = Just "Naming", pFunc = doName}
-    where doName s = (mempty, Just (name s))
+passName = Pass {pName = ["Namer"], pFunc = doName}
+    where doName s = let r = name s in (messageNoLn "Namer" (disp r) Debug, Just r)
 
 name a = fst (runState (nameAST a) ((SymbolTable [] [] Nothing, 0)))
 

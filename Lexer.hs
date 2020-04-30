@@ -1,3 +1,5 @@
+{-# LANGUAGE FlexibleInstances #-}
+
 module Lexer (AnnotatedToken(..), Token(..), lexFile, passLexer) where 
 
 import Common
@@ -20,10 +22,21 @@ instance Disp AnnotatedToken where
     -- convert \n to ; to not mess up output
     disp (AnnotatedToken token@Term ln str) = "; line: " ++ show ln ++ " " ++ show token
     disp (AnnotatedToken token ln str) = str ++ " line: " ++ show ln ++ " " ++ show token
+    
+instance Disp ([] AnnotatedToken) where
+    disp r = intercalate "\n" (map disp r)
 
-passLexer = Pass {pName = Just "Lexing", pFunc = doLx}
-    where doLx s = let result = lexFile s in (messageNoLn "Lexer" (intercalate "\n" (map disp result)) Debug, Just (result))
+passLexer = Pass {pName = ["Lexing"], pFunc = doLx}
+    where doLx s = let result = lexFile s in case filterE result of
+                                                  [] -> (messageNoLn "Lexer" (disp result) Debug, Just (result))
+                                                  es -> (foldr (<>) mempty (map e2Msg es), Nothing)
 
+e2Msg (AnnotatedToken t ln str) = messageLn "Lexer" ("Encountered unknown symbol near " <> show (take 5 str)) Pass.Error ln
+
+filterE = filter (\x -> case x of
+                                    (AnnotatedToken Lexer.Error ln s) -> True
+                                    otherwise -> False)
+                       
 lexFile :: String -> [AnnotatedToken]
 lexFile str = lexLine str 1
 

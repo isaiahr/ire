@@ -14,7 +14,7 @@ data ParseResult a = ParseSuccess a [AnnotatedToken] | ParseFailure | Unrecovera
 instance (Disp a) => Disp (ParseResult a) where
     disp (ParseSuccess b ts) = disp b
     disp ParseFailure = "Failure"
-    disp (Unrecoverable r) = disp r
+    disp (Unrecoverable r) = "unrecoverable" 
     
 newtype Parser a = Parser ([AnnotatedToken] -> ParseResult a)
 

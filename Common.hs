@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-}
 module Common where
  
 class Disp a where
@@ -9,5 +10,5 @@ instance Disp Int where
 instance Disp Char where
     disp x = x : ""
 
-instance (Disp a) => Disp [a] where
-    disp x = foldr (++) "" (map disp x)
+instance Disp ([Char]) where
+    disp x = x

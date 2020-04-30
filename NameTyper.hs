@@ -18,10 +18,12 @@ instance Disp TypedName where
     disp (TypedName t n) = disp n ++ ":" ++ disp t
 
     
-passType = Pass {pName = Just "Type Inference", pFunc = doType}
-    where doType s = (mempty, Just (nametypeAST (solve (genConstraints s)) s))
+passType = Pass {pName = ["TypeInfer"], pFunc = doType}
+    where doType s = let r = nametypeAST (solve (genConstraints s)) s in
+                         (messageNoLn "TypeInfer" (disp r) Debug, Just r)
 
 
+    
 nametypeAST :: ConstraintTbl Name -> AST Name -> AST TypedName
 nametypeAST tbl ast = fmap (\x -> TypedName (getType x tbl) x) ast
 

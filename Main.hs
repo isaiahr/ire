@@ -71,7 +71,8 @@ main = do
                           passType
                    
     let (msg, result) = runPass contents transformations
-    putStrLn $ disp msg
+    let fmsg = if oDumptrees op then msg else filterDbg msg
+    putStrLn $ disp fmsg
     {-
     let result = lexFile contents
     if oDumptrees op then

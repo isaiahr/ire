@@ -2,7 +2,7 @@
 Pass.hs: machinery to run a pass, including associated logging tools
 
 --}
-module Pass (runPass, messageNoLn, Pass(..), (>>>), Severity(..)) where
+module Pass (runPass, messageNoLn, messageLn, filterDbg, Pass(..), (>>>), Severity(..)) where
 
 import Common
 
@@ -10,7 +10,7 @@ import Control.Arrow
 import Control.Category
 import Data.List
 
-data Severity = Error | Warning | Debug
+data Severity = Error | Warning | Debug deriving Eq
 
 shortS Error = "E"
 shortS Warning = "W"
@@ -21,6 +21,7 @@ longS Warning = "Warning"
 longS Debug = "Debug"
 
 messageNoLn pn s lvl = Messages [Message {mLine = Nothing, mPassName = pn, mStr = s, mSeverity = lvl}]
+messageLn pn s lvl ln = Messages [Message {mLine = Just ln, mPassName = pn, mStr = s, mSeverity = lvl}]
 
 runPass input pass = (pFunc pass) input
 
@@ -37,9 +38,10 @@ instance Disp Message where
                                                         x -> [x]) (mStr message))
 header message = "[" <> (longS (mSeverity message)) <> "] [" <> mPassName message <> "] " <> ln
     where ln = case mLine message of
-                    (Just ln) -> "<line " <> disp ln <> ">"
+                    (Just ln) -> "<line " <> disp ln <> "> "
                     Nothing -> ""
           
+filterDbg (Messages msg) = Messages (filter (\x -> mSeverity x /= Debug) msg)
 
 newtype Messages = Messages [Message]
 
@@ -56,12 +58,12 @@ instance Monoid Messages where
 -- a pass on an ast / lexstream / ir / etc
 data Pass i o = Pass {
     pFunc  :: i -> (Messages, Maybe o),
-    pName  :: Maybe String
+    pName  :: [String]
 }
 
 instance Category Pass where
-    id = Pass { pFunc = (\x -> (mempty, Just x)), pName = Nothing }
-    f . g = Pass { pFunc = func, pName = Nothing }
+    id = Pass { pFunc = (\x -> (mempty, Just x)), pName = [] }
+    f . g = Pass { pFunc = func, pName = pName f <> pName g }
         where func x = case (pFunc g) x of
                             (msg, Just o) -> case (pFunc f) o of
                                                   (msg2, oo) -> (msg <> msg2, oo)
@@ -69,9 +71,10 @@ instance Category Pass where
 
 
 
+-- probably useless. 
 instance Arrow Pass where
-    arr f = Pass { pFunc = (\x -> (mempty, Just x)) Control.Category.. f, pName = Nothing }
-    first pass = Pass { pFunc = fnc, pName = Nothing }
+    arr f = Pass { pFunc = (\x -> (mempty, Just x)) Control.Category.. f, pName = [] }
+    first pass = Pass { pFunc = fnc, pName = [] }
         where fnc = (\(a, c) -> case (pFunc pass) a of
                                      (msg, Just b) -> (msg, Just (b, c))
                                      (msg, Nothing) -> (msg, Nothing))

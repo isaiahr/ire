@@ -17,10 +17,10 @@ run :: Parser p -> [AnnotatedToken] -> ParseResult p
 run (Parser ps) = ps
 
 passParse :: Pass [AnnotatedToken] (AST String)
-passParse = Pass {pName = Just "Parsing", pFunc = doPs}
+passParse = Pass {pName = ["Parser"], pFunc = doPs}
     where doPs x = case run parseFile x of
-                        ParseSuccess n t -> (mempty, Just n)
-                        otherwise -> (messageNoLn "Parsing" "Error parsing" Pass.Error, Nothing)
+                        ParseSuccess n t -> (messageNoLn "Parser" (disp n) Debug, Just n)
+                        otherwise -> (messageNoLn "Parser" "Error parsing" Pass.Error, Nothing)
 
 
 parseFile :: Parser (AST String)
