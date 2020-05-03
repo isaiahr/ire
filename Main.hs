@@ -19,6 +19,7 @@ import AST
 import Typer
 import Namer
 import NameTyper
+import TypeChecker
 
 
 data Options = Options {
@@ -68,7 +69,8 @@ main = do
     let transformations = passLexer >>>
                           passParse >>>
                           passName >>>
-                          passType
+                          passType >>>
+                          passTypeCheck
                    
     let (msg, result) = runPass contents transformations
     let fmsg = if oDumptrees op then msg else filterDbg msg
