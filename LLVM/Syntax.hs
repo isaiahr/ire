@@ -1,7 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 -- llvm abstract syntax tree
-module Syntax where 
+module LLVM.Syntax where 
 
 import Types
 import Common

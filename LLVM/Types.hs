@@ -1,4 +1,4 @@
-module Types where
+module LLVM.Types where
 
 import Data.List
 import Common
