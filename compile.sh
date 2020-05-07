@@ -13,6 +13,11 @@ then
     FLAGS="-O3"
 fi
 
+if [ "$1" = dbg ]
+then
+    FLAGS="-g -prof -fprof-auto"
+fi
+
 mkdir -p bin
 mkdir -p build
 echo -n "#define COMMIT_ID \"" > build/commitid.h

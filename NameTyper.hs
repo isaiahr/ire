@@ -40,7 +40,7 @@ mapstmt fn (Defn d) = Defn (mapdefn fn d)
 mapstmt fn (Expr e) = Expr (mapexpr fn e)
 mapstmt fn (Assignment a e) = Assignment (fn a) (mapexpr fn e)
 mapstmt fn (Return r) = Return (mapexpr fn r)
-mapstmt fn (Yield y) = Return (mapexpr fn y)
+mapstmt fn (Yield y) = Yield (mapexpr fn y)
 
 mapexpr :: (a -> b) -> Expression a -> Expression b
 mapexpr fn (Variable a) = Variable (fn a)

@@ -20,6 +20,7 @@ import Typer
 import Namer
 import NameTyper
 import TypeChecker
+import MLROC.IRGen
 
 
 data Options = Options {
@@ -70,7 +71,8 @@ main = do
                           passParse >>>
                           passName >>>
                           passType >>>
-                          passTypeCheck
+                          passTypeCheck >>>
+                          passMLROCGen
                    
     let (msg, result) = runPass contents transformations
     let fmsg = if oDumptrees op then msg else filterDbg msg

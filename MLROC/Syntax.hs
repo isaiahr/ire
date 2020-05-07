@@ -6,6 +6,7 @@
 module MLROC.Syntax where
 
 import Common
+import Data.List
 
 type MLROC = [FnDefn]
 
@@ -16,7 +17,10 @@ instance Disp Unique where
     disp (Unique nt) = disp nt
 
 
-data FnDefn = FnDefn Var [Stmt]
+data FnDefn = FnDefn Var Var Var [Stmt]
+
+instance Disp FnDefn where
+    disp (FnDefn v p c t) = disp "func " ++ disp v ++ " param " ++ disp p ++ " closure " ++ disp c ++ "\n    " ++ (intercalate "\n    " (map disp t))
 
 data Stmt =
     Return Var | -- return from func, yielding val
@@ -27,8 +31,9 @@ data Stmt =
     FnBind Var Var Var | -- bind function to env, yielding fn
     Label Unique | -- target of a goto (start of basicblock)
     Goto Var Unique Unique | -- conditional jmp 
-    Init Var Type | 
-    Assign Var Var | -- normal assignmnt
+    UGoto Unique | -- unconditional jump
+    Init Var | 
+    Assign Var Var  -- normal assignmnt
 
 instance Disp Stmt where
     disp (Return nt) = "RETURN " ++ disp nt
@@ -39,7 +44,7 @@ instance Disp Stmt where
     disp (FnBind v f cl) = " = BIND " <> disp f <> " WITH " <> disp cl
     disp (Label nt) = "L" <> disp nt
     disp (Goto v nt nt2) = "IF " <> disp v <> " GOTO " <> disp nt <> " ELSE " <> disp nt2
-    disp (Init v nt) = "INIT " ++ disp v ++ " OF " ++ disp nt
+    disp (Init (Var u t)) = "INIT " ++ disp (Var u t)
     disp (Assign v1 v2) = disp v1 <> " = " <> disp v2
 
 data Var = Var Unique Type
@@ -48,17 +53,19 @@ instance Eq Var where
     (Var i _) == (Var i2 _) = (i == i2)
 
 instance Disp Var where
-    disp Var nt = '#' : disp nt
+    disp (Var nt t) = '#' : disp nt ++ "<" ++ disp t ++ ">"
 
 data Type =
     Bits Int | -- bits
     Tuple [Type] | -- tuple
     UBFunc Type Type Type | -- unbound function (requiring closure)
-    BFunc Type Type -- bound function (effectively a tuple w closure and func ptr)
+    BFunc Type Type | -- bound function (effectively a tuple w closure and func ptr)
+    Unit 
 
 instance Disp Type where
     disp (Bits nt) = 'b' : disp nt
-    disp (Tuple t) = "(" ++ disp intercalate ", " (map disp t) ++ ")"
+    disp (Tuple t) = "(" ++ disp (intercalate ", " (map disp t)) ++ ")"
     disp (UBFunc t0 c t9) = disp t0 ++ " -{" ++ disp c ++ "}> " ++ disp t9
     disp (BFunc t0 t9) = disp t0 ++ " -> " ++ disp t9
+    disp (Unit) = "Unit"
     

@@ -55,7 +55,11 @@ instance (Disp a) => Disp (Expression a) where
     disp (IfStmt e1 e2 e3) = "if " ++ disp e1 ++ " then " ++ disp e2 ++ " else " ++ disp e3 
 
 -- a literal
-data Literal a = Constant Int | ArrayLiteral [Expression a] | TupleLiteral [Expression a] | RecordLiteral [(String, Expression a)] | FunctionLiteral a (Expression a) deriving (Eq)
+data Literal a = Constant Int |
+                 ArrayLiteral [Expression a] |
+                 TupleLiteral [Expression a] |
+                 RecordLiteral [(String, Expression a)] |
+                 FunctionLiteral a (Expression a) deriving (Eq)
 
 instance (Disp a) => Disp (Literal a) where
     disp (Constant i) = disp i
