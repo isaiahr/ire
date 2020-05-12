@@ -97,7 +97,7 @@ genConsStmt (Yield y) = error "handled in blk #29588"
     
 genConsExpr :: (Eq a1) => Expression a1 -> Int -> State (ConstraintTbl a1) ()
 genConsExpr (Literal (Constant nt)) n = do
-    mkCons n (AtomicType (Bits 64))
+    mkCons n (Bits 64)
     return ()
 
 genConsExpr (Literal (ArrayLiteral (r:rs))) n = do
@@ -141,7 +141,7 @@ genConsExpr (Variable u) n = do
 
 genConsExpr (IfStmt i t e) n = do
     ni <- getInt
-    mkCons ni (AtomicType (Bits 1))
+    mkCons ni (Bits 1)
     nt <- getInt
     ne <- getInt
     mkCons nt (General ne)

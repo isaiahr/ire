@@ -273,7 +273,7 @@ retty nonfunc = error "retty nonfunc"
 
 nthty n (Tuple i) = i !! n
 
-fty (A.AtomicType (A.Bits nt)) = Bits nt
+fty (A.Bits nt) = Bits nt
 fty (A.Function t1 t2) = BFunc (fty t1) (fty t2)
 fty (A.Tuple r) = Tuple (map fty r)
 fty _ = error "not yet impl 93"

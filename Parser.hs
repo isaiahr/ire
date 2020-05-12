@@ -41,7 +41,7 @@ parseBType :: Parser Type
 parseBType = parseToken LParen *> parseType <* parseToken RParen
 
 parseIntType :: Parser Type
-parseIntType = parseToken (Identifier "Int") $> AtomicType (Bits 64)
+parseIntType = parseToken (Identifier "Int") $> Bits 64
 
 parseArrayType :: Parser Type
 parseArrayType = parseToken LSqParen *> fmap Array parseType <* parseToken RSqParen

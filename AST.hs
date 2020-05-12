@@ -17,22 +17,23 @@ import Common
  union            | {x:Int | y:Int} | {x=3 | y:Int} 
 --}
 -- [t], t, t -> t, (t1, t2, ...), {a:t1, b:t2, ...}
-data Type = General Int | Array Type | AtomicType AtomicType | Function Type Type | Tuple [Type] | Record [(String, Type)] | Union [(String, Type)]
-    deriving (Eq, Show)
+data Type = General Int | -- for polymorphism and type inference
+            Array Type | -- arrays
+            Bits Int | -- bits (llvm i[n])
+            Function Type Type | -- a -> b
+            Tuple [Type] | -- (a, b, c)
+            Record [(String, Type)] | -- record
+            Union [(String, Type)] deriving (Eq, Show) --union
 
 instance Disp Type where 
     disp (Array t) = "[" ++ disp t ++ "]"
-    disp (AtomicType t) = disp t
+    disp (Bits n) = "bits" ++ disp n
     disp (Function f t) = disp f ++ " -> " ++ disp t
     disp (Tuple arr) = "(" ++ intercalate ", " (map disp arr) ++ ")"
     disp (Record r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ ": " ++ disp y) r) ++ "}"
     disp (Union u) = "{" ++ intercalate " | " (map (\(x, y) -> x ++ ": " ++ disp y) u) ++ "}"
     disp (General g) = "$" ++ disp g
--- Int
-newtype AtomicType = Bits Int deriving (Eq, Show)
 
-instance Disp AtomicType where
-    disp (Bits n) = "bits" ++ disp n
 
 data Definition a = Definition {identifier :: a,  typeof :: Maybe Type, value :: Expression a} deriving (Eq)
 
@@ -73,7 +74,11 @@ newtype Body a = Body [Statement a] deriving (Eq)
 instance (Disp a) => Disp (Body a) where
     disp (Body s) = intercalate "\n" (map disp s)
 
-data Statement a = Defn (Definition a) | Expr (Expression a) | Assignment a (Expression a) | Return (Expression a) | Yield (Expression a) deriving (Eq)
+data Statement a = Defn (Definition a) | -- a := expr
+                   Expr (Expression a) | -- expr
+                   Assignment a (Expression a) | -- a = expr
+                   Return (Expression a) | -- return expr
+                   Yield (Expression a) deriving (Eq) -- yield expr
 
 instance (Disp a) => Disp (Statement a) where
     disp (Defn s) = disp s
