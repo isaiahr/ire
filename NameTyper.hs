@@ -19,8 +19,10 @@ instance Disp TypedName where
 
     
 passType = Pass {pName = ["TypeInfer"], pFunc = doType}
-    where doType s = let r = nametypeAST (solve (genConstraints s)) s in
-                         (messageNoLn "TypeInfer" (disp r) Debug, Just r)
+    where doType s = case solve (genConstraints s) of
+                          Ss k -> let r = nametypeAST k s in (messageNoLn "TypeInfer" (disp r) Debug, Just r)
+                          Un t t2 -> (messageNoLn "TypeInfer" ("Unable to unify types " <> disp t <> " and " <> disp t2) Pass.Error, Nothing)
+                          Occ nt t -> (messageNoLn "TypeInfer" ("Occurs check; cannot solve constraint " <> disp (General nt) <> " ~ " <> disp t) Pass.Error, Nothing)
 
 
     

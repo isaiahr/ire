@@ -187,9 +187,39 @@ data Sub = Sub Int Type deriving (Show, Eq)
 
 instance Disp Sub where
     disp (Sub nt t) = disp nt ++ " -> " ++  disp t
+    
+-- unfication result
+data UnRes a = Ss a | Occ Int Type | Un Type Type
 
-unify (General a) t2 = Just [Sub a t2]
-unify t1 (General b) = Just [Sub b t1]
+instance Functor UnRes where
+    fmap f (Ss a) = Ss (f a)
+    fmap f (Occ n t) = (Occ n t)
+    fmap f (Un t1 t2) = (Un t1 t2)
+
+instance Applicative UnRes where
+    pure i = Ss i
+    (Ss a) <*> (Ss b) = Ss (a b)
+    (Occ a u) <*> _ = Occ a u
+    (Un a u) <*> _ = Un a u
+    _ <*> (Occ a u) = Occ a u
+    _ <*> (Un a u) = Un a u
+
+instance Monad UnRes where
+    (Ss a) >>= f = f a
+    (Un t1 t2) >>= f = Un t1 t2
+    (Occ t1 t2) >>= f = Occ t1 t2
+    return i = Ss i
+
+-- occurs check
+occursc var (General t) = var == t
+occursc var (Array t) = occursc var t
+occursc var (Tuple (t:ts)) = occursc var t || occursc var (Tuple ts)
+occursc var (Tuple []) = False
+occursc var (Function a b) = occursc var a || occursc var b
+occursc var (Bits n) = False
+
+unify (General a) t2 = if occursc (a) t2 then Occ a t2 else Ss [Sub a t2]
+unify t1 (General b) = if occursc (b) t1 then Occ b t1 else Ss [Sub b t1]
 
 unify (Function f1 t1) (Function f2 t2) = do -- liftM2 (++) (unify f1 f2) (unify t1 t2)
     s <- unify f1 f2
@@ -203,16 +233,14 @@ unify (Tuple (t1:t1s)) (Tuple (t2:t2s)) = do -- liftM2 (++) (unify t1 t2) (unify
     u <- unify (subTypeS s (Tuple t1s)) (subTypeS s (Tuple t2s))
     return $ s ++ u
 
-unify (Tuple []) (Tuple []) = Just []
+unify (Tuple []) (Tuple []) = Ss []
 
-unify a b = if a == b then Just [] else Nothing
+unify a b = if a == b then Ss [] else Un a b
 
-unifyC (TyCons t1 t2) = case unify t1 t2 of
-                             Just x -> x
-                             Nothing -> undefined
+unifyC (TyCons t1 t2) = unify t1 t2
 
 solve tbl = (solvec tbl 0)
-solvec tbl@(ConstraintTbl x cons vars _) i = if (i < length cons) then solvec (performSubs tbl (unifyC (cons !! i))) (i+1) else tbl
+solvec tbl@(ConstraintTbl x cons vars _) i = if (i < length cons) then unifyC (cons !! i) >>= (\y -> solvec (performSubs tbl (y)) (i+1)) else Ss tbl
 
 performSubs tbl (s:ss) = performSubs (performSub tbl s) ss
 performSubs tbl [] = tbl

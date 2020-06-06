@@ -71,8 +71,7 @@ main = do
                           passParse >>>
                           passName >>>
                           passType >>>
-                          passTypeCheck >>>
-                          passMLROCGen
+                          passTypeCheck
                    
     let (msg, result) = runPass contents transformations
     let fmsg = if oDumptrees op then msg else filterDbg msg
