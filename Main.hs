@@ -20,7 +20,6 @@ import Typer
 import Namer
 import NameTyper
 import TypeChecker
-import MLROC.IRGen
 
 
 data Options = Options {
