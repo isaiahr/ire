@@ -42,13 +42,18 @@ instance (Disp a) => Disp (Definition a) where
         where shw (Just a) = disp a
               shw Nothing = ""
 
-data Expression a = Literal (Literal a) | -- literal, like 34, or [4,5,6]
+data Expression a = 
+                    -- nodes introduced in passes.
+                    DirectFnCall a (Expression a) |
+                    -- allowed ast entry nodes 
+                    Literal (Literal a) | -- literal, like 34, or [4,5,6]
                     Block  [Statement a] | -- block, like {stmt1;stmt2;yield expr}
                     FunctionCall (Expression a) (Expression a) | -- FunctionCall, like print "hello world"
                     Variable a | -- variable, like i
                     IfStmt (Expression a) (Expression a) (Expression a) deriving (Eq) -- if, like if 1==2 then expr1 else expr2
 
 instance (Disp a) => Disp (Expression a) where
+    disp (DirectFnCall a ea) = "DIRECT(" ++ disp a ++ ", " ++ disp ea ++ ")"
     disp (Literal l) = disp l
     disp (Block s) = "{" ++ (intercalate "\n" (map disp s)) ++ "}"
     disp (FunctionCall e1 e2) = disp e1 ++ " " ++ disp e2

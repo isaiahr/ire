@@ -20,7 +20,7 @@ import Typer
 import Namer
 import NameTyper
 import TypeChecker
-
+import FunctionConversion
 
 data Options = Options {
     oDumptrees :: Bool,
@@ -70,31 +70,12 @@ main = do
                           passParse >>>
                           passName >>>
                           passType >>>
-                          passTypeCheck
+                          passTypeCheck >>>
+                          passFnConv
                    
     let (msg, result) = runPass contents transformations
     let fmsg = if oDumptrees op then msg else filterDbg msg
     putStrLn $ disp fmsg
-    {-
-    let result = lexFile contents
-    if oDumptrees op then
-        putStrLn $ intercalate "\n" (map show result)
-                     else return ()
-    let parsetree = run parseFile result
-    case parsetree of
-        ParseSuccess r ts -> do 
-            if oDumptrees op then putStrLn (disp r) else return ()
-            let r2 = name r
-            if oDumptrees op then putStrLn (disp r2) else return ()
-            let c = genConstraints r2
-            if oDumptrees op then putStrLn (disp c) else return ()
-            let solved = solve c
-            if oDumptrees op then putStrLn (disp solved) else return ()
-            let ast = nametypeAST solved r2
-            if oDumptrees op then putStrLn (disp ast) else return ()
-        ParseFailure -> putStrLn "failure parsing file"
-        Unrecoverable r -> putStrLn ("failure parsing: " ++ (disp r))
-        -}
     return exitSuccess
 
 process a pn =  catchIOError (opts a pn) (\x -> putStrLn (ioeGetErrorString x) >> exitFailure) >>= return -- putStrLn . show
