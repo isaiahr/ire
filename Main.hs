@@ -21,6 +21,7 @@ import Namer
 import NameTyper
 import TypeChecker
 import FunctionConversion
+import HeapConversion
 
 data Options = Options {
     oDumptrees :: Bool,
@@ -43,7 +44,7 @@ options = [
     Option ['v'] ["version"] (NoArg (\x -> x{oVersion = True})) "print version",
     Option ['h'] ["help"] (NoArg (\x -> x{oHelp = True})) "print this message",
     Option ['o'] ["output"] (OptArg (\p x -> x{oOutput = p}) "file") "write output to file",
-    Option ['d'] ["dumptrees"] (NoArg (\x -> x{oDumptrees = True})) "write tokenstream, ast to stdout"]
+    Option ['d'] ["dumptrees"] (NoArg (\x -> x{oDumptrees = True})) "write trees to stdout"]
 
 opts ar pn = case getOpt Permute options ar of
                   (o, [n], []) -> norun (foldl (\x f -> f x) defaults o) msg >> return (foldl (\x f -> f x) defaults{oInput=n} o)
@@ -71,12 +72,13 @@ main = do
                           passName >>>
                           passType >>>
                           passTypeCheck >>>
-                          passFnConv
+                          passFnConv >>>
+                          passHConv 
                    
     let (msg, result) = runPass contents transformations
     let fmsg = if oDumptrees op then msg else filterDbg msg
     putStrLn $ disp fmsg
     return exitSuccess
 
-process a pn =  catchIOError (opts a pn) (\x -> putStrLn (ioeGetErrorString x) >> exitFailure) >>= return -- putStrLn . show
+process a pn =  catchIOError (opts a pn) (\x -> putStrLn (ioeGetErrorString x) >> exitFailure) >>= return
 
