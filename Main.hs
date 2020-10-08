@@ -22,6 +22,7 @@ import NameTyper
 import TypeChecker
 import FunctionConversion
 import HeapConversion
+import LambdaLift
 
 data Options = Options {
     oDumptrees :: Bool,
@@ -73,7 +74,8 @@ main = do
                           passType >>>
                           passTypeCheck >>>
                           passFnConv >>>
-                          passHConv 
+                          passHConv >>>
+                          passLLift
                    
     let (msg, result) = runPass contents transformations
     let fmsg = if oDumptrees op then msg else filterDbg msg

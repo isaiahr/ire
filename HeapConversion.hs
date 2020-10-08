@@ -1,4 +1,4 @@
-module HeapConversion where
+module HeapConversion (passHConv) where
 
 {--
 HeapConversion.hs:
