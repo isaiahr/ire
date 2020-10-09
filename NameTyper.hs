@@ -1,4 +1,4 @@
-module NameTyper where
+module NameTyper (TypedName(..), passType) where
 
 import Common
 import Pass
@@ -12,7 +12,11 @@ NameTyper.hs:
 takes a named AST and assigns types to it
 --}
 
-data TypedName = TypedName Type Name deriving Eq
+data TypedName = TypedName Type Name
+
+-- do not compare types. this is both an optimization and nesescary (see heapconversion for why)
+instance Eq TypedName where
+    TypedName t n == TypedName t2 n2 = n == n2
 
 instance Disp TypedName where
     disp (TypedName t n) = disp n ++ ":" ++ disp t

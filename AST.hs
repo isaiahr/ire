@@ -126,6 +126,7 @@ mapstmt fn (Expr e) = Expr (mapexpr fn e)
 mapstmt fn (Assignment a e) = Assignment (fn a) (mapexpr fn e)
 mapstmt fn (AST.Return r) = AST.Return (mapexpr fn r)
 mapstmt fn (AST.Yield y) = AST.Yield (mapexpr fn y)
+mapstmt fn (HSetPtr a e) = HSetPtr (fn a) (mapexpr fn e)
 
 mapexpr :: (a -> b) -> Expression a -> Expression b
 mapexpr fn (Variable a) = Variable (fn a)
@@ -176,3 +177,4 @@ foldms f (Expr e) = foldme f e
 foldms f (Assignment a e) = f a <> foldme f e
 foldms f (AST.Return e) = foldme f e
 foldms f (AST.Yield e) = foldme f e
+foldms f (HSetPtr a e) = f a <> foldme f e

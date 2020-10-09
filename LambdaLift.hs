@@ -10,6 +10,8 @@ import Data.List
 import Control.Applicative
 import Control.Monad.State
 
+import Debug.Trace
+
 import Common
 import Pass
 import Namer
@@ -18,9 +20,10 @@ import NameTyper
 import AST
 import ASTUtils
 import UnType
+import NameTyper
 
 
-passLLift = Pass {pName = ["LambdaLifting"], pFunc = runP } >>> passUnType
+passLLift = Pass {pName = ["LambdaLifting"], pFunc = runP } >>> passUnType >>> passType
     where runP ast = let r = llift ast in (mempty, Just r)
 
 data Context = Context {defns :: [Definition TypedName], cur :: Int}
@@ -36,11 +39,12 @@ liftDefns = do
     ctx <- get
     put (ctx {defns = []})
     ndefns <- liftDefns2 (defns ctx)
-    put (ctx {defns = defns ctx ++ ndefns })
+    ctxn <- get
+    put (ctxn {defns = defns ctxn ++ ndefns })
     return ()
 
 liftDefns2 (d:ds) = do
-    nd <- liftDefn d
+    nd <- liftTDefn d
     nds <- liftDefns2 ds
     return $ nd:nds
 
@@ -53,9 +57,14 @@ getGlobals = do
 mkNewFn :: Literal TypedName -> State Context TypedName
 mkNewFn fn = do
     ctx <- get
-    let name = TypedName (error "poked error thunk") (Name ("InteriorFunction" ++ disp (cur ctx)) (cur ctx))
+    -- we can't figure out type right now, so instead we rerun the type checker.
+    -- to satisfy the program, we need to put a error thunk in its place. this is kind of a design flaw,
+    -- but it is difficult to avoid, as ghc itself does the same thing. 
+    -- interestingly enough, we need to bury it within a general wrapper for some reason, or the
+    -- error thunk gets evaluated.
+    let name = TypedName (General $ error "oeu") (Name ("InteriorFunction" ++ disp (cur ctx)) (cur ctx))
     let newdefn = Definition {identifier = name, typeof = Nothing, value = (Literal fn)}
-    put $ ctx { defns = defns ctx ++ [newdefn], cur = (cur ctx + 1) } 
+    trace ("InteriorFunction" ++ disp (cur ctx)) put $ ctx { defns = defns ctx ++ [newdefn], cur = (cur ctx + 1) } 
     return name
 
 liftL :: Literal TypedName -> State Context (Literal TypedName)
@@ -148,6 +157,13 @@ liftDefn d = do
     nv <- liftE (value d)
     return $ d { value = nv }
 
+-- lift top-level definition
+liftTDefn d = do
+    nv <- (case value d of 
+                (Literal (FunctionLiteral a x)) -> (\y -> Literal (FunctionLiteral a y)) <$> liftE x
+                _ -> error "invariant enforcing: top level definition that isn't a literal#5340734")
+    return $ d { value = nv}
+
 {-
 gets closed over vars within func literal.
 this doesnt need a symbol table because it expects nested funcs already being pulled out.
@@ -162,6 +178,7 @@ getCLVE ok (Literal l) = getCLVL ok l
 -- local var defn, add 2 ok.
 getCLVE ok (Block ((Defn b):bs)) = getCLVE ((identifier b):ok) (Block bs)
 getCLVE ok (Block (b:bs)) = getCLVS ok b ++ getCLVE ok (Block bs)
+getCLVE ok (Block []) = []
 getCLVE ok (FunctionCall a b) = getCLVE ok a ++ getCLVE ok b
 getCLVE ok (Variable a) = if a `elem` ok then [] else [a]
 getCLVE ok (IfStmt i t e) = getCLVE ok i ++ getCLVE ok t ++ getCLVE ok e
