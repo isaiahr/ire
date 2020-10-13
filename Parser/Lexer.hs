@@ -1,9 +1,10 @@
 {-# LANGUAGE FlexibleInstances #-}
 
-module Lexer (AnnotatedToken(..), Token(..), lexFile, passLexer) where 
+module Parser.Lexer (AnnotatedToken(..), Token(..), lexFile, passLexer) where 
 
-import Common
-import Pass
+import Common.Common
+import Common.Pass
+
 import Data.List
 import Data.Maybe
 import Data.Char
@@ -31,10 +32,10 @@ passLexer = Pass {pName = ["Lexing"], pFunc = doLx}
                                                   [] -> (messageNoLn "Lexer" (disp result) Debug, Just (result))
                                                   es -> (foldr (<>) mempty (map e2Msg es), Nothing)
 
-e2Msg (AnnotatedToken t ln str) = messageLn "Lexer" ("Encountered unknown symbol near " <> show (take 5 str)) Pass.Error ln
+e2Msg (AnnotatedToken t ln str) = messageLn "Lexer" ("Encountered unknown symbol near " <> show (take 5 str)) Common.Pass.Error ln
 
 filterE = filter (\x -> case x of
-                                    (AnnotatedToken Lexer.Error ln s) -> True
+                                    (AnnotatedToken Parser.Lexer.Error ln s) -> True
                                     otherwise -> False)
                        
 lexFile :: String -> [AnnotatedToken]
@@ -61,7 +62,7 @@ nextLine _ = ""
 -- note: partial function is safe here due to Just at end.
 -- also: left must take priority over right.
 lexOne :: String -> (Token, String)
-lexOne str = fromJust (lexSym str <|> lexNum str <|> lexChar str <|> lexKw str <|> lexIdent str <|> lexStr str <|> Just (Lexer.Error, ""))
+lexOne str = fromJust (lexSym str <|> lexNum str <|> lexChar str <|> lexKw str <|> lexIdent str <|> lexStr str <|> Just (Parser.Lexer.Error, ""))
 
 {-
 Lexing functions are string -> maybe (token, string)

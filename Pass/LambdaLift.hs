@@ -1,4 +1,4 @@
-module LambdaLift (passLLift) where
+module Pass.LambdaLift (passLLift) where
 {-
 LambdaLift.hs: lifts nested functions to top-level
 heap / function conv should be performed first (they are sort of part of lambda lifting, but
@@ -10,18 +10,14 @@ import Data.List
 import Control.Applicative
 import Control.Monad.State
 
-import Debug.Trace
-
-import Common
-import Pass
-import Namer
-import Typer
-import NameTyper
-import AST
-import ASTUtils
-import UnType
-import NameTyper
-
+import Common.Common
+import Common.Pass
+import Pass.Namer
+import Pass.Typer
+import Pass.NameTyper
+import Pass.UnType
+import AST.AST
+import AST.ASTUtils
 
 passLLift = Pass {pName = ["LambdaLifting"], pFunc = runP } >>> passUnType >>> passType
     where runP ast = let r = llift ast in (mempty, Just r)
@@ -64,7 +60,6 @@ mkNewFn fn = do
     -- error thunk gets evaluated.
     let name = TypedName (General $ error "oeu") (Name ("InteriorFunction" ++ disp (cur ctx)) (cur ctx))
     let newdefn = Definition {identifier = name, typeof = Nothing, value = (Literal fn)}
-    trace ("InteriorFunction" ++ disp (cur ctx)) put $ ctx { defns = defns ctx ++ [newdefn], cur = (cur ctx + 1) } 
     return name
 
 liftL :: Literal TypedName -> State Context (Literal TypedName)

@@ -1,10 +1,10 @@
-module Parser (parseFile, passParse, run) where
+module Parser.Parser (parseFile, passParse, run) where
 
-import Common
-import ParserCore
-import AST
-import Lexer
-import Pass
+import Common.Common
+import Parser.ParserCore
+import AST.AST
+import Parser.Lexer
+import Common.Pass
 
 import Control.Applicative
 import Control.Category
@@ -20,7 +20,7 @@ passParse :: Pass [AnnotatedToken] (AST String)
 passParse = Pass {pName = ["Parser"], pFunc = doPs}
     where doPs x = case run parseFile x of
                         ParseSuccess n t -> (messageNoLn "Parser" (disp n) Debug, Just n)
-                        otherwise -> (messageNoLn "Parser" "Error parsing" Pass.Error, Nothing)
+                        otherwise -> (messageNoLn "Parser" "Error parsing" Common.Pass.Error, Nothing)
 
 
 parseFile :: Parser (AST String)
@@ -110,10 +110,10 @@ parseStatement :: Parser (Statement String)
 parseStatement = fmap Defn parseDefinition <|> parseReturn <|> parseYield <|> parseAssignment <|> fmap Expr parseExpression
 
 parseReturn :: Parser (Statement String)
-parseReturn = fmap AST.Return $ parseToken Lexer.Return *> parseExpressionA
+parseReturn = fmap AST.AST.Return $ parseToken Parser.Lexer.Return *> parseExpressionA
 
 parseYield :: Parser (Statement String)
-parseYield = fmap AST.Yield $ parseToken Lexer.Yield *> parseExpressionA
+parseYield = fmap AST.AST.Yield $ parseToken Parser.Lexer.Yield *> parseExpressionA
 
 parseAssignment :: Parser (Statement String)
 parseAssignment = liftA2 Assignment (parseIdentifier <* parseToken Equals) parseExpression

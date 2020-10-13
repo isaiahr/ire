@@ -1,5 +1,5 @@
 {-# LANGUAGE FlexibleInstances #-}
-module Common where
+module Common.Common where
  
 class Disp a where
     disp :: a -> String

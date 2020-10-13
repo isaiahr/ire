@@ -1,15 +1,15 @@
  
-module UnType (passUnType) where
+module Pass.UnType (passUnType) where
 {-
 UnType.hs: removes type information from ast.
 -} 
 
 
-import Common
-import Pass
-import Namer
-import NameTyper
-import AST
+import Common.Common
+import Common.Pass
+import Pass.Namer
+import Pass.NameTyper
+import AST.AST
 
 
 passUnType :: Pass (AST TypedName) (AST Name)

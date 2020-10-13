@@ -1,11 +1,11 @@
-module FunctionConversion where
+module Pass.FunctionConversion (passFnConv) where
 
-import Common
-import Pass
-import Namer
-import Typer
-import NameTyper
-import AST
+import Common.Common
+import Common.Pass
+import Pass.Namer
+import Pass.Typer
+import Pass.NameTyper
+import AST.AST
 {--
 FunctionConversion.hs:
 translates function calls to direct function calls where possible, in preparation for lambda lifting.

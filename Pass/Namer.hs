@@ -1,8 +1,8 @@
-module Namer (name, Name(..), passName) where 
+module Pass.Namer (name, Name(..), passName) where 
 
-import AST
-import Common
-import Pass
+import AST.AST
+import Common.Common
+import Common.Pass
 
 import Control.Monad.State
 

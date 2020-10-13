@@ -1,4 +1,4 @@
-module HeapConversion (passHConv) where
+module Pass.HeapConversion (passHConv) where
 
 {--
 HeapConversion.hs:
@@ -9,12 +9,12 @@ import Data.List
 import Control.Applicative
 import Control.Monad.State
 
-import Common
-import Pass
-import Namer
-import Typer
-import NameTyper
-import AST
+import Common.Common
+import Common.Pass
+import Pass.Namer
+import Pass.Typer
+import Pass.NameTyper
+import AST.AST
 
 
 passHConv = Pass {pName = ["HeapConversion"], pFunc = runP }

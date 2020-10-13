@@ -1,8 +1,9 @@
-module AST where 
+module AST.AST where 
 
-import Lexer
+import Parser.Lexer hiding (Return, Yield)
+import Common.Common
+
 import Data.List
-import Common
 
 
 {--
@@ -106,8 +107,8 @@ instance (Disp a) => Disp (Statement a) where
     disp (Defn s) = disp s
     disp (Expr e) = disp e
     disp (Assignment ident e) = disp ident ++ " = " ++ disp e
-    disp (AST.Return e) = "return " ++ disp e
-    disp (AST.Yield e) = "yield " ++ disp e
+    disp (Return e) = "return " ++ disp e
+    disp (Yield e) = "yield " ++ disp e
 
 newtype AST a = AST [Definition a] deriving (Eq)
 
@@ -124,8 +125,8 @@ mapdefn fn d = d { identifier = fn (identifier d), value = mapexpr fn (value d) 
 mapstmt fn (Defn d) = Defn (mapdefn fn d)
 mapstmt fn (Expr e) = Expr (mapexpr fn e)
 mapstmt fn (Assignment a e) = Assignment (fn a) (mapexpr fn e)
-mapstmt fn (AST.Return r) = AST.Return (mapexpr fn r)
-mapstmt fn (AST.Yield y) = AST.Yield (mapexpr fn y)
+mapstmt fn (Return r) = Return (mapexpr fn r)
+mapstmt fn (Yield y) = Yield (mapexpr fn y)
 mapstmt fn (HSetPtr a e) = HSetPtr (fn a) (mapexpr fn e)
 
 mapexpr :: (a -> b) -> Expression a -> Expression b
@@ -175,6 +176,6 @@ foldms :: Monoid m => (a -> m) -> Statement a -> m
 foldms f (Defn d) = foldmd f d
 foldms f (Expr e) = foldme f e
 foldms f (Assignment a e) = f a <> foldme f e
-foldms f (AST.Return e) = foldme f e
-foldms f (AST.Yield e) = foldme f e
+foldms f (Return e) = foldme f e
+foldms f (Yield e) = foldme f e
 foldms f (HSetPtr a e) = f a <> foldme f e

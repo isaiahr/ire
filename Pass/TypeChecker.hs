@@ -3,19 +3,19 @@
 -}
 
 
-module TypeChecker (passTypeCheck) where
+module Pass.TypeChecker (passTypeCheck) where
 
-import AST
-import Pass
-import NameTyper
-import Common
+import AST.AST
+import Common.Pass
+import Pass.NameTyper
+import Common.Common
 
 passTypeCheck = Pass {pName = ["TypeCheck"], pFunc = checkType}
     where checkType x = case checkAST x of
                              [] -> (mempty, Just x)
                              xs -> (foldr (<>) mempty (map errStr xs), Nothing)
 
-errStr (TypedName t tn, ti) = messageNoLn "TypeCheck" (disp tn <> " declared type " <> disp t <> ", but inferred type is " <> disp ti) Pass.Error
+errStr (TypedName t tn, ti) = messageNoLn "TypeCheck" (disp tn <> " declared type " <> disp t <> ", but inferred type is " <> disp ti) Common.Pass.Error
 
 
 checkAST :: AST TypedName -> [(TypedName, Type)]
@@ -24,7 +24,7 @@ checkAST (AST []) = []
 
 
 checkExpr (Variable a) = []
-checkExpr (FunctionCall a b) = []
+checkExpr (FunctionCall a b) = checkExpr a ++ checkExpr b
 checkExpr (Literal l) = checkLit l
 checkExpr (IfStmt i t e) = checkExpr i ++ checkExpr t ++ checkExpr e
 checkExpr (Block ss) = foldr (++) [] (map checkStmt ss)

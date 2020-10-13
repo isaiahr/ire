@@ -1,8 +1,9 @@
-module ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, collect, collectM, infbuild, parseToken)  where 
+module Parser.ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, collect, collectM, infbuild, parseToken)  where 
 
-import Common
-import Lexer
-import AST
+import Common.Common
+import Parser.Lexer
+import AST.AST
+
 import Control.Applicative
 
 -- result of running a parser on something.

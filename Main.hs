@@ -10,19 +10,18 @@ import System.Exit
 import Data.List
 import Data.Maybe
 
-import Common
-import Pass
-import Lexer
-import Parser
-import ParserCore
-import AST
-import Typer
-import Namer
-import NameTyper
-import TypeChecker
-import FunctionConversion
-import HeapConversion
-import LambdaLift
+import Common.Common
+import Common.Pass
+import Parser.Lexer
+import Parser.Parser
+import AST.AST
+import Pass.Typer
+import Pass.Namer
+import Pass.NameTyper
+import Pass.TypeChecker
+import Pass.FunctionConversion
+import Pass.HeapConversion
+import Pass.LambdaLift
 
 data Options = Options {
     oDumptrees :: Bool,

@@ -1,10 +1,11 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Typer where 
+module Pass.Typer where 
 
-import Common
-import Pass
-import AST
+import Common.Common
+import Common.Pass
+import AST.AST
+
 import Control.Monad.State
 import Data.List
 import qualified Data.Map as Map
