@@ -9,6 +9,7 @@ import Common
 import Data.List
 import Control.Monad.State
 
+-- llvm module
 data LMod = LMod {
     fns :: [LFunction]
 }

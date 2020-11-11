@@ -22,6 +22,8 @@ import Pass.TypeChecker
 import Pass.FunctionConversion
 import Pass.HeapConversion
 import Pass.LambdaLift
+import IR.DirectCall
+import IR.Lowering
 
 data Options = Options {
     oDumptrees :: Bool,
@@ -72,9 +74,9 @@ main = do
                           passName >>>
                           passType >>>
                           passTypeCheck >>>
-                          passFnConv >>>
-                          passHConv >>>
-                          passLLift
+                          passLower >>> 
+                          passDCall
+                          
                    
     let (msg, result) = runPass contents transformations
     let fmsg = if oDumptrees op then msg else filterDbg msg
