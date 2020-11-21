@@ -21,12 +21,14 @@ passLower = Pass {pName = ["AST to IR lowering"], pFunc = runP }
     where runP ast = let r = lower ast in (messageNoLn "AST to IR lowering" (disp r) Debug, Just r)
           
 lower :: AST TypedName -> IR
-lower (AST defs) = IR $ evalState (lowerAll defs) (Context {nameTbl = [], typeTbl = [], nextName = 0})
+lower (AST defs) = let (a, b) = evalState (lowerAll defs) (Context {nameTbl = [], typeTbl = [], nextName = 0}) in IR a b
     where 
-        lowerAll :: [Definition TypedName] -> State Context [TLFunction]
+        lowerAll :: [Definition TypedName] -> State Context ([TLFunction], [(IR.Syntax.Name, IR.Syntax.Type)])
         lowerAll defs = do
             regN defs
-            lowerC defs
+            res <- lowerC defs
+            ctx <- get
+            return (res, typeTbl ctx)
         -- needs to be done first to avoid forward declaration problems
         regN (d:ds) = do
             name <- registerName (identifier d)
@@ -48,7 +50,7 @@ lower (AST defs) = IR $ evalState (lowerAll defs) (Context {nameTbl = [], typeTb
             return []
         
         
-getTypeFunc = do
+getTypeFunc2 = do
     ctx <- get
     let tbl = typeTbl ctx
     let namefunc name = snd $ (filter (\(n, t) -> n == name) tbl) !! 0
@@ -120,12 +122,12 @@ llit (Constant nt) = do
 
 llit (TupleLiteral ea) = do
     nm <- mapM lexp ea
-    nf <- getTypeFunc
+    nf <- getTypeFunc2
     return $ App (Prim (MkTuple (map (\x -> exprType x nf) nm))) nm
 
 llit (ArrayLiteral ea) = do
     nm <- mapM lexp ea
-    nf <- getTypeFunc
+    nf <- getTypeFunc2
     return $ App (Prim (MkArray (map (\x -> exprType x nf) nm))) nm
 
 llit (FunctionLiteral a ex) = do

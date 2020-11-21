@@ -100,12 +100,6 @@ genConsStmt (Assignment a e) = do
     genConsExpr e n2
     return ()
 
-genConsStmt (HSetPtr a e) = do
-    n2 <- newVar a
-    n <- getInt
-    genConsExpr e n
-    mkCons n2 (Ptr (General n))
-    return ()
 -- special semantics, easier to handle in block. 
 genConsStmt (Return r) = error "handled in blk #234235"
 genConsStmt (Yield y) = error "handled in blk #29588"
@@ -137,26 +131,6 @@ genConsExpr (Literal (FunctionLiteral f t)) n = do
     ot <- getFnType
     setFnType (Function (General nf) (General nt))
     genConsExpr t nt
-    setFnType ot
-    return ()
-
-genConsExpr (Literal (Bind a as)) n = do
-    na <- newVar a
-    nin <- getInt
-    nout <- getInt
-    mkCons n (Function (General nin) (General nout))
-    cltys <- bindVars as
-    mkCons na (CFunction (General nin) (map General cltys) (General nout))
-    return ()
-
-genConsExpr (Literal (CFunctionLit a as ex)) n = do
-    na <- newVar a
-    cltys <- bindVars as
-    nex <- getInt
-    mkCons n (CFunction (General na) (map General cltys) (General nex))
-    ot <- getFnType
-    setFnType (Function (General na) (General nex))
-    genConsExpr ex nex
     setFnType ot
     return ()
     
@@ -208,25 +182,6 @@ genConsExpr (Block (s:ss)) n = do
 
 genConsExpr (Block []) n = return ()
 
-genConsExpr (HPtr expr) n = do
-    ne <- getInt
-    mkCons n (Ptr (General ne))
-    genConsExpr expr ne
-    return ()
-
-genConsExpr (HGetPtr a) n = do
-    n2 <- newVar a
-    mkCons n2 (Ptr (General n))
-    return ()
-
-genConsExpr (DirectFnCall a ex) n = do
-    n2 <- newVar a
-    nex <- getInt
-    mkCons n2 (Function (General nex) (General n))
-    genConsExpr ex nex
-    return ()
-
-
 -- PRECONDITION FOR WELL DEFINEDNESS = length e:es == length n:ns. error otherwise.
 genConsExprL (e:es) (n:ns) = do 
     genConsExpr e n
@@ -271,9 +226,6 @@ occursc var (Tuple (t:ts)) = occursc var t || occursc var (Tuple ts)
 occursc var (Tuple []) = False
 occursc var (Function a b) = occursc var a || occursc var b
 occursc var (Bits n) = False
-occursc var (Ptr t) = occursc var t
-occursc var (CFunction t1 (t:ts) t3) = occursc var t || occursc var (CFunction t1 ts t3)
-occursc var (CFunction t1 [] t3) = occursc var t1 || occursc var t3
 
 unify (General a) t2 = if occursc (a) t2 then Occ a t2 else Ss [Sub a t2]
 unify t1 (General b) = if occursc (b) t1 then Occ b t1 else Ss [Sub b t1]
@@ -291,18 +243,6 @@ unify (Tuple (t1:t1s)) (Tuple (t2:t2s)) = do -- liftM2 (++) (unify t1 t2) (unify
     return $ s ++ u
 
 unify (Tuple []) (Tuple []) = Ss []
-
-unify (Ptr t1) (Ptr t2) = unify t1 t2
-
-unify (CFunction t11 (t1:t1s) t13) (CFunction t21 (t2:t2s) t23) = do
-    s <- unify t1 t2
-    u <- unify (subTypeS s (CFunction t11 t1s t13)) (subTypeS s (CFunction t21 t2s t23))
-    return $ s ++ u
-
-unify (CFunction t11 [] t13) (CFunction t21 [] t23) = do
-    s <- unify t11 t21
-    u <- unify (subTypeS s t13) (subTypeS s t23)
-    return $ s ++ u
 
 unify a b = if a == b then Ss [] else Un a b
 
@@ -323,8 +263,6 @@ subType (Sub b ty) (General a) = if a == b then ty else General a
 subType sub (Function f t) = Function (subType sub f) (subType sub t)
 subType sub (Array t) = Array (subType sub t)
 subType sub (Tuple ts) = Tuple (map (subType sub) ts)
-subType sub (Ptr t) = Ptr (subType sub t)
-subType sub (CFunction t1 t2 t3) = CFunction (subType sub t1) (map (subType sub) t2) (subType sub t3)
 subType (Sub b ty) t = t
 
 subTypeS (s:ss) t = subTypeS ss (subType s t)

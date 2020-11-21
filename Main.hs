@@ -19,11 +19,10 @@ import Pass.Typer
 import Pass.Namer
 import Pass.NameTyper
 import Pass.TypeChecker
-import Pass.FunctionConversion
-import Pass.HeapConversion
-import Pass.LambdaLift
 import IR.DirectCall
 import IR.Lowering
+import IR.HeapConversion
+import IR.LambdaLift
 
 data Options = Options {
     oDumptrees :: Bool,
@@ -75,7 +74,9 @@ main = do
                           passType >>>
                           passTypeCheck >>>
                           passLower >>> 
-                          passDCall
+                          passDCall >>>
+                          passHConv >>> 
+                          passLLift
                           
                    
     let (msg, result) = runPass contents transformations

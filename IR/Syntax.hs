@@ -9,7 +9,7 @@ newtype Name = Name Int deriving Eq
 -- top level function. name, clvars, params, expression.
 data TLFunction = TLFunction Name [Name] [Name] Expr 
 
-newtype IR = IR [TLFunction]
+data IR = IR [TLFunction] [(Name, Type)]
 
 data Expr 
     = Var Name -- variable
@@ -49,7 +49,7 @@ data Type
     | Ptr Type deriving Eq
     
 instance Disp IR where
-    disp (IR tls) = intercalate "\n" (map disp tls)
+    disp (IR tls _) = intercalate "\n" (map disp tls)
     
 instance Disp TLFunction where
     disp (TLFunction name cl p ex) = disp name <> " cl: (" <>  intercalate ", " (map disp cl) <> ") p: (" <> intercalate ", " (map disp p)  <> ") ex: " <> disp ex
@@ -92,7 +92,25 @@ instance Disp PrimE where
     disp (SetPtr ty) = "@SetPtr!" <> disp ty
     disp (CreatePtr ty) = "@CreatePtr!" <> disp ty
     
+allNames :: IR -> [Name]
+allNames (IR ((TLFunction name clv params ex):tl) x) = name:(clv ++ params ++ names ex) ++ allNames (IR tl x)
+    where names (Var n) = [n]
+          names (Call n ex) = [n] ++ (magic ex)
+          names (App e ex) = names e ++ magic ex
+          names (Abs nm e) = nm ++ names e
+          names (Close n nm) = n:nm
+          names (Let n e1 e2) = n:(names e1 ++ names e2)
+          names (Prim _) = []
+          names (Assign n e) = n:(names e)
+          names (Seq e1 e2) = names e1 ++ names e2
+          names (If e1 e2 e3) = names e1 ++ names e2 ++ names e3
+          names (Ret e) = names e
+          names (Lit _) = []
+          magic exs = foldl (++) [] (map names exs)
 
+allNames (IR [] x) = []
+nextIntName ir = (foldl largest (Name 0) (allNames ir))
+    where largest (Name a) (Name b) = if a > b then (Name a) else (Name b)
 
 -- determines the type of a expr given a function mapping names to types
 exprType :: Expr -> (Name -> Type) -> Type
@@ -117,6 +135,7 @@ exprType (Lit (VoidL)) nf = Void
 
 exprSubExprs (Var _) = []
 exprSubExprs (Call _ es) = es
+exprSubExprs (App e es) = e:es
 exprSubExprs (Abs _ e) = [e]
 exprSubExprs (Close _ _) = []
 exprSubExprs (Let _ e1 e2) = [e1, e2]
@@ -128,6 +147,7 @@ exprSubExprs (Lit _) = []
 
 rebuild (Var n) news = Var n
 rebuild (Call n _) news = Call n news
+rebuild (App _ _) news = App (head news) (tail news)
 rebuild (Abs n _) news = Abs n (news !! 0)
 rebuild (Close n na) news = Close n na
 rebuild (Let n _ _) news = Let n (news !! 0) (news !! 1)
@@ -136,3 +156,7 @@ rebuild (Assign n _) news = Assign n (news !! 0)
 rebuild (Seq _ _) news = Seq (news !! 0) (news !! 1)
 rebuild (If _ _ _ ) news = If (news !! 0) (news !! 1) (news !! 2)
 rebuild (Lit n) news = Lit n
+
+
+getTypeFunc (IR _ tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
+getTypeFuncTbl (tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
