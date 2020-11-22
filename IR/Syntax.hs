@@ -43,6 +43,7 @@ data LitE
 data Type
     = Tuple [Type] -- cartesion product of types
     | Function [Type] Type
+    | EnvFunction [Type] [Type] Type -- top-level function with environment (second param) (closure)
     | Bits Int
     | Array Type
     | Void
@@ -57,6 +58,7 @@ instance Disp TLFunction where
 instance Disp Type where
     disp (Tuple tys) = "(" <> intercalate ", " (map disp tys) <> ")"
     disp (Function tys to) = "(" <> intercalate ", " (map disp tys) <> ") -> " <> disp to
+    disp (EnvFunction tys a to) = "(" <> intercalate ", " (map disp tys) <> ") -(" <> intercalate ", " (map disp a) <> ")> " <> disp to
     disp (Bits nt) = "i" <> disp nt
     disp (Array ty) = "[" <> disp ty <> "]"
     disp (Void) = "Void"
@@ -119,7 +121,9 @@ exprType (App e1 en) nf = case (exprType e1 nf) of
                                (Function t1 t2) -> t2
                                _ -> error "bad"
 exprType (Abs names ex) nf = Function (map nf names) (exprType ex nf)
-exprType (Close fn nms) nf = nf fn
+exprType (Close fn nms) nf = case nf fn of 
+                                  (EnvFunction a _ b) -> (Function a b)
+                                  _ -> error "closing a non-environment function"
 exprType (Let nm e1 e2) nf = exprType e2 nf
 exprType (Prim (MkTuple t)) nf = Function t (Tuple t)
 exprType (Prim (MkArray t)) nf = Function t (Array (t !! 0))

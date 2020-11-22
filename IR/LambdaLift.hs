@@ -34,10 +34,10 @@ liftTLF (TLFunction n cl p e) = do
 newTLF :: [Name] -> [Name] -> Expr -> State Context Name
 newTLF params clvars ex = do
     (Context mains add tbl nt) <- get
-    let ntl = TLFunction (Name nt) params clvars ex
+    let ntl = TLFunction (Name nt) clvars params ex
     let nf = getTypeFuncTbl tbl
     let retty = exprType ex nf
-    let ty = (Function (map nf params) (retty))
+    let ty = (EnvFunction (map nf params) (map nf clvars) (retty))
     put $ Context mains (ntl:add) ((Name nt, ty):tbl) (nt+1)
     return (Name nt)
 
