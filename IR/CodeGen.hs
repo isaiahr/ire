@@ -9,14 +9,14 @@ import Control.Monad.State
 import IR.Syntax
 
 
-import Debug.Trace
-
 {-
     CodeGen.hs  -- IR to LLVM lowering
     this generates llvm code from the IR.
     some invariants in the IR must be upheld before this can be run
-    1) there cannot be any "Abs" nodes in the IR.
+    1) there cannot be any "Abs" nodes in the IR
         -- run llift to get rid of abs nodes.
+    2) parameters cannot be assigned.
+        -- this should already be done when lowering to IR.
 -} 
 
 {-
@@ -52,23 +52,31 @@ getIRType expr = do
     
 genTLF :: TLFunction -> State Ctx FunctionHeader
 genTLF tlf@(TLFunction (Name nm) clvars params expr) = do
-    clvty <- forM (map Var clvars) getIRType 
     pty <- forM (map Var params) getIRType
     exprty <- getIRType expr
     let text_name = ("Function" ++ disp nm)
-    let fh = createFunction text_name (LLVMFunction (ir2llvmtype exprty) (map ir2llvmtype (clvty ++ pty)))
+    let fh = createFunction text_name (LLVMFunction (ir2llvmtype exprty) ((if null clvars then [] else [LLVMPtr (LLVMPtr (LLVMInt 8))]) ++ map ir2llvmtype (pty)))
     modify $ \ctx -> ctx {ftbl=(tlf, fh):(ftbl ctx), ntbl = (Name nm, LGlob text_name):(ntbl ctx)}
     return fh
 
 genTLFe :: (TLFunction, FunctionHeader) -> State Ctx LFunction
 genTLFe (tlf@(TLFunction name clvars params expr), fh) = do
     promote (writeFunction fh)
-    -- TODO: also generate clvars
-    modify $ \ctx -> ctx {ntbl = (zip params (map LTemp [0..((length params) - 1)])) ++ ntbl ctx}
-    lv <- genE expr
-    exprty <- getIRType expr 
-    promote (createRet (ir2llvmtype exprty) lv)
-    promote $ closeFunction fh
+    -- NOTE: might not work.
+    if not $ null clvars then do
+        clvty <- forM (map Var clvars) getIRType
+        clvars' <- forM (zip (map ir2llvmtype clvty) [(length params +1)..(length clvars + length params)]) (helper1 (LTemp 0))
+        modify $ \ctx -> ctx {ntbl = (zip params (map LTemp [1..((length params))])) ++ (zip clvars (map LTemp [(length params +1)..(length clvars + length params)])) ++ ntbl ctx}
+        lv <- genE expr
+        exprty <- getIRType expr 
+        promote (createRet (ir2llvmtype exprty) lv)
+        promote $ closeFunction fh    
+                         else do
+        modify $ \ctx -> ctx {ntbl = (zip params (map LTemp [0..((length params) - 1)])) ++ ntbl ctx}
+        lv <- genE expr
+        exprty <- getIRType expr 
+        promote (createRet (ir2llvmtype exprty) lv)
+        promote $ closeFunction fh
     
 
 genE ::  Expr -> State Ctx LValue
@@ -92,11 +100,21 @@ genE (Seq e1 e2) = do
     e2' <- genE e2
     return e2'
 
+{-
+N.B. (GenE vars):
+here there is special logic for parameters. since parameters arent stack allocated (ptrs), 
+we dont load them. instead, just return the lvalue for them.
+-}
+
 genE (Var n) = do
     lvn <- lookupName n
-    ty <- getIRType (Var n)
-    resultlv <- promote $ createLoad (ir2llvmtype ty) (lvn)
-    return resultlv
+    ctx <- get
+    if not $ null (filter (\(TLFunction n cl p e, _) -> n `elem` p ) (ftbl ctx)) then do
+        ty <- getIRType (Var n)
+        resultlv <- promote $ createLoad (ir2llvmtype ty) (lvn)
+        return resultlv
+                                                                            else do
+        return lvn
 
 genE (Call name exprs) = do
     function_lvalue <- lookupName name
@@ -171,7 +189,7 @@ genE (Close function names) = do
     let ftyl = ir2llvmtype fty
     function_lv <- lookupName function
     part1 <- promote $ createInsertValue (LLVMStruct False [LLVMPtr ftyl, LLVMPtr (LLVMPtr (LLVMInt 8))]) (LUndef) (LLVMPtr ftyl) function_lv 0
-    env <- promote $ createAllocas (LLVMPtr (LLVMInt 8)) (length names)
+    env <- promote $ createAllocas (LLVMPtr (LLVMInt 8)) (LLVMInt 64) (length names)
     forM (zip3 nlv ntyl [0..((length names)-1)]) (helper0 env)
     part2 <- promote $ createInsertValue (LLVMStruct False [LLVMPtr ftyl, LLVMPtr (LLVMPtr (LLVMInt 8))]) part1 (LLVMPtr (LLVMPtr (LLVMInt 8))) env 1
     return part2
@@ -183,16 +201,26 @@ genE (Abs n e) = do
     
 genE _ = error "not yet implemented"
 
+--helper0 and helper1 are to help packing / unpacking bigptr, which is the closure env, into typed closure variables.
+
 helper0 :: LValue -> (LValue, LType, Int) -> State Ctx ()
 helper0 bigptr (name, ty, idx) = do
     lv0 <- promote $ createBitcast ty name (LLVMPtr (LLVMInt 8))
     lv1 <- promote $ createGEP (LLVMPtr (LLVMInt 8)) bigptr [idx]
     promote $ createStore ty lv0 lv1
 
+-- opposite of helper0
+helper1 :: LValue -> (LType, Int) -> State Ctx LValue
+helper1 bigptr (ty, idx) = do
+    lv0 <- promote $ createGEP (LLVMPtr (LLVMPtr (LLVMInt 8))) bigptr [idx]
+    lv1 <- promote $ createLoad (LLVMPtr (LLVMInt 8)) lv0
+    result <- promote $ createBitcast (LLVMPtr (LLVMInt 8)) lv1 ty
+    return result
+
 lookupName :: Name -> State Ctx LValue
 lookupName name = do
     st <- get
-    trace (disp name) return $ snd $ (filter (\(n, t) -> n == name) (ntbl st)) !! 0
+    return $ snd $ (filter (\(n, t) -> n == name) (ntbl st)) !! 0
 
 createName :: Name -> LValue -> State Ctx ()
 createName name lv = do

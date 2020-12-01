@@ -77,6 +77,14 @@ registerEName tn = do
     where findin tn ((t, n):r) = if tn == t then n else (findin tn r)
           findin tn [] = error "registerEName non-existing name"
 
+-- create new name, but not associated w/ an ast variable
+newName :: AST.AST.Type -> State Context IR.Syntax.Name
+newName typ = do
+    ctx <- get
+    let nm = nextName ctx
+    put $ ctx { typeTbl = (IR.Syntax.Name nm, (convTy typ)):(typeTbl ctx),  nextName = nm + 1 }
+    return (IR.Syntax.Name nm)
+
 lexp (Literal l) = do
     nexp <- llit l
     return nexp
@@ -130,7 +138,17 @@ llit (ArrayLiteral ea) = do
     nf <- getTypeFunc2
     return $ App (Prim (MkArray (map (\x -> exprType x nf) nm))) nm
 
-llit (FunctionLiteral a ex) = do
+{--
+N.B. (FunctionLiteral lowering): 
+here we introduce a new name for the param, and let the old param be assigned to the new one here.
+why? this simplifies some processes. for example in heap conversion, we don't have to worry about parameters being captured,
+since the new variable will be promoted to heap instead, and the function signature will not change.
+this also simplifies llvm codegen.
+clang also does this. 
+-}
+    
+llit (FunctionLiteral a@(TypedName ty _) ex) = do
     newname <- registerName a
     nex <- lexp ex
-    return $ Abs [newname] nex
+    newparam <- newName ty
+    return $ Abs [newparam] (Let newname (Var newparam) nex)

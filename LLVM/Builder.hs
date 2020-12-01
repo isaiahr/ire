@@ -88,12 +88,12 @@ createLoad ty val = do
 
 createAlloca ty = do
     ret <- newValue
-    addInst $ LAlloca ret ty ty 1
+    addInst $ LAlloca ret ty (LLVMInt 64) 1
     return ret
     
-createAllocas ty nelem = do
+createAllocas ty ty2 nelem = do
     ret <- newValue
-    addInst $ LAlloca ret ty ty nelem
+    addInst $ LAlloca ret ty ty2 nelem
     return ret
 
     
