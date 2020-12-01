@@ -1,7 +1,7 @@
 module LLVM.Types where
 
 import Data.List
-import Common
+import Common.Common
 
 data LType = 
     LLVMInt Int |

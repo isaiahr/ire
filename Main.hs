@@ -23,6 +23,7 @@ import IR.DirectCall
 import IR.Lowering
 import IR.HeapConversion
 import IR.LambdaLift
+import IR.CodeGen
 
 data Options = Options {
     oDumptrees :: Bool,
@@ -68,15 +69,16 @@ main = do
     op <- process a pn
     let filename = oInput op
     contents <- readFile filename 
-    let transformations = passLexer >>>
-                          passParse >>>
-                          passName >>>
-                          passType >>>
-                          passTypeCheck >>>
-                          passLower >>> 
-                          passDCall >>>
-                          passHConv >>> 
-                          passLLift
+    let transformations = passLexer >>> -- plaintext -> tokens
+                          passParse >>> -- tokens -> ast<string>
+                          passName >>> -- ast<string> -> ast<name>
+                          passType >>> -- ast<name> -> ast<typedname>
+                          passTypeCheck >>> -- ast<typedname> -> ast<typedname>, ensures type annotation correctness
+                          passLower >>>  -- ast<typedname> -> IR
+                          passDCall >>> -- IR -> IR, direct call conversion
+                          passHConv >>> -- IR -> IR, promote freevars to heap 
+                          passLLift >>> -- IR -> IR, lift nested functions to top level
+                          passGenLLVM -- IR -> LLVM
                           
                    
     let (msg, result) = runPass contents transformations

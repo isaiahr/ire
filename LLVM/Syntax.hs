@@ -3,8 +3,8 @@
 -- llvm abstract syntax tree
 module LLVM.Syntax where 
 
-import Types
-import Common
+import LLVM.Types
+import Common.Common
 
 import Data.List
 import Control.Monad.State
@@ -17,16 +17,19 @@ data LMod = LMod {
 data LFunction = LFunction {
     fName :: String,
     fType :: LType,
-    fBody :: [LStmt]
+    fBody :: [LInst]
 }
 
+instance Disp LMod where 
+    disp lm = intercalate "\n" (map disp (fns lm))
+
 instance Disp LFunction where
-    disp lf = "define " <> retty <> " @" <> fName lf <> "(" <> paramty <> "){\n" <> intercalate "\n" (map disp (fBody lf))
+    disp lf = "define " <> retty <> " @" <> fName lf <> "(" <> paramty <> "){\n" <> intercalate "\n" (map disp (fBody lf)) <> "\n}"
         where (retty, paramty) = case (fType lf) of 
                                       LLVMFunction ty1 ty2 -> (disp ty1, intercalate ", " (map disp ty2))
                                       _ -> error "Function with non-function ty" 
 
-data LStmt 
+data LInst
     = LRet LType LValue -- ret ty val
     | LAdd LValue LType LValue LValue Bool Bool -- val = add ty v1 v2 nuw nsw
     | LSub LValue LType LValue LValue Bool Bool -- val = sub ty v1 v2 nuw nsw
@@ -35,8 +38,13 @@ data LStmt
     | LGEP LValue Bool LType LType LValue [Int] -- val = getelementptr inbounds ty ty* v [i64 i[0], i64 i[1] etc]
     | LLoad LValue LType LType LValue -- val = load ty ty* v
     | LStore Bool LType LValue LType LValue -- store volatile ty v ty* ptr
+    | LCall LValue LType LValue [(LType, LValue)]
+    | LAlloca LValue LType LType Int
+    | LExtractValue LValue LType LValue Int
+    | LInsertValue LValue LType LValue LType LValue Int
+    | LBitcast LValue LType LValue LType
 
-instance Disp LStmt where
+instance Disp LInst where
     disp (LRet ty val) = "ret " <> disp ty <> " " <> disp val
     disp (LAdd v ty v1 v2 False False) = disp v <> " = add " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LAdd v ty v1 v2 True False) = disp v <> " = add nuw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
@@ -56,29 +64,18 @@ instance Disp LStmt where
     disp (LLoad v ty1 ty2 val) = disp v <> " = load " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val
     disp (LStore True ty1 v1 ty2 v2) = "store volatile " <> disp ty1 <> " " <> disp v1 <> ", " <> disp ty2 <> " " <> disp v2
     disp (LStore False ty1 v1 ty2 v2) = "store " <> disp ty1 <> " " <> disp v1 <> ", " <> disp ty2 <> " " <> disp v2
+    disp (LCall v ty fn params) = disp v <> " = call " <> disp ty <> " " <> disp fn <> " " <> intercalate ", " (map (\(ty, v) -> disp ty <> " " <> disp v) params) <> ")"
+    disp (LAlloca v ty ty2 num) = disp v <> " = alloca " <> disp ty <> ", " <> disp ty2 <> " " <> disp num
+    disp (LExtractValue v ty v1 idx) = disp v <> " = extractvalue " <> disp ty <> " " <> disp v1 <> ", " <> disp idx
+    disp (LInsertValue v ty v1 ty1 v2 idx) = disp v <> " = insertvalue " <> disp ty <> " " <> disp v1 <> ", " <> disp ty1 <> " " <> disp v2 <> ", " <> disp idx
+    disp (LBitcast v ty v1 ty2) = disp v <> " = bitcast " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
 
-data LValue = LValue Int
+data LValue = LTemp Int | LGlob String | LIntLit Int | LUndef | LVoid
 
 instance Disp LValue where
-    disp (LValue h) = "%" <> disp h
+    disp (LTemp h) = "%" <> disp h
+    disp (LGlob s) = "@" <> disp s
+    disp (LIntLit nt) = disp nt
+    disp (LUndef) = "undef"
+    disp (LVoid) = "void"
     
-
--- LLVMFunctionContext
-data LFnCtx = LFnCtx LFunction Int
-    
-createFunction name ty = LFunction{fName = name, fType = ty, fBody = []}
-
-addStmt stmt (LFnCtx fn i) = LFnCtx (fn { fBody = fBody fn <> [stmt] }) i
-
-{- create functions.
-here the returned value is a new value which the instruction returns to, if applicable.
-mutates the fn ctx to accomadate temp
--}
-createRet ty val = state $ \x -> ((), addStmt (LRet ty val) x)
-createAdd ty v1 v2 = state $ \(LFnCtx fn i) -> (LValue i, addStmt (LAdd (LValue i) ty v1 v2 False False) (LFnCtx fn (i+1)))
-createSub ty v1 v2 = state $ \(LFnCtx fn i) -> (LValue i, addStmt (LSub (LValue i) ty v1 v2 False False) (LFnCtx fn (i+1)))
-createMul ty v1 v2 = state $ \(LFnCtx fn i) -> (LValue i, addStmt (LMul (LValue i) ty v1 v2 False False) (LFnCtx fn (i+1)))
-createAnd ty v1 v2 = state $ \(LFnCtx fn i) -> (LValue i, addStmt (LAnd (LValue i) ty v1 v2) (LFnCtx fn (i+1)))
-createGEP ty v lnt = state $ \(LFnCtx fn i) -> (LValue i, addStmt (LGEP (LValue i) True ty (LLVMPtr ty) v lnt) (LFnCtx fn (i+1)))
-createLoad ty v = state $ \(LFnCtx fn i) -> (LValue i, addStmt (LLoad (LValue i) ty (LLVMPtr ty) v) (LFnCtx fn (i+1)))
-createStore ty val ptr = state $ \(LFnCtx fn i) -> ((), addStmt (LStore False ty val (LLVMPtr ty) ptr) (LFnCtx fn i))
