@@ -11,23 +11,44 @@ import Control.Monad.State
 
 -- llvm module
 data LMod = LMod {
-    fns :: [LFunction]
+    fns :: [LFunction],
+    sourcefn :: Maybe String,
+    targetdatalayout :: Maybe String,
+    targettriple :: Maybe String,
+    compilerident :: Maybe String
 }
 
 data LFunction = LFunction {
     fName :: String,
     fType :: LType,
-    fBody :: [LInst]
+    fBody :: [LBasicBlock]
 }
 
+type LLabel = String
+
+data LBasicBlock = LBasicBlock {
+    bbLabel :: LLabel,
+    bbInsts :: [LInst]
+}
+
+
+
 instance Disp LMod where 
-    disp lm = intercalate "\n" (map disp (fns lm))
+    disp lm = mdisp "source_filename = \"" (sourcefn lm) "\"\n" <>
+                  mdisp "target datalayout = \"" (targetdatalayout lm) "\"\n" <>
+                  mdisp "target triple =\"" (targettriple lm) "\"\n" <> "\n\n" <> (intercalate "\n" (map disp (fns lm))) <>
+                  mdisp "\n\n!llvm.ident = !{!0}\n\n!0 = !{!\"" (compilerident lm) "\"}"
+        where mdisp prefix (Just d) postfix = prefix <> disp d <> postfix
+              mdisp prefix (Nothing) postfix = mempty
 
 instance Disp LFunction where
     disp lf = "define " <> retty <> " @" <> fName lf <> "(" <> paramty <> "){\n" <> intercalate "\n" (map disp (fBody lf)) <> "\n}"
         where (retty, paramty) = case (fType lf) of 
                                       LLVMFunction ty1 ty2 -> (disp ty1, intercalate ", " (map disp ty2))
                                       _ -> error "Function with non-function ty" 
+
+instance Disp LBasicBlock where
+    disp lb = "  " <> (bbLabel lb) <> ":\n  " <> (intercalate "\n  " (map disp (bbInsts lb)))
 
 data LInst
     = LRet LType LValue -- ret ty val
@@ -43,6 +64,9 @@ data LInst
     | LExtractValue LValue LType LValue Int
     | LInsertValue LValue LType LValue LType LValue Int
     | LBitcast LValue LType LValue LType
+    | LCBr LValue LLabel LLabel -- conditional branch
+    | LUBr LLabel -- unconditional branch
+    | LPhi LValue LType [(LValue, LLabel)]
 
 instance Disp LInst where
     disp (LRet ty val) = "ret " <> disp ty <> " " <> disp val
@@ -69,8 +93,11 @@ instance Disp LInst where
     disp (LExtractValue v ty v1 idx) = disp v <> " = extractvalue " <> disp ty <> " " <> disp v1 <> ", " <> disp idx
     disp (LInsertValue v ty v1 ty1 v2 idx) = disp v <> " = insertvalue " <> disp ty <> " " <> disp v1 <> ", " <> disp ty1 <> " " <> disp v2 <> ", " <> disp idx
     disp (LBitcast v ty v1 ty2) = disp v <> " = bitcast " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
+    disp (LCBr lv lbltrue lblfalse) = "br i1 " <> disp lv <> ", label " <> disp lbltrue <> ", label " <> disp lblfalse
+    disp (LUBr lbl) = "br label " <> disp lbl
+    disp (LPhi v ty vals) = disp v <> " = phi " <> disp ty <> " " <> intercalate ", " (map (\(lv, lbl) -> "[" <> disp lv <> ", " <> disp lbl <> "]") vals)
 
-data LValue = LTemp Int | LGlob String | LIntLit Int | LUndef | LVoid
+data LValue = LTemp String | LGlob String | LIntLit Int | LUndef | LVoid
 
 instance Disp LValue where
     disp (LTemp h) = "%" <> disp h

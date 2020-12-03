@@ -1,3 +1,7 @@
+{-# LANGUAGE CPP #-}
+
+#include "../build/commitid.h"
+
 module IR.CodeGen (passGenLLVM) where
 
 import LLVM.Builder
@@ -7,7 +11,6 @@ import Common.Pass
 import Common.Common
 import Control.Monad.State
 import IR.Syntax
-
 
 {-
     CodeGen.hs  -- IR to LLVM lowering
@@ -42,7 +45,7 @@ genLLVM (IR tl tbl) = evalState (genLLVM2 tl) (Ctx { tytbl = [], ntbl = [], tyf 
 genLLVM2 tlfs = do
     fhs <- forM tlfs genTLF
     lfs <- forM (zip tlfs fhs) genTLFe
-    return $ createLLVMModule lfs
+    return $ createLLVMModule "todo: make filename available" ("irec " <> VERSION_STRING <> " commit " <> COMMIT_ID)  lfs
     --- do things
 
 getIRType :: Expr -> State Ctx Type
@@ -65,14 +68,14 @@ genTLFe (tlf@(TLFunction name clvars params expr), fh) = do
     -- NOTE: might not work.
     if not $ null clvars then do
         clvty <- forM (map Var clvars) getIRType
-        clvars' <- forM (zip (map ir2llvmtype clvty) [(length params +1)..(length clvars + length params)]) (helper1 (LTemp 0))
-        modify $ \ctx -> ctx {ntbl = (zip params (map LTemp [1..((length params))])) ++ (zip clvars (map LTemp [(length params +1)..(length clvars + length params)])) ++ ntbl ctx}
+        clvars' <- forM (zip (map ir2llvmtype clvty) [(length params +1)..(length clvars + length params)]) (helper1 (LTemp "0"))
+        modify $ \ctx -> ctx {ntbl = (zip params (map (LTemp . show) [1..((length params))])) ++ (zip clvars (map (LTemp . show) [(length params +1)..(length clvars + length params)])) ++ ntbl ctx}
         lv <- genE expr
         exprty <- getIRType expr 
         promote (createRet (ir2llvmtype exprty) lv)
         promote $ closeFunction fh    
                          else do
-        modify $ \ctx -> ctx {ntbl = (zip params (map LTemp [0..((length params) - 1)])) ++ ntbl ctx}
+        modify $ \ctx -> ctx {ntbl = (zip params (map (LTemp . show) [0..((length params) - 1)])) ++ ntbl ctx}
         lv <- genE expr
         exprty <- getIRType expr 
         promote (createRet (ir2llvmtype exprty) lv)
@@ -109,7 +112,10 @@ we dont load them. instead, just return the lvalue for them.
 genE (Var n) = do
     lvn <- lookupName n
     ctx <- get
-    if not $ null (filter (\(TLFunction n cl p e, _) -> n `elem` p ) (ftbl ctx)) then do
+    -- if the variable is a parameter of the function, don't create a load for it. 
+    -- (so if the list of functions that have var in the list of parameters is empty, the var isnt param,
+    --  and we can create load. otherwise, it isn't 
+    if null (filter (\(TLFunction _ cl p e, _) ->  n `elem` p ) (ftbl ctx)) then do
         ty <- getIRType (Var n)
         resultlv <- promote $ createLoad (ir2llvmtype ty) (lvn)
         return resultlv
@@ -199,7 +205,23 @@ genE (Abs n e) = do
     return (error "INVARIANT: Cannot have Abs nodes when generating llvm! run `lambdalift` pass to get rid of Abs nodes")
     
     
-genE _ = error "not yet implemented"
+genE (If cond e1 e2) = do
+    condlv <- genE cond
+    bbe1 <- promote generateBB
+    bbe2 <- promote generateBB
+    bbend <- promote generateBB
+    promote $ createConditionalBr condlv bbe1 bbe2
+    promote $ useBB bbe1
+    e1' <- genE e1
+    promote $ createUnconditionalBr bbend
+    promote $ useBB bbe2
+    e2' <- genE e2
+    promote $ createUnconditionalBr bbend
+    promote $ useBB bbend
+    ty <- getIRType e1
+    let tyllvm = ir2llvmtype ty
+    result <- promote $ createPhi tyllvm [(e1', bbe1), (e2', bbe2)]
+    return result
 
 --helper0 and helper1 are to help packing / unpacking bigptr, which is the closure env, into typed closure variables.
 

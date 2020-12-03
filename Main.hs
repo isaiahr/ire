@@ -82,9 +82,18 @@ main = do
                           
                    
     let (msg, result) = runPass contents transformations
+    writeOutput (oOutput op) result
     let fmsg = if oDumptrees op then msg else filterDbg msg
     putStrLn $ disp fmsg
     return exitSuccess
 
+    
 process a pn =  catchIOError (opts a pn) (\x -> putStrLn (ioeGetErrorString x) >> exitFailure) >>= return
 
+
+writeOutput _ Nothing = return ()
+writeOutput Nothing _ = return () -- for now.
+
+writeOutput (Just outfile) (Just llvm) = do
+    writeFile outfile (disp llvm)
+    

@@ -13,23 +13,27 @@ import LLVM.Types
 -- irbuilder monad
 type LLVMBodyM a = State BodyCtx a
 
-data BodyCtx = BodyCtx { curLValue :: Int, body :: [LInst] } 
+data BodyCtx = BodyCtx { curLValue :: Int, curBCount :: Int, body :: [LBasicBlock] } 
 
 newValue :: LLVMBodyM LValue
 newValue = do
     cur <- get
     let lv = curLValue cur
     put $ cur {curLValue = lv + 1 } 
-    return $ LTemp lv
+    return $ LTemp (show lv)
 
 addInst :: LInst -> LLVMBodyM ()
 addInst inst = do
-    modify $ \x -> x {body = body x <> [inst]}
+    -- ugly looking w/o lenses. 
+    ctx <- get
+    let cur = last $ body ctx
+    let new = cur { bbInsts = bbInsts cur <> [inst] }
+    put $ ctx {body = (init (body ctx)) <> [new]}
     return ()
     
 
-createLLVMModule :: [LFunction] -> LMod
-createLLVMModule lf = LMod { fns = lf }
+createLLVMModule :: String -> String -> [LFunction] -> LMod
+createLLVMModule fn ident lf = LMod { sourcefn = Just fn, targetdatalayout = Nothing, targettriple = Nothing, compilerident = Just ident, fns = lf }
 
 
 data FunctionHeader = FunctionHeader { name :: String, retty :: LType, paramty :: [LType] }
@@ -37,10 +41,12 @@ data FunctionHeader = FunctionHeader { name :: String, retty :: LType, paramty :
 createFunction :: String -> LType -> FunctionHeader
 createFunction name (LLVMFunction retty party) = FunctionHeader { name = name, retty = retty, paramty = party }
 
--- opens the function for writing code into the body
+-- opens the function for writing code into the body, and starts the first basic block.
 writeFunction :: FunctionHeader -> LLVMBodyM ()
 writeFunction fh = do
-    put $ BodyCtx { curLValue = length (paramty fh), body = [] }
+    put $ BodyCtx { curLValue = length (paramty fh), curBCount = 0, body = [] }
+    initial <- generateBB
+    useBB initial
     return ()
 
 closeFunction :: FunctionHeader -> LLVMBodyM LFunction
@@ -49,7 +55,22 @@ closeFunction fh = do
     return LFunction { fName = name fh,  fType = LLVMFunction (retty fh) (paramty fh), fBody = body bodym} 
 
 getParams :: FunctionHeader -> [LValue]
-getParams fh = map LTemp [0..((length (paramty fh))-1)]
+getParams fh = map (LTemp . show) [0..((length (paramty fh))-1)]
+
+
+-- generates basicblock and updates count, but new insts do not go to this one.
+generateBB :: LLVMBodyM LBasicBlock
+generateBB = do
+    ctx4 <- get
+    let bb =  LBasicBlock { bbLabel = "bb" <> show (curBCount ctx4), bbInsts = [] }
+    modify $ \ctx -> ctx { curBCount = 1 + curBCount ctx }
+    return bb
+
+-- puts new created insts (from now on) in the param bb.
+useBB :: LBasicBlock -> LLVMBodyM ()
+useBB bb = do
+    modify $ \ctx -> ctx { body = (body ctx) ++ [bb] }
+    return ()
 
 createRet :: LType -> LValue -> LLVMBodyM ()
 createRet ty val = do
@@ -116,4 +137,16 @@ createGEP ty v idx = do
     ret <- newValue
     addInst (LGEP ret True ty (LLVMPtr ty) v idx)
     return ret
+
+createConditionalBr cond bbtrue bbfalse = do
+    addInst (LCBr cond (bbLabel bbtrue) (bbLabel bbfalse))
+    return ()
     
+createUnconditionalBr label = do
+    addInst (LUBr (bbLabel label))
+    return ()
+
+createPhi ty vals = do
+    ret <- newValue
+    addInst (LPhi ret ty (map (\(x, bb) -> (x, bbLabel bb)) vals))
+    return ret
