@@ -37,7 +37,7 @@ instance Disp Type where
     disp (General g) = "$" ++ disp g
 
 
-data Definition a = Definition {identifier :: a,  typeof :: Maybe Type, value :: Expression a} deriving (Eq)
+data Definition a = Definition {identifier :: PatternMatching a,  typeof :: Maybe Type, value :: Expression a} deriving (Eq)
 
 instance (Disp a) => Disp (Definition a) where
     disp def = disp (identifier def) ++ ": " ++ shw (typeof def) ++ " = " ++ disp (value def)
@@ -65,7 +65,9 @@ data Literal a =
                  ArrayLiteral [Expression a] |
                  TupleLiteral [Expression a] |
                  RecordLiteral [(String, Expression a)] |
-                 FunctionLiteral a (Expression a) deriving (Eq)
+                 FunctionLiteral (PatternMatching a) (Expression a) deriving (Eq)
+
+
 
 instance (Disp a) => Disp (Literal a) where
     disp (Constant i) = disp i
@@ -77,7 +79,7 @@ instance (Disp a) => Disp (Literal a) where
 data Statement a = 
                    Defn (Definition a) | -- a := expr
                    Expr (Expression a) | -- expr
-                   Assignment a (Expression a) | -- a = expr
+                   Assignment (PatternMatching a) (Expression a) | -- a = expr
                    Return (Expression a) | -- return expr
                    Yield (Expression a) deriving (Eq) -- yield expr
 
@@ -87,6 +89,19 @@ instance (Disp a) => Disp (Statement a) where
     disp (Assignment ident e) = disp ident ++ " = " ++ disp e
     disp (Return e) = "return " ++ disp e
     disp (Yield e) = "yield " ++ disp e
+
+-- pattern matching. this is lhs of some stmts, like
+-- in assignment, we can have a = b, or (x,y) = somerhs.
+-- or in defn, (x,y) := (2,5)
+-- or in func definition, \(x,y) -> x + y 
+
+data PatternMatching a = 
+                         Plain a | -- "plain", no pattern matching.
+                         TupleUnboxing [a] deriving (Eq) -- "tuple unboxing", so binding tuples' vars to vars
+
+instance (Disp a) => (Disp (PatternMatching a)) where
+    disp (Plain a) = disp a
+    disp (TupleUnboxing a) = "(" <> intercalate ", " (map disp a) <> ")"
 
 newtype AST a = AST [Definition a] deriving (Eq)
 
@@ -98,11 +113,11 @@ instance Functor AST where
     fmap fn (AST ds) = AST (map (mapdefn fn) ds)
 
 mapdefn :: (a -> b) -> Definition a -> Definition b
-mapdefn fn d = d { identifier = fn (identifier d), value = mapexpr fn (value d) }
+mapdefn fn d = d { identifier = mappat fn (identifier d), value = mapexpr fn (value d) }
 
 mapstmt fn (Defn d) = Defn (mapdefn fn d)
 mapstmt fn (Expr e) = Expr (mapexpr fn e)
-mapstmt fn (Assignment a e) = Assignment (fn a) (mapexpr fn e)
+mapstmt fn (Assignment a e) = Assignment (mappat fn a) (mapexpr fn e)
 mapstmt fn (Return r) = Return (mapexpr fn r)
 mapstmt fn (Yield y) = Yield (mapexpr fn y)
 
@@ -115,15 +130,18 @@ mapexpr fn (Block ss) = Block (map (mapstmt fn) ss)
 
 mapliteral fn (ArrayLiteral a) = ArrayLiteral (map (mapexpr fn) a)
 mapliteral fn (TupleLiteral a) = TupleLiteral (map (mapexpr fn) a)
-mapliteral fn (FunctionLiteral a b) = FunctionLiteral (fn a) (mapexpr fn b)
+mapliteral fn (FunctionLiteral a b) = FunctionLiteral (mappat fn a) (mapexpr fn b)
 mapliteral fn (Constant nt) = Constant nt
+
+mappat fn (Plain a) = Plain (fn a)
+mappat fn (TupleUnboxing a) = TupleUnboxing (map fn a)
 
 instance Foldable AST where
     foldMap f (AST (d:ds)) = (foldmd f d) <> foldMap f (AST ds)
     foldMap f (AST []) = mempty
     
 foldmd :: Monoid m => (a -> m) -> Definition a -> m
-foldmd f defn = f (identifier defn) <> (foldme f (value defn))
+foldmd f defn = foldpat f (identifier defn) <> (foldme f (value defn))
 
 foldme :: Monoid m => (a -> m) -> Expression a -> m
 foldme f (Variable a) = f a
@@ -136,12 +154,16 @@ foldme f (IfStmt i t e) = foldme f i <> foldme f t <> foldme f e
 foldml :: Monoid m => (a -> m) -> Literal a -> m
 foldml f (ArrayLiteral a) = foldMap (\x -> foldme f x) a
 foldml f (TupleLiteral a) = foldMap (\x -> foldme f x) a
-foldml f (FunctionLiteral a b) = f a <> (foldme f b)
+foldml f (FunctionLiteral a b) = foldpat f a <> (foldme f b)
 foldml f (Constant nt) = mempty
 
 foldms :: Monoid m => (a -> m) -> Statement a -> m
 foldms f (Defn d) = foldmd f d
 foldms f (Expr e) = foldme f e
-foldms f (Assignment a e) = f a <> foldme f e
+foldms f (Assignment a e) = foldpat f a <> foldme f e
 foldms f (Return e) = foldme f e
 foldms f (Yield e) = foldme f e
+
+-- NOTE: can use foldr here as this is associative, so idk which has best performance? 
+foldpat f (Plain a) = f a 
+foldpat f (TupleUnboxing as) = foldMap f as

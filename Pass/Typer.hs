@@ -81,9 +81,17 @@ genCons (AST []) = return ()
 -- genConsDef :: Definition a -> State (ConstraintTbl a) b
 genConsDef :: (Eq a1) => Definition a1 -> State (ConstraintTbl a1) ()
 genConsDef d = do
-    n <- newVar (identifier d)
-    genConsExpr (value d) n
-    return ()
+    case (identifier d) of
+         (Plain s) -> do 
+             n <- newVar s
+             genConsExpr (value d) n
+             return ()
+         (TupleUnboxing ss) -> do
+             ns <- forM ss newVar
+             tc <- getInt
+             mkCons tc (Tuple (fmap General ns))
+             genConsExpr (value d) tc
+             return ()
 
 genConsStmt (Expr e) = do
     n <- getInt
@@ -96,9 +104,17 @@ genConsStmt (Defn d) = do
     return ()
 
 genConsStmt (Assignment a e) = do
-    n2 <- newVar a
-    genConsExpr e n2
-    return ()
+    case a of
+         (Plain s) -> do 
+             n <- newVar s
+             genConsExpr e n
+             return ()
+         (TupleUnboxing ss) -> do
+             ns <- forM ss newVar
+             tc <- getInt
+             mkCons tc (Tuple (fmap General ns))
+             genConsExpr e tc
+             return ()
 
 -- special semantics, easier to handle in block. 
 genConsStmt (Return r) = error "handled in blk #234235"
@@ -125,7 +141,15 @@ genConsExpr (Literal (TupleLiteral rs)) n = do
     return ()
 
 genConsExpr (Literal (FunctionLiteral f t)) n = do
-    nf <- newVar f
+    nf <- case f of
+               (Plain s) -> do 
+                   nf0 <- newVar s
+                   return nf0
+               (TupleUnboxing ss) -> do
+                   ns <- forM ss newVar
+                   tc <- getInt
+                   mkCons tc (Tuple (fmap General ns))
+                   return tc
     nt <- getInt
     mkCons n (Function (General nf) (General nt))
     ot <- getFnType

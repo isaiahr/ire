@@ -42,7 +42,9 @@ checkLit (FunctionLiteral a b) = checkExpr b
 
 
 checkDefn d = case typeof d of
-                   Just t ->  if (ty (identifier d)) == t then [] else [(identifier d, t)]
+                   Just t -> case (identifier d) of
+                                  (Plain v) -> if (ty v) == t then [] else [(v, t)]
+                                  (TupleUnboxing vars) -> error "No support for annotating tuples yet"
                    Nothing -> []
 
 ty (TypedName t nm) = t

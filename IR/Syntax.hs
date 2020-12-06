@@ -29,6 +29,7 @@ data Expr
 data PrimE
     = MkTuple [Type] -- primitive function, int -> arity. so (1,2,3) would be App (MkTuple 3, 1, 2, 3)
     | MkArray [Type] -- primitive function, create array with n > 0 elems
+    | GetTupleElem Type Int -- prim to get nth elem from tuple of type
     | GetPtr Type -- primitive function to derefence pointers
     | SetPtr Type -- primitive function to update pointed-to data
     | CreatePtr Type -- primitive function to create pointers 
@@ -90,6 +91,7 @@ instance Disp LitE where
 instance Disp PrimE where
     disp (MkTuple ty) = "@MkTuple!(" <> (intercalate ", " (map disp ty)) <> ")"
     disp (MkArray ty) = "@MkArray!(" <> (intercalate ", " (map disp ty)) <> ")"
+    disp (GetTupleElem ty indx) = "@GetTupleElem!(" <> disp ty <> ", " <> disp indx <> ")"
     disp (GetPtr ty) = "@GetPtr!" <> disp ty
     disp (SetPtr ty) = "@SetPtr!" <> disp ty
     disp (CreatePtr ty) = "@CreatePtr!" <> disp ty
@@ -130,6 +132,7 @@ exprType (Prim (MkArray t)) nf = Function t (Array (t !! 0))
 exprType (Prim (GetPtr t)) nf = Function [Ptr t] t
 exprType (Prim (SetPtr t)) nf = Function [Ptr t, t] Void
 exprType (Prim (CreatePtr t)) nf = Function [t] (Ptr t)
+exprType (Prim (GetTupleElem (Tuple tys) indx)) nf = Function [Tuple tys] (tys !! indx)
 exprType (Assign n _) nf = Void
 exprType (Seq e1 e2) nf = exprType e2 nf
 exprType (If e1 e2 e3) nf = exprType e2 nf -- if e2 == e3 then e2 else error "ifstmt bad ty"

@@ -60,7 +60,7 @@ parseUnion :: Parser Type
 parseUnion = fmap Union $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseType)) (parseToken Pipe) <* parseToken RCrParen
 
 parseDefinition :: Parser (Definition String)
-parseDefinition = liftA3 (\x y z -> Definition {identifier=x, typeof=y, value=z}) parseIdentifier ((parseToken Colon *> fmap Just parseType) <|> (parseToken Colon $> Nothing)) (parseToken Equals *> parseExpressionA)
+parseDefinition = liftA3 (\x y z -> Definition {identifier=x, typeof=y, value=z}) parsePatMatch ((parseToken Colon *> fmap Just parseType) <|> (parseToken Colon $> Nothing)) (parseToken Equals *> parseExpressionA)
 
 
 -- expressionAll. here infx is allowed. typically it isn't, so parseExpression will not parse infx
@@ -83,6 +83,9 @@ parseBrExpression = parseToken LParen *> parseExpressionA <* parseToken RParen
 parseLiteral :: Parser (Expression String)
 parseLiteral = fmap Literal $ parseInt <|> parseArrayLiteral <|> parseTupleLiteral <|> parseRecordLiteral  <|> parseFunctionLiteral
 
+parsePatMatch :: Parser (PatternMatching String)
+parsePatMatch = (fmap Plain parseIdentifier) <|> (fmap TupleUnboxing $ parseToken LParen *> collect parseIdentifier (parseToken Comma) <* parseToken RParen)
+
 parseInt :: Parser (Literal String)
 parseInt = Constant <$> Parser (\x -> 
     case x of
@@ -92,16 +95,21 @@ parseInt = Constant <$> Parser (\x ->
 parseArrayLiteral :: Parser (Literal String)
 parseArrayLiteral = fmap ArrayLiteral $ parseToken LSqParen *> collect parseExpression (parseToken Comma) <* parseToken RSqParen
 
--- change this so (expr) is parseerror
+-- TODO: change this so (expr) is parseerror ??? might not be nessecary. 
 parseTupleLiteral :: Parser (Literal String)
-parseTupleLiteral = fmap TupleLiteral $ parseToken LParen *> collect parseExpression (parseToken Comma) <* parseToken RParen
+parseTupleLiteral = (parseToken LParen *> (pure (TupleLiteral [])) <* parseToken RParen) <|> -- edge case for "empty tuples", our unit type.
+                    (fmap TupleLiteral $ parseToken LParen *> collect parseExpression (parseToken Comma) <* parseToken RParen)
 
 parseRecordLiteral :: Parser (Literal String)
 parseRecordLiteral = fmap RecordLiteral $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Equals *> parseExpression)) (parseToken Comma) <* parseToken RCrParen
 
 -- \a -> {}
+-- or: \(x,y,z) -> {}
 parseFunctionLiteral :: Parser (Literal String)
-parseFunctionLiteral = liftA2 FunctionLiteral (parseToken BSlash *> parseIdentifier <* parseToken Arrow) (parseExpression)
+parseFunctionLiteral = liftA2 FunctionLiteral (parseToken BSlash *> parsePatMatch <* parseToken Arrow) (parseExpression)
+
+-- this is when (x,y,z) = n or in function?
+-- parseUnTuple =
 
 parseBlock :: Parser (Expression String)
 parseBlock = fmap Block (parseToken LCrParen *> (collectM parseStatement $ parseToken Term) <* parseToken RCrParen)
@@ -116,7 +124,7 @@ parseYield :: Parser (Statement String)
 parseYield = fmap AST.AST.Yield $ parseToken Parser.Lexer.Yield *> parseExpressionA
 
 parseAssignment :: Parser (Statement String)
-parseAssignment = liftA2 Assignment (parseIdentifier <* parseToken Equals) parseExpression
+parseAssignment = liftA2 Assignment (parsePatMatch <* parseToken Equals) parseExpression
 -- UnionLiteral ((String, Expression), [(String, Type)])
 -- remove union literals for now. not completely sure on syntax for them yet
 -- parseUnionLiteral = fmap UnionLiteral $ parseToken LCrParen *> liftA2 (\x y -> (x, y)) () () <* parseToken RCrParen

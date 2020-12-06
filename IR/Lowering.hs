@@ -31,7 +31,9 @@ lower (AST defs) = let (a, b) = evalState (lowerAll defs) (Context {nameTbl = []
             return (res, typeTbl ctx)
         -- needs to be done first to avoid forward declaration problems
         regN (d:ds) = do
-            name <- registerName (identifier d)
+            name <- registerName (case identifier d of
+                                       TupleUnboxing t -> error "not allowed to use tuple in tldefns"
+                                       Plain t -> t)
             regN ds
             return ()
         regN [] = do
@@ -39,7 +41,9 @@ lower (AST defs) = let (a, b) = evalState (lowerAll defs) (Context {nameTbl = []
             
         lowerC :: [Definition TypedName] -> State Context [TLFunction]
         lowerC (d:ds) = do
-            name <- registerEName (identifier d)
+            name <- registerEName (case identifier d of 
+                                       TupleUnboxing t -> error "not allowed to use tuple in tldefns"
+                                       Plain t -> t)
             newval <- lexp (value d)
             let result = case newval of
                             Abs params expr -> (TLFunction name [] params expr)
@@ -85,16 +89,42 @@ newName typ = do
     put $ ctx { typeTbl = (IR.Syntax.Name nm, (convTy typ)):(typeTbl ctx),  nextName = nm + 1 }
     return (IR.Syntax.Name nm)
 
+-- important function. dont ask.
+buildMagic (l:lst) tupleexpr tty indx restexpr = do
+    l' <- registerName l
+    newMagic <- (buildMagic lst tupleexpr tty (indx+1) restexpr)
+    return $ Let l' (App (Prim $ GetTupleElem tty indx) [tupleexpr]) newMagic
+
+buildMagic [] tupleexpr tty indx restexpr = do
+    restexpr' <- lexp (Block restexpr)
+    return $ restexpr'
+    
+
+magic2 (l:lst) tupleexpr tty indx restexpr = do
+    newMagic <- (magic2 lst tupleexpr tty (indx+1) restexpr)
+    return $ Seq (Assign l (App (Prim $ GetTupleElem tty indx) [tupleexpr])) newMagic
+
+magic2 [] tupleexpr tty indx restexpr = do
+    restexpr' <- lexp (Block restexpr)
+    return $ restexpr'
+    
 lexp (Literal l) = do
     nexp <- llit l
     return nexp
 
 lexp (Block ((Defn d):bs)) = do
-    newname <- registerName (identifier d)
     newexpr <- lexp (value d)
-    nb <- lexp (Block bs)
-    return $ Let newname newexpr nb
-    
+    case identifier d of
+         (Plain name) -> do     
+             newname <- registerName name
+             nb <- lexp (Block bs)
+             return $ Let newname newexpr nb
+         (TupleUnboxing tu) -> do
+             let tuplety = (AST.AST.Tuple (map (\(TypedName t n) -> t) tu))
+             dummy <- newName tuplety
+             untple <- buildMagic tu (IR.Syntax.Var dummy) (convTy tuplety) 0 bs
+             return $ Let dummy newexpr untple
+
 lexp (Block ((Yield y):bs)) = do
     ny <- lexp y
     return ny
@@ -104,10 +134,18 @@ lexp (Block ((Return r):bs)) = do
     return $ Ret nr
 
 lexp (Block ((Assignment a e):bs)) = do
-    na <- registerEName a
     ne <- lexp e
-    nbs <- lexp (Block bs)
-    return $ Seq (Assign na ne) nbs
+    case a of
+         (Plain name) -> do
+             na <- registerEName name
+             nbs <- lexp (Block bs)
+             return $ Seq (Assign na ne) nbs
+         (TupleUnboxing names) -> do
+             names' <- forM names registerEName
+             let tuplety = (AST.AST.Tuple (map (\(TypedName t n) -> t) names))
+             dummy <- newName tuplety
+             assigns <- magic2 names' (IR.Syntax.Var dummy) (convTy tuplety) 0 bs
+             return $ Let dummy ne assigns
     
 lexp (Block ((Expr b):bs)) = do
     nb <- lexp b
@@ -147,8 +185,23 @@ this also simplifies llvm codegen.
 clang also does this. 
 -}
     
-llit (FunctionLiteral a@(TypedName ty _) ex) = do
+llit (FunctionLiteral (Plain a@(TypedName ty _)) ex) = do
     newname <- registerName a
     nex <- lexp ex
     newparam <- newName ty
     return $ Abs [newparam] (Let newname (Var newparam) nex)
+
+llit (FunctionLiteral (TupleUnboxing params) ex) = do
+    newnames <- forM params registerName 
+    nex <- lexp ex
+    let tty = (AST.AST.Tuple (map (\(TypedName t n) -> t) params))
+    newparam <- newName tty
+    rest <- magic3 newnames (Var newparam) (convTy tty) 0 nex
+    return $ Abs [newparam] rest
+    
+magic3 (l:lst) tupleexpr tty indx restexpr = do
+    newMagic <- (magic3 lst tupleexpr tty (indx+1) restexpr)
+    return $ Let l (App (Prim $ GetTupleElem tty indx) [tupleexpr]) newMagic
+
+magic3 [] tupleexpr tty indx restexpr = do
+    return $ restexpr

@@ -35,7 +35,12 @@ findSym :: String -> State (SymbolTable, Int) Name
 findSym s = state $ \param -> 
     case param of (tbl@(SymbolTable arr e st), i) -> let fn = tbl `contains` s in if fn /= NameError then (fn, (tbl, i)) else (NameError, ((SymbolTable arr (e++[mkError s]) st), i))
 
+    
+newSyms x = forM x newSym
 
+findSyms x = forM x findSym
+    
+    
 enterScope = state $ \param -> 
     case param of
          (tbl@(SymbolTable arr e st), i) -> ((), (SymbolTable [] [] (Just tbl), i))
@@ -53,7 +58,8 @@ name a = fst (runState (nameAST a) ((SymbolTable [] [] Nothing, 0)))
 nameAST :: AST String -> State (SymbolTable, Int) (AST Name)
 nameAST (AST (ds)) = do
     tbl <- get
-    put $ foldl (\b a -> execState (newSym a) b) tbl (map identifier (ds))
+    put $ foldl (\b a2 -> case a2 of
+                               (Plain a) -> execState (newSym a) b) tbl (map identifier (ds))
     res <- nameAST2 ds
     return $ AST res
     
@@ -70,21 +76,38 @@ nameAST2 [] = return []
 nameDefnS :: Definition String -> State (SymbolTable, Int) (Definition Name)
 nameDefnS d = do
     v <- nameExpr (value d)
-    nn <- findSym (identifier d)
-    return $ Definition {value=v, typeof=typeof d, identifier=nn}
+    case (identifier d) of
+         (Plain n) -> do
+             n' <- findSym n
+             return $ Definition {value=v, typeof=typeof d, identifier=(Plain n')}
+         (TupleUnboxing nn) -> do
+             nn' <- findSyms nn
+             return Definition {value=v, typeof=typeof d, identifier=(TupleUnboxing nn')}
 
 nameDefn :: Definition String -> State (SymbolTable, Int) (Definition Name)
 nameDefn d = do
-    nn <- newSym (identifier d)
+    ni <- case (identifier d) of
+               (Plain n) -> do
+                   n' <- newSym n
+                   return $ Plain n'
+               (TupleUnboxing nn) -> do
+                   nn' <- newSyms nn
+                   return $ TupleUnboxing nn'
     v <- nameExpr (value d)
-    return $ Definition {value=v, typeof=typeof d, identifier=nn}
+    return $ Definition {value=v, typeof=typeof d, identifier=ni}
 
 nameStmt (Defn d) = Defn <$> (nameDefn d)
 
 nameStmt (Expr e) = Expr <$> (nameExpr e)
 
 nameStmt (Assignment a e) = do
-    na <- findSym a
+    na <- case a of 
+               (Plain n) -> do
+                   n' <- findSym n
+                   return $ Plain n'
+               (TupleUnboxing nn) -> do
+                   nn' <- findSyms nn
+                   return $ TupleUnboxing nn'
     ne <- nameExpr e
     return $ Assignment na ne
 
@@ -142,7 +165,13 @@ nameLiteral (TupleLiteral []) = return (TupleLiteral [])
 
 nameLiteral (FunctionLiteral param expr) = do
     enterScope
-    np <- newSym param
+    np <- case param of
+               (Plain n) -> do
+                   n' <- newSym n
+                   return $ Plain n'
+               (TupleUnboxing nn) -> do
+                   nn' <- newSyms nn
+                   return $ TupleUnboxing nn'
     ne <- nameExpr expr
     exitScope
     return (FunctionLiteral np ne)
