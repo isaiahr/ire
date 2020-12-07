@@ -15,6 +15,7 @@ import Common.Pass
 import Parser.Lexer
 import Parser.Parser
 import AST.AST
+import Pass.YieldInjection
 import Pass.Typer
 import Pass.Namer
 import Pass.NameTyper
@@ -71,6 +72,7 @@ main = do
     contents <- readFile filename 
     let transformations = passLexer >>> -- plaintext -> tokens
                           passParse >>> -- tokens -> ast<string>
+                          passYieldInj >>> -- ast<string> -> ast<string>
                           passName >>> -- ast<string> -> ast<name>
                           passType >>> -- ast<name> -> ast<typedname>
                           passTypeCheck >>> -- ast<typedname> -> ast<typedname>, ensures type annotation correctness

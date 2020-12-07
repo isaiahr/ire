@@ -103,12 +103,12 @@ lexIdent :: String -> Maybe (Token, String)
 lexIdent str = first Identifier <$> extractIdent str
 
 extractIdent :: String -> Maybe (String, String)
-extractIdent (s:tr) = if isAlpha s then Just (s:u, rest) else Nothing
+extractIdent (s:tr) = if isAlpha s || s == '_' then Just (s:u, rest) else Nothing
     where (u, rest) = extractIdent2 tr
 extractIdent _ = Nothing
 
 extractIdent2 :: String -> (String, String)
-extractIdent2 (s:tr) = if isAlphaNum s then (s:u, rest) else ("", s:tr)
+extractIdent2 (s:tr) = if isAlphaNum s || s == '_' then (s:u, rest) else ("", s:tr)
     where (u, rest) = extractIdent2 tr
 extractIdent2 str = ("", str)
 

@@ -84,7 +84,9 @@ parseLiteral :: Parser (Expression String)
 parseLiteral = fmap Literal $ parseInt <|> parseArrayLiteral <|> parseTupleLiteral <|> parseRecordLiteral  <|> parseFunctionLiteral
 
 parsePatMatch :: Parser (PatternMatching String)
-parsePatMatch = (fmap Plain parseIdentifier) <|> (fmap TupleUnboxing $ parseToken LParen *> collect parseIdentifier (parseToken Comma) <* parseToken RParen)
+parsePatMatch = (parseToken LParen *> (pure (TupleUnboxing [])) <* parseToken RParen) <|>
+                (fmap Plain parseIdentifier) <|>
+                (fmap TupleUnboxing $ parseToken LParen *> collect parseIdentifier (parseToken Comma) <* parseToken RParen)
 
 parseInt :: Parser (Literal String)
 parseInt = Constant <$> Parser (\x -> 
