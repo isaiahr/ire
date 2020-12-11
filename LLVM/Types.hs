@@ -21,6 +21,7 @@ data LType =
     LLVMOpaque |
     LLVMVoid |
     LLVMFunction LType [LType]
+    deriving Eq
     
 
 instance Disp LType where
@@ -35,8 +36,8 @@ instance Disp LType where
     disp (LLVMVector True nt ty) = "<vscale x " <> show nt <> " x " <> disp ty <> ">"
     disp (LLVMVector False nt ty) = "<" <> show nt <> " x " <> disp ty <> ">"
     disp (LLVMArray nt ty) = "[" <> show nt <> " x " <> disp ty <> "]"
-    disp (LLVMStruct True tys) = "<{ " <> intercalate ", " (map disp tys) <> " }>"
-    disp (LLVMStruct False tys) = "{ " <> intercalate ", " (map disp tys) <> " }"
+    disp (LLVMStruct True tys) = "<{" <> intercalate ", " (map disp tys) <> "}>"
+    disp (LLVMStruct False tys) = "{" <> intercalate ", " (map disp tys) <> "}"
     disp LLVMLabel = "label"
     disp LLVMToken = "token"
     disp LLVMMetadata = "metadata"

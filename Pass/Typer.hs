@@ -1,10 +1,32 @@
-{-# LANGUAGE FlexibleContexts #-}
+{-
+Typer.hs: Type Inference engine
+
+this inferes the types of all names in a file.
+
+this uses constraint satisfaction to do this
+    1) Generate constraints for all expressions in the file.
+        each constraint is a equivalence relation between two types, denoted
+        t1 ~ t2. for example, in expression f 2, would generate
+        $0 ~ ($1 -> $2)
+        $1 ~ Int
+        additionally, there is a table of names with there infered type. f would be added to this
+        table with $0
+    2) constraint solving. this is done by unification, which is essentially repeated substitutions.
+    there are some caveats to be aware of, like the occurs check to prevent constructing infinite types.
+    (this is when something like $0 ~ [$0], then sub will get [$0] ~ [[$0]] etc.
+    after this we can use NameTyper.hs to annotate all vars with their type.
+
+-}
+
 
 module Pass.Typer where 
 
 import Common.Common
 import Common.Pass
+import Common.Natives
+
 import AST.AST
+import Pass.Namer
 
 import Control.Monad.State
 import Data.List
@@ -12,16 +34,16 @@ import qualified Data.Map as Map
 
 
 data TyCons = TyCons Type Type 
-data TyVar a = TyVar a Type
+data TyVar  = TyVar Name Type
 
 instance Disp (TyCons) where
     disp (TyCons t1 t2) = disp t1 ++ " ~ " ++ disp t2
-instance (Disp a) => Disp (TyVar a) where
+instance Disp TyVar where
     disp (TyVar a t) = disp a ++ " = " ++ disp t
 
-data ConstraintTbl a = ConstraintTbl Int [TyCons] [TyVar a] Type
+data ConstraintTbl = ConstraintTbl Int [TyCons] [TyVar] Type
 
-instance (Disp a) => Disp (ConstraintTbl a) where
+instance Disp (ConstraintTbl) where
     disp (ConstraintTbl nt x (y:ys) t) = disp y ++ "\n" ++ disp (ConstraintTbl nt x ys t)
     disp (ConstraintTbl nt (x:xs) z t) = disp x ++ "\n" ++ disp (ConstraintTbl nt xs z t)
     disp (ConstraintTbl nt [] [] t) = ""
@@ -35,27 +57,43 @@ getVar a tvars = case p of
                       [TyVar b t] -> Just t
                       _ -> Nothing
     where p = filter (\x -> case x of TyVar b _ -> b == a) tvars 
-    
-newVar :: (Eq a) => a -> State (ConstraintTbl a) Int
-newVar a = state $ \(ConstraintTbl n c v ft) -> case getVar a v of
-                                                  (Just (General a)) -> (a, (ConstraintTbl n c v ft))
-                                                  _ -> (n, ConstraintTbl (n+1) c ((TyVar a (General n)):v) ft)
 
-mkCons :: Int -> Type -> State (ConstraintTbl a) ()
+-- natives here is a bit funny, result is expected int even though we already know the type.
+newVar :: Name -> State ConstraintTbl Int
+newVar a@(NativeName n) = do
+    let actualty = asttypeof n
+    (ConstraintTbl n c v ft) <- get
+    case getVar a v of
+         (Just (General a2)) -> return a2
+         Nothing -> do
+             put $ ConstraintTbl (n+1) ((TyCons (General n) actualty):c) ((TyVar a (General n)):v) ft
+             return n
+
+newVar a = do
+    (ConstraintTbl n c v ft) <- get
+    case getVar a v of
+         (Just (General a2)) -> return a2
+         Nothing -> do
+             put $ ConstraintTbl (n+1) c ((TyVar a (General n)):v) ft
+             return n
+    
+
+mkCons :: Int -> Type -> State (ConstraintTbl) ()
 mkCons nt ty = state $ \(ConstraintTbl n c v ft) -> ((), ConstraintTbl n ((TyCons (General nt) ty):c) v ft)
 
-getInt :: State (ConstraintTbl a) Int
+getInt :: State (ConstraintTbl) Int
 getInt = state $ \(ConstraintTbl n c v ft) -> (n, ConstraintTbl (n+1) c v ft)
 
+getNInts :: Int -> State (ConstraintTbl) [Int]
 getNInts m = state $ \(ConstraintTbl n c v ft) -> ([n..(n+m-1)], ConstraintTbl (n+m) c v ft)
 
-genConstraints :: (Eq a) => AST a -> ConstraintTbl a
+genConstraints :: AST Name -> ConstraintTbl
 genConstraints a = snd (runState (genCons a) newTbl)
 
-getFnType :: State (ConstraintTbl a) Type
+getFnType :: State (ConstraintTbl) Type
 getFnType = state $ \(ConstraintTbl n c v ft) -> (ft, ConstraintTbl n c v ft)
 
-setFnType :: Type -> State (ConstraintTbl a) ()
+setFnType :: Type -> State (ConstraintTbl) ()
 setFnType ty = state $ \(ConstraintTbl n c v ft) -> ((), ConstraintTbl n c v ty)
 
 -- error only poked if return not in func, which will never parse.
@@ -69,7 +107,7 @@ bindVars (a:as) = do
 bindVars [] = return []
 
 
-genCons :: (Eq a1) => AST a1 -> State (ConstraintTbl a1) ()
+genCons :: AST Name -> State (ConstraintTbl) ()
 genCons (AST (d:ds)) = do
     genConsDef d
     genCons (AST (ds))
@@ -78,8 +116,7 @@ genCons (AST (d:ds)) = do
 genCons (AST []) = return ()
 
 
--- genConsDef :: Definition a -> State (ConstraintTbl a) b
-genConsDef :: (Eq a1) => Definition a1 -> State (ConstraintTbl a1) ()
+genConsDef :: Definition Name -> State (ConstraintTbl) ()
 genConsDef d = do
     case (identifier d) of
          (Plain s) -> do 
@@ -120,7 +157,7 @@ genConsStmt (Assignment a e) = do
 genConsStmt (Return r) = error "handled in blk #234235"
 genConsStmt (Yield y) = error "handled in blk #29588"
     
-genConsExpr :: (Eq a1) => Expression a1 -> Int -> State (ConstraintTbl a1) ()
+genConsExpr :: Expression Name -> Int -> State ConstraintTbl ()
 genConsExpr (Literal (Constant nt)) n = do
     mkCons n (Bits 64)
     return ()

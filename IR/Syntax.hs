@@ -1,6 +1,7 @@
 module IR.Syntax where
 
 import Common.Common
+import Common.Natives
 
 import Data.List
 -- https://www.cs.cmu.edu/~rwh/papers/closures/popl96.pdf
@@ -33,11 +34,12 @@ data PrimE
     | GetPtr Type -- primitive function to derefence pointers
     | SetPtr Type -- primitive function to update pointed-to data
     | CreatePtr Type -- primitive function to create pointers 
+    | IntAdd -- prim add int
+    | LibPrim Native -- "library" primitive, this is typically a function that is linked with all binaries.
 
 -- literals. these are different from AST literals, and are not mutually recursive with expr.
 data LitE
     = IntL Int -- integer literal. 
-    | VoidL -- void literal
     | BoolL Bool -- boolean literal
 
 
@@ -47,7 +49,6 @@ data Type
     | EnvFunction [Type] [Type] Type -- top-level function with environment (second param) (closure)
     | Bits Int
     | Array Type
-    | Void
     | Ptr Type deriving Eq
     
 instance Disp IR where
@@ -62,7 +63,6 @@ instance Disp Type where
     disp (EnvFunction tys a to) = "(" <> intercalate ", " (map disp tys) <> ") -(" <> intercalate ", " (map disp a) <> ")> " <> disp to
     disp (Bits nt) = "i" <> disp nt
     disp (Array ty) = "[" <> disp ty <> "]"
-    disp (Void) = "Void"
     disp (Ptr ty) = disp ty <> "*"
     
 instance Disp Name where
@@ -84,7 +84,6 @@ instance Disp Expr where
 
 instance Disp LitE where
     disp (IntL i) = "$" <> disp i
-    disp (VoidL) = "$VOID"
     disp (BoolL True) = "$True"
     disp (BoolL False) = "$False"
     
@@ -95,6 +94,8 @@ instance Disp PrimE where
     disp (GetPtr ty) = "@GetPtr!" <> disp ty
     disp (SetPtr ty) = "@SetPtr!" <> disp ty
     disp (CreatePtr ty) = "@CreatePtr!" <> disp ty
+    disp (IntAdd) = "@IntAdd!"
+    disp (LibPrim lb) = "@LibPrim!" <> disp lb
     
 allNames :: IR -> [Name]
 allNames (IR ((TLFunction name clv params ex):tl) x) = name:(clv ++ params ++ names ex) ++ allNames (IR tl x)
@@ -130,15 +131,16 @@ exprType (Let nm e1 e2) nf = exprType e2 nf
 exprType (Prim (MkTuple t)) nf = Function t (Tuple t)
 exprType (Prim (MkArray t)) nf = Function t (Array (t !! 0))
 exprType (Prim (GetPtr t)) nf = Function [Ptr t] t
-exprType (Prim (SetPtr t)) nf = Function [Ptr t, t] Void
+exprType (Prim (SetPtr t)) nf = Function [Ptr t, t] (Tuple [])
 exprType (Prim (CreatePtr t)) nf = Function [t] (Ptr t)
 exprType (Prim (GetTupleElem (Tuple tys) indx)) nf = Function [Tuple tys] (tys !! indx)
-exprType (Assign n _) nf = Void
+exprType (Prim (IntAdd)) nf = Function [Bits 64, Bits 64] (Bits 64)
+exprType (Prim (LibPrim lb)) nf = libtypeof lb
+exprType (Assign n _) nf = (Tuple [])
 exprType (Seq e1 e2) nf = exprType e2 nf
 exprType (If e1 e2 e3) nf = exprType e2 nf -- if e2 == e3 then e2 else error "ifstmt bad ty"
 exprType (Lit (IntL _)) nf = Bits 64
 exprType (Lit (BoolL _)) nf = Bits 2
-exprType (Lit (VoidL)) nf = Void
 
 exprSubExprs (Var _) = []
 exprSubExprs (Call _ es) = es
@@ -167,3 +169,9 @@ rebuild (Lit n) news = Lit n
 
 getTypeFunc (IR _ tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
 getTypeFuncTbl (tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
+
+
+primName Native_Exit = LibPrim Native_Exit
+primName Native_Addition = IntAdd
+
+libtypeof Native_Exit = Function [Bits 64] (Tuple [])

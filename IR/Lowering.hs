@@ -69,7 +69,9 @@ convTy (AST.AST.Tuple tys) = IR.Syntax.Tuple (map convTy tys)
 registerName :: Pass.NameTyper.TypedName -> State Context IR.Syntax.Name
 registerName tn@(TypedName ty (Pass.Namer.Name s i)) = do
     ctx <- get
-    let nm = nextName ctx
+    -- hack, main -> -1 
+    -- TODO, not hack here.
+    let nm = if s == "main" then (-1) else nextName ctx
     put $ Context { nameTbl = (tn, IR.Syntax.Name nm):(nameTbl ctx), typeTbl = (IR.Syntax.Name nm, (convTy ty)):(typeTbl ctx), nextName = nm+1}
     return (IR.Syntax.Name nm)
 
@@ -158,6 +160,10 @@ lexp (FunctionCall e1 e2) = do
     ne1 <- lexp e1
     ne2 <- lexp e2
     return $ App ne1 [ne2]
+
+
+lexp (Variable (TypedName t (NativeName n))) = return $ Prim $ primName n
+    
 
 lexp (Variable a) = do
     na <- registerEName a

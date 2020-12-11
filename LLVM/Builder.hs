@@ -54,6 +54,9 @@ closeFunction fh = do
     bodym <- get
     return LFunction { fName = name fh,  fType = LLVMFunction (retty fh) (paramty fh), fBody = body bodym} 
 
+-- function stub, for external defines
+createFunctionStub name ty = LFunction {fName = name, fType = ty, fBody = []}
+
 getParams :: FunctionHeader -> [LValue]
 getParams fh = map (LTemp . show) [0..((length (paramty fh))-1)]
 
@@ -93,10 +96,14 @@ createMul ty v1 v2 = do
     addInst $ LMul ret ty v1 v2 False False 
     return ret
 
-createCall ty func params = do
-    ret <- newValue
-    addInst $ LCall ret ty func params
-    return ret
+createCall ty func params =
+    if ty == LLVMVoid then do
+        addInst $ LVCall func params
+        return LVoid
+                      else do
+        ret <- newValue
+        addInst $ LCall ret ty func params
+        return ret
 
 createStore ty val ptr = do
     addInst $ LStore False ty val (LLVMPtr ty) ptr

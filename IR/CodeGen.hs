@@ -11,6 +11,7 @@ import Common.Pass
 import Common.Common
 import Control.Monad.State
 import IR.Syntax
+import Common.Natives
 
 {-
     CodeGen.hs  -- IR to LLVM lowering
@@ -42,10 +43,14 @@ genLLVM :: IR -> LMod
 genLLVM (IR tl tbl) = evalState (genLLVM2 tl) (Ctx { tytbl = [], ntbl = [], tyf = tf, ftbl = [], bodyc = error "poked error thunk" }) 
     where tf = \x -> exprType x (getTypeFuncTbl tbl)
 
+llvmntypeof Native_Exit = LLVMFunction LLVMVoid [LLVMInt 64]
+        
+
 genLLVM2 tlfs = do
+    let lfs2 = map (\n -> createFunctionStub (prim2llvmname n) (llvmntypeof n)) llvmLibNatives
     fhs <- forM tlfs genTLF
     lfs <- forM (zip tlfs fhs) genTLFe
-    return $ createLLVMModule "todo: make filename available" ("irec " <> VERSION_STRING <> " commit " <> COMMIT_ID)  lfs
+    return $ createLLVMModule "todo: make filename available" ("irec " <> VERSION_STRING <> " commit " <> COMMIT_ID)  (lfs2 <> lfs)
     --- do things
 
 getIRType :: Expr -> State Ctx Type
@@ -57,7 +62,8 @@ genTLF :: TLFunction -> State Ctx FunctionHeader
 genTLF tlf@(TLFunction (Name nm) clvars params expr) = do
     pty <- forM (map Var params) getIRType
     exprty <- getIRType expr
-    let text_name = ("Function" ++ disp nm)
+    -- do not mangle entry
+    let text_name = if nm == (-1) then "main" else ("ire_function_" ++ disp nm)
     let fh = createFunction text_name (LLVMFunction (ir2llvmtype exprty) ((if null clvars then [] else [LLVMPtr (LLVMPtr (LLVMInt 8))]) ++ map ir2llvmtype (pty)))
     modify $ \ctx -> ctx {ftbl=(tlf, fh):(ftbl ctx), ntbl = (Name nm, LGlob text_name):(ntbl ctx)}
     return fh
@@ -91,9 +97,6 @@ genE (Ret e) = do
 
 genE (Lit (IntL i)) = do
     return $ LIntLit i
-
-genE (Lit (VoidL)) = do
-    return $ LVoid
 
 genE (Lit (BoolL i)) = do
     return $ LIntLit (if i then 1 else 0)
@@ -149,8 +152,17 @@ genE (Let name e1 e2) = do
     e2' <- genE e2
     return e2' -- Maybe doent return e2?
 
-genE (App (Prim (MkTuple ty)) eargs) = do
-    return $ error "not yet impl"
+genE (App (Prim (MkTuple ty)) eargs) = (do
+    eargs' <- forM eargs genE
+    let tty = ir2llvmtype (Tuple ty)
+    final <- repeatIV tty (zip eargs' (map ir2llvmtype ty)) LZeroInit 0
+    return final)
+    where repeatIV tty ((l, lty):vs) cur idx = do
+              ncur <- promote $ createInsertValue tty cur lty l idx
+              nv <- repeatIV tty vs ncur (idx + 1)
+              return nv
+          repeatIV tty [] cur idx = return cur
+
     
 genE (App (Prim (MkArray ty)) eargs) = do
     return $ error "not yet impl"
@@ -172,6 +184,17 @@ genE (App (Prim (SetPtr ty)) [ptr, dat] ) = do
 genE (App (Prim (CreatePtr ty)) eargs) = do
     -- TODO: malloc here
     return (error "not yet impl")
+
+genE (App (Prim (LibPrim lb)) eargs) = do
+    eargs' <- forM eargs genE
+    -- efty <- getIRType (Prim (LibPrim lb)) 
+    -- ^^ DO NOT DO THIS!! need to translate things like empty tuple -> void, so use llvmntypeof
+    let (rty, pty) = (case llvmntypeof lb of 
+                           LLVMFunction rety pty -> (rety, pty)
+                           otherwise -> error "e#523858")
+    let llvmname = LGlob $ prim2llvmname lb
+    result <- promote $ createCall rty llvmname (zip pty eargs')
+    return result
 
 genE (App ef eargs) = do
     ef' <- genE ef
@@ -267,5 +290,4 @@ ir2llvmtype (Function params ret) = LLVMFunction (ir2llvmtype ret) (map ir2llvmt
 ir2llvmtype (EnvFunction params cl ret) = LLVMFunction (ir2llvmtype ret) (([LLVMPtr (LLVMPtr (LLVMInt 8))]  ++ map ir2llvmtype  params)) -- IMPORTANT: CL FIRST
 ir2llvmtype (Bits nt) = (LLVMInt nt)
 ir2llvmtype (Array t) = LLVMPtr (ir2llvmtype t)
-ir2llvmtype (Void) = LLVMVoid
 ir2llvmtype (Ptr t) = LLVMPtr (ir2llvmtype t)

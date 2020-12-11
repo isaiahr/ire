@@ -2,14 +2,16 @@ module Pass.Namer (name, Name(..), passName) where
 
 import AST.AST
 import Common.Common
+import Common.Natives
 import Common.Pass
 
 import Control.Monad.State
 
-data Name = Name String Int | NameError deriving Eq
+data Name = Name String Int | NativeName Native | NameError deriving Eq
 
 instance Disp Name where
     disp (Name s i) = disp s ++ "#" ++ disp i
+    disp (NativeName n) = disp n
     disp (NameError) = "NameError 143016"
 
 -- the symbol table. 1st param: strings in scope, 2nd: up lexical scope
@@ -28,12 +30,21 @@ mkError s = NError s
 
 newSym :: String -> State (SymbolTable, Int) Name
 newSym s = state $ \param -> 
-    case param of
-         (tbl@(SymbolTable arr e st), i) -> if tbl `contains` s /= NameError then (NameError, (SymbolTable arr (e++[mkError s]) st, i)) else ((Name s i), (SymbolTable (arr ++ [Name s i]) e st, i+1))
+    case param of (tbl@(SymbolTable arr e st), i) -> if tbl `contains` s /= NameError then (NameError, (SymbolTable arr (e++[mkError s]) st, i)) else ((Name s i), (SymbolTable (arr ++ [Name s i]) e st, i+1))
 
 findSym :: String -> State (SymbolTable, Int) Name
-findSym s = state $ \param -> 
-    case param of (tbl@(SymbolTable arr e st), i) -> let fn = tbl `contains` s in if fn /= NameError then (fn, (tbl, i)) else (NameError, ((SymbolTable arr (e++[mkError s]) st), i))
+findSym s = do
+    (tbl@(SymbolTable arr e st), i) <- get
+    case (fromString s) of
+         Just k -> return (NativeName k)
+         Nothing -> do
+             let fn = tbl `contains` s 
+             if fn /= NameError then
+                 return fn
+                                else do
+                 put ((SymbolTable arr (e++[mkError s]) st), i)
+                 return NameError
+    
 
     
 newSyms x = forM x newSym

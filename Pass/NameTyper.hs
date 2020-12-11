@@ -30,5 +30,5 @@ passType = Pass {pName = ["TypeInfer"], pFunc = doType}
 
 
     
-nametypeAST :: ConstraintTbl Name -> AST Name -> AST TypedName
+nametypeAST :: ConstraintTbl -> AST Name -> AST TypedName
 nametypeAST tbl ast = fmap (\x -> TypedName (getType x tbl) x) ast
