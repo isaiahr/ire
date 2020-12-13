@@ -41,6 +41,7 @@ data PrimE
 data LitE
     = IntL Int -- integer literal. 
     | BoolL Bool -- boolean literal
+    | StringL String -- string literal
 
 
 data Type
@@ -49,6 +50,7 @@ data Type
     | EnvFunction [Type] [Type] Type -- top-level function with environment (second param) (closure)
     | Bits Int
     | Array Type
+    | StringIRT
     | Ptr Type deriving Eq
     
 instance Disp IR where
@@ -64,6 +66,7 @@ instance Disp Type where
     disp (Bits nt) = "i" <> disp nt
     disp (Array ty) = "[" <> disp ty <> "]"
     disp (Ptr ty) = disp ty <> "*"
+    disp (StringIRT) = "str"
     
 instance Disp Name where
     disp (Name i) = "#" <> show i
@@ -141,6 +144,7 @@ exprType (Seq e1 e2) nf = exprType e2 nf
 exprType (If e1 e2 e3) nf = exprType e2 nf -- if e2 == e3 then e2 else error "ifstmt bad ty"
 exprType (Lit (IntL _)) nf = Bits 64
 exprType (Lit (BoolL _)) nf = Bits 2
+exprType (Lit (StringL _)) nf = StringIRT
 
 exprSubExprs (Var _) = []
 exprSubExprs (Call _ es) = es
@@ -172,6 +176,8 @@ getTypeFuncTbl (tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
 
 
 primName Native_Exit = LibPrim Native_Exit
+primName Native_Print = LibPrim Native_Print
 primName Native_Addition = IntAdd
 
 libtypeof Native_Exit = Function [Bits 64] (Tuple [])
+libtypeof Native_Print = Function [StringIRT] (Tuple [])

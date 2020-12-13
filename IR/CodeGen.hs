@@ -4,6 +4,11 @@
 
 module IR.CodeGen (passGenLLVM) where
 
+
+import qualified Data.Text (pack)
+import qualified Data.ByteString (unpack)
+import qualified Data.Text.Encoding (encodeUtf8)
+
 import LLVM.Builder
 import LLVM.Syntax
 import LLVM.Types
@@ -44,7 +49,8 @@ genLLVM (IR tl tbl) = evalState (genLLVM2 tl) (Ctx { tytbl = [], ntbl = [], tyf 
     where tf = \x -> exprType x (getTypeFuncTbl tbl)
 
 llvmntypeof Native_Exit = LLVMFunction LLVMVoid [LLVMInt 64]
-        
+llvmntypeof Native_Print = LLVMFunction LLVMVoid [ir2llvmtype StringIRT]
+llvmntypeof Native_Alloc = LLVMFunction (LLVMPtr (LLVMInt 8)) [LLVMInt 64]
 
 genLLVM2 tlfs = do
     let lfs2 = map (\n -> createFunctionStub (prim2llvmname n) (llvmntypeof n)) llvmLibNatives
@@ -100,6 +106,16 @@ genE (Lit (IntL i)) = do
 
 genE (Lit (BoolL i)) = do
     return $ LIntLit (if i then 1 else 0)
+    
+genE (Lit (StringL str)) = do
+    let bytes = Data.ByteString.unpack . Data.Text.Encoding.encodeUtf8 . Data.Text.pack $ str
+    ptr <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, LIntLit (length bytes))])
+    str1 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr (LLVMInt 8)]) LUndef (LLVMInt 64) (LIntLit (length bytes)) 0)
+    str2 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr (LLVMInt 8)]) str1 (LLVMPtr (LLVMInt 8)) ptr 1)
+    forM (zip bytes [0..((length bytes) -1)]) (\(byte, idx) -> do
+        gep <- promote (createGEP (LLVMInt 8) ptr [idx])
+        promote $ createStore (LLVMInt 8) (LIntLit (fromIntegral byte)) gep)
+    return str2
 
 genE (Seq e1 e2) = do
     e1' <- genE e1
@@ -291,3 +307,4 @@ ir2llvmtype (EnvFunction params cl ret) = LLVMFunction (ir2llvmtype ret) (([LLVM
 ir2llvmtype (Bits nt) = (LLVMInt nt)
 ir2llvmtype (Array t) = LLVMPtr (ir2llvmtype t)
 ir2llvmtype (Ptr t) = LLVMPtr (ir2llvmtype t)
+ir2llvmtype (StringIRT) = LLVMStruct False [(LLVMInt 64), LLVMPtr (LLVMInt 8)]

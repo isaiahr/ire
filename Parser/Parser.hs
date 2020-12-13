@@ -34,7 +34,7 @@ parseIdentifier = Parser (\x ->
          _ -> ParseFailure)         
 
 parseType :: Parser Type
-parseType = parseBType <|> infbuild (parseRecord <|> parseUnion <|> parseIntType <|> parseArrayType <|> parseTuple) parseFunctionType
+parseType = parseBType <|> infbuild (parseRecord <|> parseUnion <|> parseIntType <|> parseBoolType <|> parseStringType <|> parseArrayType <|> parseTuple) parseFunctionType
 
 -- bracketed type
 parseBType :: Parser Type
@@ -42,6 +42,12 @@ parseBType = parseToken LParen *> parseType <* parseToken RParen
 
 parseIntType :: Parser Type
 parseIntType = parseToken (Identifier "Int") $> Bits 64
+
+parseBoolType :: Parser Type
+parseBoolType = parseToken (Identifier "Boolean") $> Bits 1
+
+parseStringType :: Parser Type
+parseStringType = parseToken (Identifier "String") $> StringT
 
 parseArrayType :: Parser Type
 parseArrayType = parseToken LSqParen *> fmap Array parseType <* parseToken RSqParen
@@ -81,7 +87,7 @@ parseBrExpression :: Parser (Expression String)
 parseBrExpression = parseToken LParen *> parseExpressionA <* parseToken RParen
 
 parseLiteral :: Parser (Expression String)
-parseLiteral = fmap Literal $ parseInt <|> parseArrayLiteral <|> parseTupleLiteral <|> parseRecordLiteral  <|> parseFunctionLiteral
+parseLiteral = fmap Literal $ parseInt <|> parseStringLiteral <|> parseArrayLiteral <|> parseTupleLiteral <|> parseRecordLiteral  <|> parseFunctionLiteral
 
 parsePatMatch :: Parser (PatternMatching String)
 parsePatMatch = (parseToken LParen *> (pure (TupleUnboxing [])) <* parseToken RParen) <|>
@@ -92,6 +98,12 @@ parseInt :: Parser (Literal String)
 parseInt = Constant <$> Parser (\x -> 
     case x of
          (AnnotatedToken (Integer z) l str):zs -> ParseSuccess z zs
+         _ -> ParseFailure)
+
+parseStringLiteral :: Parser (Literal String)
+parseStringLiteral = StringLiteral <$> Parser (\x -> 
+    case x of
+         (AnnotatedToken (String text) l str):zs -> ParseSuccess text zs
          _ -> ParseFailure)
 
 parseArrayLiteral :: Parser (Literal String)

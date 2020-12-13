@@ -161,6 +161,10 @@ genConsExpr :: Expression Name -> Int -> State ConstraintTbl ()
 genConsExpr (Literal (Constant nt)) n = do
     mkCons n (Bits 64)
     return ()
+    
+genConsExpr (Literal (StringLiteral s)) n = do
+    mkCons n (StringT)
+    return ()
 
 genConsExpr (Literal (ArrayLiteral (r:rs))) n = do
     nn <- getInt
@@ -287,6 +291,7 @@ occursc var (Tuple (t:ts)) = occursc var t || occursc var (Tuple ts)
 occursc var (Tuple []) = False
 occursc var (Function a b) = occursc var a || occursc var b
 occursc var (Bits n) = False
+occursc var (StringT) = False
 
 unify (General a) t2 = if occursc (a) t2 then Occ a t2 else Ss [Sub a t2]
 unify t1 (General b) = if occursc (b) t1 then Occ b t1 else Ss [Sub b t1]

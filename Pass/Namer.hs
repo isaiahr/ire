@@ -145,34 +145,15 @@ nameExpr (IfStmt cond thn els) = do
     els2 <- nameExpr els
     return $ IfStmt cond2 thn2 els2
 
-nameExpr (Block (s:ss)) = do
-    ns <- nameStmt s
-    nssq <- nameExpr (Block ss)
-    case nssq of
-         (Block nss) -> return $ Block (ns:nss)
-         _ -> error "block -> nonblock naming #0585484835345"
-    
-nameExpr (Block []) = return $ Block []
+nameExpr (Block s) = Block <$> (mapM nameStmt s)
 
 nameLiteral (Constant c) = return (Constant c)
 
-nameLiteral (ArrayLiteral (x:xs)) = do
-    nx <- nameExpr x
-    nrq <- nameLiteral (ArrayLiteral xs)
-    case nrq of 
-         (ArrayLiteral nr) -> return (ArrayLiteral (nx:nr))
-         _ -> error "arrayliteral -> nonarrayliteral naming ? #15253053"
+nameLiteral (StringLiteral s) = return (StringLiteral s)
 
-nameLiteral (ArrayLiteral []) = return (ArrayLiteral [])
+nameLiteral (ArrayLiteral xs) =  ArrayLiteral <$> (mapM nameExpr xs)
+nameLiteral (TupleLiteral xs) = TupleLiteral <$> (mapM nameExpr xs)
 
-nameLiteral (TupleLiteral (x:xs)) = do
-    nx <- nameExpr x
-    nrq <- nameLiteral (TupleLiteral xs)
-    case nrq of
-         (TupleLiteral nr) -> return (TupleLiteral (nx:nr))
-         _ -> error "tupleliteral -> nontupleliteral naming #2036171293"
-
-nameLiteral (TupleLiteral []) = return (TupleLiteral [])
 
 nameLiteral (FunctionLiteral param expr) = do
     enterScope

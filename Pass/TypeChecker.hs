@@ -36,6 +36,7 @@ checkStmt (Yield y) = checkExpr y
 checkStmt (Return r) = checkExpr r
 
 checkLit (Constant c) = []
+checkLit (StringLiteral s) = []
 checkLit (ArrayLiteral l) = foldr (++) [] (map checkExpr l)
 checkLit (TupleLiteral l) = foldr (++) [] (map checkExpr l)
 checkLit (FunctionLiteral a b) = checkExpr b

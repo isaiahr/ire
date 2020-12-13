@@ -31,6 +31,7 @@ yExpr (IfStmt i t e) = IfStmt (yExpr i) (yExpr t) (yExpr e)
 yExpr (Block ss) = Block (insertYield ss)
 
 yLit (Constant c) = (Constant c)
+yLit (StringLiteral s) = StringLiteral s
 yLit (ArrayLiteral l) = ArrayLiteral (map yExpr l)
 yLit (TupleLiteral l) = TupleLiteral (map yExpr l)
 yLit (FunctionLiteral a b) = FunctionLiteral a (yExpr b)

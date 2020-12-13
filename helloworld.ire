@@ -1,0 +1,3 @@
+main := \() -> {
+    __ire__print__ "Hello, World!\n"
+}

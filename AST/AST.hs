@@ -22,6 +22,7 @@ data Type =
             General Int | -- for polymorphism and type inference
             Array Type | -- arrays
             Bits Int | -- bits (llvm i[n])
+            StringT | -- string
             Function Type Type | -- a -> b
             Tuple [Type] | -- (a, b, c)
             Record [(String, Type)] | -- record
@@ -30,6 +31,7 @@ data Type =
 instance Disp Type where 
     disp (Array t) = "[" ++ disp t ++ "]"
     disp (Bits n) = "bits" ++ disp n
+    disp (StringT) = "String"
     disp (Function f t) = disp f ++ " -> " ++ disp t
     disp (Tuple arr) = "(" ++ intercalate ", " (map disp arr) ++ ")"
     disp (Record r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ ": " ++ disp y) r) ++ "}"
@@ -62,6 +64,7 @@ instance (Disp a) => Disp (Expression a) where
 -- a literal
 data Literal a = 
                  Constant Int |
+                 StringLiteral String | 
                  ArrayLiteral [Expression a] |
                  TupleLiteral [Expression a] |
                  RecordLiteral [(String, Expression a)] |
@@ -71,6 +74,7 @@ data Literal a =
 
 instance (Disp a) => Disp (Literal a) where
     disp (Constant i) = disp i
+    disp (StringLiteral l) = disp l
     disp (ArrayLiteral e) = "[" ++ intercalate ", " (map disp e) ++ "]"
     disp (TupleLiteral t) = "(" ++ intercalate ", " (map disp t) ++ ")"
     disp (RecordLiteral r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ " = " ++ disp y) r) ++ "}"
@@ -132,6 +136,7 @@ mapliteral fn (ArrayLiteral a) = ArrayLiteral (map (mapexpr fn) a)
 mapliteral fn (TupleLiteral a) = TupleLiteral (map (mapexpr fn) a)
 mapliteral fn (FunctionLiteral a b) = FunctionLiteral (mappat fn a) (mapexpr fn b)
 mapliteral fn (Constant nt) = Constant nt
+mapliteral fn (StringLiteral n) = StringLiteral n
 
 mappat fn (Plain a) = Plain (fn a)
 mappat fn (TupleUnboxing a) = TupleUnboxing (map fn a)
@@ -156,6 +161,7 @@ foldml f (ArrayLiteral a) = foldMap (\x -> foldme f x) a
 foldml f (TupleLiteral a) = foldMap (\x -> foldme f x) a
 foldml f (FunctionLiteral a b) = foldpat f a <> (foldme f b)
 foldml f (Constant nt) = mempty
+foldml f (StringLiteral s) = mempty
 
 foldms :: Monoid m => (a -> m) -> Statement a -> m
 foldms f (Defn d) = foldmd f d

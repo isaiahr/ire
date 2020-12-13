@@ -172,6 +172,9 @@ lexp (Variable a) = do
 llit (Constant nt) = do
     return (Lit (IntL nt))
 
+llit (StringLiteral s) = do
+    return (Lit (StringL s))
+
 llit (TupleLiteral ea) = do
     nm <- mapM lexp ea
     nf <- getTypeFunc2
