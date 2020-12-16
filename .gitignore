@@ -2,3 +2,5 @@
 *.hi
 build
 bin
+irec
+runtests
