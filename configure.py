@@ -1,3 +1,4 @@
+#!/usr/bin/env python3
 # configure.py
 # This is the configure script that generates important static data in build directory that is used at compile-time
 #
@@ -10,6 +11,8 @@
 import sys
 import platform
 import shutil
+import subprocess
+import os
 
 hasfailed = 0
 
@@ -19,8 +22,23 @@ def fail(msg, val):
     print(msg+"\n")
     return val
 
-
-def main(debug):
+def run_version():
+    output = subprocess.run(["git", "rev-parse", "--short", "HEAD"], capture_output=True).stdout
+    commit = output.decode("utf-8").replace("\n", "")
+    output = subprocess.run(["git", "describe",  "--abbrev=0"], capture_output=True).stdout
+    tag = output.decode("utf-8").replace("\n", "")
+    stuff = {
+        "COMMIT_ID" : commit,
+        "VERSION_STRING" : tag,
+    }
+    with open("build/commitid.h", "w") as fd:
+        fd.write("#ifndef __COMMITID_H__\n")
+        fd.write("#define __COMMITID_H__\n")
+        for key, value in stuff.items():
+            fd.write("#define " + key + " \"" + value + "\"\n")
+        fd.write("#endif")
+        fd.close()
+def run_config(debug):
     os = ""
     # why startswith? see https://docs.python.org/3/library/sys.html#sys.platform
     if sys.platform.startswith("linux"):
@@ -68,10 +86,15 @@ def main(debug):
         for key, value in config.items():
             fd.write("#define " + key + " \"" + value + "\"\n")
         fd.write("#endif")
-
+        fd.close()
 
 
 
 
 if __name__ == "__main__":
-    main(True);
+    try:
+        os.mkdir("build")
+    except FileExistsError:
+        pass
+    run_version();
+    run_config(True);

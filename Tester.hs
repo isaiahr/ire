@@ -96,6 +96,7 @@ main = do
                                                       Nothing -> return ()
                                                       Just errr -> do
                                                           putStrLn $ "Error in " <> file <> ": " <> errr
+    if filter (/=Nothing) results == [] then exitSuccess else exitWith (ExitFailure 1)
     
 runTestCase :: String -> IO (Maybe String)
 runTestCase file = do
@@ -116,9 +117,9 @@ runTestCase file = do
                              case runOk contents of
                                   Nothing -> return $ Just "Should have passed, but failed"
                                   Just res -> do
-                                      writeOutput (disp res) "output" thisSystem S_BIN
+                                      writeOutput (disp res) "/tmp/output" thisSystem S_BIN
                                       let proc = CreateProcess {
-                                          cmdspec = ShellCommand "./output",
+                                          cmdspec = ShellCommand "/tmp/output",
                                           cwd = Nothing,
                                           env = Nothing,
                                           std_in = NoStream,

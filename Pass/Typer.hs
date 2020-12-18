@@ -30,7 +30,6 @@ import Pass.Namer
 
 import Control.Monad.State
 import Data.List
-import qualified Data.Map as Map
 
 
 data TyCons = TyCons Type Type 

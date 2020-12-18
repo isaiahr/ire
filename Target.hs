@@ -5,7 +5,6 @@
 module Target where
 
 import System.IO
-import System.IO.Unsafe
 import System.Process
 import System.Directory
 import System.Exit
@@ -80,10 +79,10 @@ getTempFile = do
     
     
 -- get the other libs to pass to linker 
-getLinkedLibs (Target Linux AMD64) = [LINUX_AMD64_LIB_PATH]
+getLinkedLibs (Target Linux AMD64) = return [LINUX_AMD64_LIB_PATH]
     
 -- ok, it will exit. 
-getLinkedLibs t = unsafePerformIO $ targetUnsupported t
+getLinkedLibs t = targetUnsupported t
 
 runLinker :: Target -> [String] -> String -> IO ()
 runLinker (Target Linux _) paths output = do
@@ -137,7 +136,8 @@ writeOutput output ofile target stage = do
              lfile <- getTempFile
              objfile <- getTempFile
              runCompiler output lfile
-             runLLCAsm target lfile objfile 
-             runLinker target (getLinkedLibs target <> [objfile]) ofile
+             runLLCAsm target lfile objfile
+             libs <- getLinkedLibs target  
+             runLinker target (libs <> [objfile]) ofile
              removeFile lfile
              removeFile objfile

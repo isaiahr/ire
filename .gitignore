@@ -2,5 +2,4 @@
 *.hi
 build
 bin
-irec
-runtests
+.stack-work
