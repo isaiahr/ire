@@ -1,0 +1,4 @@
+// Left FailAtTypeInference
+main := \() -> {
+    c := (c, c)
+}

@@ -26,6 +26,8 @@ import Common.Natives
         -- run llift to get rid of abs nodes.
     2) parameters cannot be assigned.
         -- this should already be done when lowering to IR.
+    3) the main function needs to be Int -1. 
+        -- kind of a hack, but this is how i identify main since string is not preserved.
 -} 
 
 {-
@@ -210,7 +212,8 @@ genE (App (Prim (LibPrim lb)) eargs) = do
                            otherwise -> error "e#523858")
     let llvmname = LGlob $ prim2llvmname lb
     result <- promote $ createCall rty llvmname (zip pty eargs')
-    return result
+    -- hack. void in c is different than void in our lang, so have to translate them.
+    return $ if result == LVoid then LZeroInit else result
 
 genE (App ef eargs) = do
     ef' <- genE ef

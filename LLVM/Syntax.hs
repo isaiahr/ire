@@ -101,7 +101,13 @@ instance Disp LInst where
     disp (LUBr lbl) = "br label " <> disp lbl
     disp (LPhi v ty vals) = disp v <> " = phi " <> disp ty <> " " <> intercalate ", " (map (\(lv, lbl) -> "[" <> disp lv <> ", " <> disp lbl <> "]") vals)
 
-data LValue = LTemp String | LGlob String | LIntLit Int | LUndef | LZeroInit | LVoid
+data LValue = LTemp String | -- temp, like %2
+              LGlob String | -- global, like @abc
+              LIntLit Int | -- integer, like 3
+              LUndef |  -- "undef"
+              LZeroInit |  -- "zeroinitializer"
+              LVoid -- "void" 
+              deriving Eq
 
 instance Disp LValue where
     disp (LTemp h) = "%" <> disp h

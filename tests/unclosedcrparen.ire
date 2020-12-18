@@ -1,0 +1,4 @@
+// Left FailAtParser
+main := \() -> {
+    c := 2
+    
