@@ -6,7 +6,7 @@ in the future. (but will probably be changed at some point)
 
 -}
 
-module Tester (main) where
+module CLI.Tester (main) where
 
 import Control.Monad
 import System.Process
@@ -20,7 +20,7 @@ import Data.List
 import Data.Maybe
 import Control.Exception (evaluate)
 
-import Target
+import Common.Target
 import Common.Common
 import Common.Pass
 import Parser.Lexer

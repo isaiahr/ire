@@ -1,8 +1,8 @@
 {-# LANGUAGE CPP #-}
 
-#include "build/config.h"
+#include "../../build/config.h"
 
-module Target where
+module Common.Target where
 
 import System.IO
 import System.Process

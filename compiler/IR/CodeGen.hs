@@ -1,6 +1,6 @@
 {-# LANGUAGE CPP #-}
 
-#include "../build/commitid.h"
+#include "../../build/commitid.h"
 
 module IR.CodeGen (passGenLLVM) where
 

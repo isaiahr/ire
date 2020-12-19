@@ -1,7 +1,7 @@
 {-# LANGUAGE CPP #-}
 
-#include "build/commitid.h"
-module Main (main) where 
+#include "../build/commitid.h"
+module CLI.Main (main) where 
 
 import System.Environment
 import System.IO.Error
@@ -12,7 +12,7 @@ import Data.List
 import Data.Maybe
 import Control.Exception (evaluate)
 
-import Target
+import Common.Target
 import Common.Common
 import Common.Pass
 import Parser.Lexer

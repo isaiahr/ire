@@ -3,10 +3,10 @@ name:                ire
 version:             0.0.0.0
 build-type:          Simple
 
-common deps
+library
   default-language:    Haskell2010
-  hs-source-dirs:      ./
-  other-modules:
+  hs-source-dirs:      compiler
+  exposed-modules:
       AST.AST
       Common.Common
       Common.Natives
@@ -28,7 +28,7 @@ common deps
       Pass.TypeChecker
       Pass.Typer
       Pass.YieldInjection
-      Target
+      Common.Target
   build-depends:     
       base >= 4.7 && < 5,
       mtl >= 2.2.2,
@@ -38,14 +38,20 @@ common deps
       directory >= 1.3.6.0
 
 executable irec
-  import: deps
-  main-is:             ./Main.hs
+  main-is:             CLI/Main.hs
+  ghc-options: -main-is CLI.Main
   default-language:    Haskell2010
-
+  build-depends:
+      base,
+      ire
 
 test-suite runtests
-  import: deps
   type: exitcode-stdio-1.0
-  main-is:             Tester.hs
-  ghc-options: -main-is Tester
+  main-is:             CLI/Tester.hs
+  ghc-options: -main-is CLI.Tester
   default-language:    Haskell2010
+  build-depends:
+      base,
+      process,
+      directory,
+      ire
