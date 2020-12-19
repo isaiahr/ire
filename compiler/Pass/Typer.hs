@@ -283,7 +283,11 @@ instance Monad UnRes where
     (Occ t1 t2) >>= f = Occ t1 t2
     return i = Ss i
 
--- occurs check
+-- occurs check.
+-- special case $1 ~ $1 is valid, despite occuring in lhs
+occurschk var g@(General t) = if var == t then False else occursc var g
+occurschk var g = occursc var g
+
 occursc var (General t) = var == t
 occursc var (Array t) = occursc var t
 occursc var (Tuple (t:ts)) = occursc var t || occursc var (Tuple ts)
@@ -292,8 +296,8 @@ occursc var (Function a b) = occursc var a || occursc var b
 occursc var (Bits n) = False
 occursc var (StringT) = False
 
-unify (General a) t2 = if occursc (a) t2 then Occ a t2 else Ss [Sub a t2]
-unify t1 (General b) = if occursc (b) t1 then Occ b t1 else Ss [Sub b t1]
+unify (General a) t2 = if occurschk (a) t2 then Occ a t2 else Ss [Sub a t2]
+unify t1 (General b) = if occurschk (b) t1 then Occ b t1 else Ss [Sub b t1]
 
 unify (Function f1 t1) (Function f2 t2) = do -- liftM2 (++) (unify f1 f2) (unify t1 t2)
     s <- unify f1 f2

@@ -203,6 +203,32 @@ genE (App (Prim (CreatePtr ty)) eargs) = do
     -- TODO: malloc here
     return (error "not yet impl")
 
+genE (App (Prim (GetTupleElem ty idx)) [arg]) = do
+    arg' <- genE arg
+    result <- promote $ createExtractValue (ir2llvmtype ty) arg' idx
+    return result
+
+genE (App (Prim (IntAdd)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 1
+    result <- promote $ createAdd (LLVMInt 64) r1 r2
+    return $ result
+
+genE (App (Prim (IntSub)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 1
+    result <- promote $ createSub (LLVMInt 64) r1 r2
+    return $ result
+    
+genE (App (Prim (IntMul)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 1
+    result <- promote $ createMul (LLVMInt 64) r1 r2
+    return $ result
+
 genE (App (Prim (LibPrim lb)) eargs) = do
     eargs' <- forM eargs genE
     -- efty <- getIRType (Prim (LibPrim lb)) 

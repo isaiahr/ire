@@ -35,6 +35,8 @@ data PrimE
     | SetPtr Type -- primitive function to update pointed-to data
     | CreatePtr Type -- primitive function to create pointers 
     | IntAdd -- prim add int
+    | IntSub -- prim sub int
+    | IntMul -- prim multiply int
     | LibPrim Native -- "library" primitive, this is typically a function that is linked with all binaries.
 
 -- literals. these are different from AST literals, and are not mutually recursive with expr.
@@ -137,7 +139,9 @@ exprType (Prim (GetPtr t)) nf = Function [Ptr t] t
 exprType (Prim (SetPtr t)) nf = Function [Ptr t, t] (Tuple [])
 exprType (Prim (CreatePtr t)) nf = Function [t] (Ptr t)
 exprType (Prim (GetTupleElem (Tuple tys) indx)) nf = Function [Tuple tys] (tys !! indx)
-exprType (Prim (IntAdd)) nf = Function [Bits 64, Bits 64] (Bits 64)
+exprType (Prim (IntAdd)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
+exprType (Prim (IntSub)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
+exprType (Prim (IntMul)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
 exprType (Prim (LibPrim lb)) nf = libtypeof lb
 exprType (Assign n _) nf = (Tuple [])
 exprType (Seq e1 e2) nf = exprType e2 nf
@@ -178,6 +182,8 @@ getTypeFuncTbl (tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
 primName Native_Exit = LibPrim Native_Exit
 primName Native_Print = LibPrim Native_Print
 primName Native_Addition = IntAdd
+primName Native_Subtraction = IntSub
+primName Native_Multiplication = IntMul
 
 libtypeof Native_Exit = Function [Bits 64] (Tuple [])
 libtypeof Native_Print = Function [StringIRT] (Tuple [])
