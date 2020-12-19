@@ -1,13 +1,11 @@
+cabal-version:       2.4
 name:                ire
 version:             0.0.0.0
 build-type:          Simple
-cabal-version:       >=1.10
 
-executable irec
-  hs-source-dirs:      ./
-  main-is:             Main.hs
-  ghc-options: -main-is Main
+common deps
   default-language:    Haskell2010
+  hs-source-dirs:      ./
   other-modules:
       AST.AST
       Common.Common
@@ -37,43 +35,17 @@ executable irec
       text >= 1.2.3.2,
       bytestring >= 0.10.10.0,
       process >= 1.6.9.0,
-      directory >= 1.3.6.0,
-      time >= 1.9.3
+      directory >= 1.3.6.0
+
+executable irec
+  import: deps
+  main-is:             ./Main.hs
+  default-language:    Haskell2010
+
 
 test-suite runtests
+  import: deps
   type: exitcode-stdio-1.0
-  hs-source-dirs:      ./
   main-is:             Tester.hs
   ghc-options: -main-is Tester
   default-language:    Haskell2010
-  other-modules:
-      AST.AST
-      Common.Common
-      Common.Natives
-      Common.Pass
-      IR.CodeGen
-      IR.DirectCall
-      IR.HeapConversion
-      IR.LambdaLift
-      IR.Lowering
-      IR.Syntax
-      LLVM.Builder
-      LLVM.Syntax
-      LLVM.Types
-      Parser.Lexer
-      Parser.Parser
-      Parser.ParserCore
-      Pass.NameTyper
-      Pass.Namer
-      Pass.TypeChecker
-      Pass.Typer
-      Pass.YieldInjection
-      Target
-  build-depends:     
-      base >= 4.7 && < 5,
-      mtl >= 2.2.2,
-      text >= 1.2.3.2,
-      bytestring >= 0.10.10.0,
-      process >= 1.6.9.0,
-      directory >= 1.3.6.0,
-      time >= 1.9.3

@@ -8,7 +8,7 @@ import System.IO
 import System.Process
 import System.Directory
 import System.Exit
-import Data.Time.Clock.POSIX
+import System.CPUTime (getCPUTime)
 
 import Common.Common
 {-
@@ -74,7 +74,7 @@ targetFromStr str = case (filter (\(x, y) -> y == str) (map (\x -> (x, disp x)) 
 
 
 getTempFile = do
-    time <- getPOSIXTime
+    time <- getCPUTime
     return $ "/tmp/iretmp" <> show time
     
     
