@@ -1,3 +1,4 @@
+{-# LANGUAGE BangPatterns #-}
 {--
 Tester.hs - file that loads and runs test cases
 This is *really* hacked together, but it works (for now) 
@@ -5,7 +6,6 @@ and it isn't a core part of the compiler, so it is low priority to get changed
 in the future. (but will probably be changed at some point)
 
 -}
-
 module CLI.Tester (main) where
 
 import Control.Monad
@@ -45,7 +45,7 @@ data FailAt =
       deriving (Read, Show)
       
 
-runOk contents = snd $ runPass contents allpasses
+runOk contents = runPass contents allpasses
     where allpasses =     passLexer >>> -- plaintext -> tokens
                           passParse >>> -- tokens -> ast<string>
                           passYieldInj >>> -- ast<string> -> ast<string>
@@ -115,8 +115,11 @@ runTestCase file = do
                          Left failat -> return $ Nothing
                          Right (exitcode, stdoutput) -> do
                              case runOk contents of
-                                  Nothing -> return $ Just "Should have passed, but failed"
-                                  Just res -> do
+                                  (m, Nothing) -> return $ Just "Should have passed, but failed"
+                                  (m, Just res) -> do
+                                      -- evaluate msgs. this gives us more coverage, and it isn't that important it is correct.
+                                      -- but msgs (can) cause crashes sometimes, so may as well
+                                      let !j = m
                                       writeOutput (disp res) "/tmp/output" thisSystem S_BIN
                                       let proc = CreateProcess {
                                           cmdspec = ShellCommand "/tmp/output",

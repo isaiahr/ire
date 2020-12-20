@@ -1,0 +1,15 @@
+// Right (120, "")
+
+fact := \x -> {
+    return if 0 >= x then {
+        yield 1
+    } else {
+        yield (x * fact(x-1))
+    }
+}
+main := \() -> {
+    
+    r :Int= fact 5
+    __ire__exit__(r)
+}
+

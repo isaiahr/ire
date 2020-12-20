@@ -173,6 +173,7 @@ exprType (Prim (LibPrim lb)) nf = libtypeof lb
 exprType (Assign n _) nf = (Tuple [])
 exprType (Seq e1 e2) nf = exprType e2 nf
 exprType (If e1 e2 e3) nf = exprType e2 nf -- if e2 == e3 then e2 else error "ifstmt bad ty"
+exprType (Ret e) nf = (Tuple [])
 exprType (Lit (IntL _)) nf = Bits 64
 exprType (Lit (BoolL _)) nf = Bits 1
 exprType (Lit (StringL _)) nf = StringIRT
@@ -188,6 +189,7 @@ exprSubExprs (Assign _ e) = [e]
 exprSubExprs (Seq e1 e2) = [e1, e2]
 exprSubExprs (If e1 e2 e3) = [e1, e2, e3]
 exprSubExprs (Lit _) = []
+exprSubExprs (Ret e) = [e]
 
 rebuild (Var n) news = Var n
 rebuild (Call n _) news = Call n news
@@ -200,6 +202,7 @@ rebuild (Assign n _) news = Assign n (news !! 0)
 rebuild (Seq _ _) news = Seq (news !! 0) (news !! 1)
 rebuild (If _ _ _ ) news = If (news !! 0) (news !! 1) (news !! 2)
 rebuild (Lit n) news = Lit n
+rebuild (Ret _) news = Ret (news !! 0)
 
 
 getTypeFunc (IR _ tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0

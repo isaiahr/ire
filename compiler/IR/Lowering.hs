@@ -82,7 +82,7 @@ registerEName tn = do
     ctx <- get
     return $ findin tn (nameTbl ctx)
     where findin tn ((t, n):r) = if tn == t then n else (findin tn r)
-          findin tn [] = error "registerEName non-existing name"
+          findin tn [] = error $ "registerEName non-existing name: " <> (disp tn)
 
 -- create new name, but not associated w/ an ast variable
 newName :: AST.AST.Type -> State Context IR.Syntax.Name
@@ -92,15 +92,6 @@ newName typ = do
     put $ ctx { typeTbl = (IR.Syntax.Name nm, (convTy typ)):(typeTbl ctx),  nextName = nm + 1 }
     return (IR.Syntax.Name nm)
 
--- important function. dont ask.
-buildMagic (l:lst) tupleexpr tty indx restexpr = do
-    l' <- registerName l
-    newMagic <- (buildMagic lst tupleexpr tty (indx+1) restexpr)
-    return $ Let l' (App (Prim $ GetTupleElem tty indx) [tupleexpr]) newMagic
-
-buildMagic [] tupleexpr tty indx restexpr = do
-    restexpr' <- lexp (Block restexpr)
-    return $ restexpr'
     
 
 magic2 (l:lst) tupleexpr tty indx restexpr = do
@@ -116,17 +107,29 @@ lexp (Literal l) = do
     return nexp
 
 lexp (Block ((Defn d):bs)) = do
-    newexpr <- lexp (value d)
     case identifier d of
          (Plain name) -> do     
              newname <- registerName name
-             nb <- lexp (Block bs)
+             newexpr <- lexp (value d)
+             nb <- lexp (Block bs)             
              return $ Let newname newexpr nb
          (TupleUnboxing tu) -> do
              let tuplety = (AST.AST.Tuple (map (\(TypedName t n) -> t) tu))
              dummy <- newName tuplety
+             forM tu registerName
+             newexpr <- lexp (value d)
              untple <- buildMagic tu (IR.Syntax.Var dummy) (convTy tuplety) 0 bs
              return $ Let dummy newexpr untple
+            -- important function. dont ask.
+    where 
+    buildMagic (l:lst) tupleexpr tty indx restexpr = do
+        l' <- registerEName l
+        newMagic <- (buildMagic lst tupleexpr tty (indx+1) restexpr)
+        return $ Let l' (App (Prim $ GetTupleElem tty indx) [tupleexpr]) newMagic
+
+    buildMagic [] tupleexpr tty indx restexpr = do
+        restexpr' <- lexp (Block restexpr)
+        return $ restexpr'
 
 lexp (Block ((Yield y):bs)) = do
     ny <- lexp y

@@ -39,7 +39,8 @@ data Ctx = Ctx {
     ntbl :: [(Name, LValue)], -- table of ir names to llvm values.
     tyf :: Expr -> Type, -- function to convert expressions to types
     ftbl :: [(TLFunction, FunctionHeader)],
-    bodyc :: BodyCtx
+    bodyc :: BodyCtx,
+    writRet :: Bool -- hack (sortof) to not write a 2nd return after writing a (nested) return
 }
 
 passGenLLVM = Pass {pName = ["LLVM Gen"], pFunc = runP }
@@ -47,7 +48,7 @@ passGenLLVM = Pass {pName = ["LLVM Gen"], pFunc = runP }
 
 
 genLLVM :: IR -> LMod
-genLLVM (IR tl tbl) = evalState (genLLVM2 tl) (Ctx { tytbl = [], ntbl = [], tyf = tf, ftbl = [], bodyc = error "poked error thunk" }) 
+genLLVM (IR tl tbl) = evalState (genLLVM2 tl) (Ctx { tytbl = [], ntbl = [], tyf = tf, ftbl = [], bodyc = error "poked error thunk", writRet = False} ) 
     where tf = \x -> exprType x (getTypeFuncTbl tbl)
 
 llvmntypeof Native_Exit = LLVMFunction LLVMVoid [LLVMInt 64]
@@ -65,11 +66,18 @@ getIRType :: Expr -> State Ctx Type
 getIRType expr = do
     ctx <- get
     return $ (tyf ctx) expr
+
+getRetty :: Name -> State Ctx Type
+getRetty name = do
+    ctx <- get
+    case (tyf ctx) (Var name) of
+         Function p out -> return out
+         EnvFunction p cl out -> return out
     
 genTLF :: TLFunction -> State Ctx FunctionHeader
 genTLF tlf@(TLFunction (Name nm) clvars params expr) = do
     pty <- forM (map Var params) getIRType
-    exprty <- getIRType expr
+    exprty <- getRetty (Name nm)
     -- do not mangle entry
     let text_name = if nm == (-1) then "main" else ("ire_function_" ++ disp nm)
     let fh = createFunction text_name (LLVMFunction (ir2llvmtype exprty) ((if null clvars then [] else [LLVMPtr (LLVMPtr (LLVMInt 8))]) ++ map ir2llvmtype (pty)))
@@ -79,6 +87,7 @@ genTLF tlf@(TLFunction (Name nm) clvars params expr) = do
 genTLFe :: (TLFunction, FunctionHeader) -> State Ctx LFunction
 genTLFe (tlf@(TLFunction name clvars params expr), fh) = do
     promote (writeFunction fh)
+    modify $ \ctx -> ctx {writRet = False}
     -- NOTE: might not work.
     if not $ null clvars then do
         clvty <- forM (map Var clvars) getIRType
@@ -86,14 +95,20 @@ genTLFe (tlf@(TLFunction name clvars params expr), fh) = do
         modify $ \ctx -> ctx {ntbl = (zip params (map (LTemp . show) [1..((length params))])) ++ (zip clvars (map (LTemp . show) [(length params +1)..(length clvars + length params)])) ++ ntbl ctx}
         lv <- genE expr
         exprty <- getIRType expr 
-        promote (createRet (ir2llvmtype exprty) lv)
+        h <- hasRet
+        if not h then promote (createRet (ir2llvmtype exprty) lv) else return ()
         promote $ closeFunction fh    
                          else do
         modify $ \ctx -> ctx {ntbl = (zip params (map (LTemp . show) [0..((length params) - 1)])) ++ ntbl ctx}
         lv <- genE expr
         exprty <- getIRType expr 
-        promote (createRet (ir2llvmtype exprty) lv)
+        h <- hasRet
+        if not h then promote (createRet (ir2llvmtype exprty) lv) else return ()
         promote $ closeFunction fh
+    where
+        hasRet = do
+            ctx <- get
+            return $ writRet ctx
     
 
 genE ::  Expr -> State Ctx LValue
@@ -101,7 +116,8 @@ genE (Ret e) = do
     e' <- genE e
     ety <- getIRType e
     promote (createRet (ir2llvmtype ety) e')
-    return $ error "return does not yield value"
+    modify $ \ctx -> ctx {writRet = True}
+    return $ LUndef
 
 genE (Lit (IntL i)) = do
     return $ LIntLit i
@@ -200,7 +216,8 @@ genE (App (Prim (SetPtr ty)) [ptr, dat] ) = do
     return (error "no lvalue for prim setptr app")
 
 genE (App (Prim (CreatePtr ty)) eargs) = do
-    -- TODO: malloc here
+    -- todo: sizeof etc etc etc
+    --ptr <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, LIntLit (length bytes))])
     return (error "not yet impl")
 
 genE (App (Prim (GetTupleElem ty idx)) [arg]) = do
@@ -332,14 +349,17 @@ genE (If cond e1 e2) = do
     bbend <- promote generateBB
     promote $ createConditionalBr condlv bbe1 bbe2
     promote $ useBB bbe1
+    modify $ \ctx -> ctx {writRet = False}
     e1' <- genE e1
     promote $ createStore llvmty e1' ptrresult 
     promote $ createUnconditionalBr bbend
     promote $ useBB bbe2
+    modify $ \ctx -> ctx {writRet = False}
     e2' <- genE e2
     promote $ createStore llvmty e2' ptrresult 
     promote $ createUnconditionalBr bbend
     promote $ useBB bbend
+    modify $ \ctx -> ctx {writRet = False}
     result <- promote $ createLoad llvmty ptrresult
     return result
 
