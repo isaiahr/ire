@@ -229,6 +229,55 @@ genE (App (Prim (IntMul)) [argtuple]) = do
     result <- promote $ createMul (LLVMInt 64) r1 r2
     return $ result
 
+genE (App (Prim (IntEq)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 1
+    result <- promote $ createIcmp OP_eq (LLVMInt 64) r1 r2
+    return $ result
+
+genE (App (Prim (IntGT)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 1
+    result <- promote $ createIcmp OP_sgt (LLVMInt 64) r1 r2
+    return $ result
+
+genE (App (Prim (IntLT)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 1
+    result <- promote $ createIcmp OP_slt (LLVMInt 64) r1 r2
+    return $ result
+
+genE (App (Prim (IntGET)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 1
+    result <- promote $ createIcmp OP_sge (LLVMInt 64) r1 r2
+    return $ result
+
+genE (App (Prim (IntLET)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' 1
+    result <- promote $ createIcmp OP_sle (LLVMInt 64) r1 r2
+    return $ result
+    
+genE (App (Prim (BoolOr)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 1), (LLVMInt 1)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 1), (LLVMInt 1)]) argtuple' 1
+    result <- promote $ createOr (LLVMInt 1) r1 r2
+    return $ result
+
+genE (App (Prim (BoolAnd)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 1), (LLVMInt 1)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 1), (LLVMInt 1)]) argtuple' 1
+    result <- promote $ createAnd (LLVMInt 1) r1 r2
+    return $ result
+
 genE (App (Prim (LibPrim lb)) eargs) = do
     eargs' <- forM eargs genE
     -- efty <- getIRType (Prim (LibPrim lb)) 
@@ -275,20 +324,23 @@ genE (Abs n e) = do
     
 genE (If cond e1 e2) = do
     condlv <- genE cond
+    resultty <- getIRType e1
+    let llvmty = ir2llvmtype resultty
+    ptrresult <- promote $ createAlloca llvmty
     bbe1 <- promote generateBB
     bbe2 <- promote generateBB
     bbend <- promote generateBB
     promote $ createConditionalBr condlv bbe1 bbe2
     promote $ useBB bbe1
     e1' <- genE e1
+    promote $ createStore llvmty e1' ptrresult 
     promote $ createUnconditionalBr bbend
     promote $ useBB bbe2
     e2' <- genE e2
+    promote $ createStore llvmty e2' ptrresult 
     promote $ createUnconditionalBr bbend
     promote $ useBB bbend
-    ty <- getIRType e1
-    let tyllvm = ir2llvmtype ty
-    result <- promote $ createPhi tyllvm [(e1', bbe1), (e2', bbe2)]
+    result <- promote $ createLoad llvmty ptrresult
     return result
 
 --helper0 and helper1 are to help packing / unpacking bigptr, which is the closure env, into typed closure variables.

@@ -172,17 +172,28 @@ parseInfixOp = Parser (\ts ->
                                          ParseFailure -> ParseSuccess (InfixExpr expr Null) ts2
                                          Unrecoverable r -> Unrecoverable r
                                          ParseSuccess op ts3 -> run (fmap (\x -> (InfixExpr expr (OpExpr op x))) parseInfixOp) ts3)
-                                         {- case run parseInfixOp ts3 of
-                                                                     ParseFailure -> ParseFailure
-                                                                     Unrecoverable r -> Unrecoverable r
-                                                                     ParseSuccess iexpr ts4 -> ParseSuccess (InfixExpr expr (OpExpr op iexpr)) ts4) -}
+{-
+higher number: binds more strongly.
+if * > +, then (a+b*c) => (a+(b*c))
+ties mean left to right associativity.
+(so a+b-c => (a+b)-c)
+also, see: https://introcs.cs.princeton.edu/java/11precedence/ for refence on (supposedly) reasonable
+defaults
+-}
 
-parseOp = (parseToken Plus $> Operation 1 Plus "+") <|>
-          (parseToken Mult $> Operation 2 Mult "*") <|> 
-          (parseToken FSlash $> Operation 2 FSlash "/") <|> 
-          (parseToken Minus $> Operation 2 Minus "-")
+parseOp = (parseToken Plus $> Operation 4 Plus "+") <|>
+          (parseToken Minus $> Operation 4 Minus "-") <|> 
+          (parseToken Mult $> Operation 5 Mult "*") <|> 
+          (parseToken FSlash $> Operation 5 FSlash "/") <|> 
+          (parseToken Pipe $> Operation 0 Pipe "|") <|> 
+          (parseToken Ampersand $> Operation 1 Ampersand "&") <|> 
+          (parseToken DoubleEquals $> Operation 2 DoubleEquals "==") <|> 
+          (parseToken Greater $> Operation 3 Greater ">") <|>
+          (parseToken Less $> Operation 3 Less "<") <|>
+          (parseToken GreaterEqual $> Operation 3 GreaterEqual ">=") <|>
+          (parseToken LesserEqual $> Operation 3 LesserEqual "<=") 
 
-orderOps iexpr = case (lower 1 (lower 2 iexpr)) of
+orderOps iexpr = case (lower 0 (lower 1 (lower 2 (lower 3 (lower 4 (lower 5 iexpr)))))) of
                       (InfixExpr e Null) -> e
                       _ -> error "Operator ordering failure, see Parser.hs. #259374878345789354789" -- number to easily find where the code is 
 

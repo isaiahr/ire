@@ -57,7 +57,6 @@ data LInst
     | LAdd LValue LType LValue LValue Bool Bool -- val = add ty v1 v2 nuw nsw
     | LSub LValue LType LValue LValue Bool Bool -- val = sub ty v1 v2 nuw nsw
     | LMul LValue LType LValue LValue Bool Bool -- val = mul ty v1 v2 nuw nsw
-    | LAnd LValue LType LValue LValue  -- val = and ty v1 v2 
     | LGEP LValue Bool LType LType LValue [Int] -- val = getelementptr inbounds ty ty* v [i64 i[0], i64 i[1] etc]
     | LLoad LValue LType LType LValue -- val = load ty ty* v
     | LStore Bool LType LValue LType LValue -- store volatile ty v ty* ptr
@@ -69,7 +68,24 @@ data LInst
     | LBitcast LValue LType LValue LType
     | LCBr LValue LLabel LLabel -- conditional branch
     | LUBr LLabel -- unconditional branch
+    | LAnd LValue LType LValue LValue
+    | LOr LValue LType LValue LValue
     | LPhi LValue LType [(LValue, LLabel)]
+    | LIcmp LValue CMPOperand LType LValue LValue
+
+data CMPOperand = OP_eq | OP_ne | OP_ugt | OP_uge | OP_ult | OP_ule | OP_sgt | OP_sge | OP_slt | OP_sle
+
+instance Disp CMPOperand where
+    disp OP_eq = "eq"
+    disp OP_ne = "ne"
+    disp OP_ugt = "ugt"
+    disp OP_uge = "uge"
+    disp OP_ult = "ult"
+    disp OP_ule = "ule"
+    disp OP_sgt = "sgt"
+    disp OP_sge = "sge"
+    disp OP_slt = "slt"
+    disp OP_sle = "sle"
 
 instance Disp LInst where
     disp (LRet ty val) = "ret " <> disp ty <> " " <> disp val
@@ -85,7 +101,6 @@ instance Disp LInst where
     disp (LMul v ty v1 v2 True False) = disp v <> " = mul nuw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LMul v ty v1 v2 True True) = disp v <> " = mul nuw nsw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LMul v ty v1 v2 False True) = disp v <> " = mul nsw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LAnd v ty v1 v2) = disp v <> " = and " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LGEP v True ty1 ty2 val lnt) = disp v <> " = getelementptr inbounds " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val <> concat (map (\y -> ", i64 " <> (disp y)) lnt)
     disp (LGEP v False ty1 ty2 val lnt) = disp v <> " = getelementptr " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val <> concat (map (\y -> ", i64 " <> (disp y)) lnt)
     disp (LLoad v ty1 ty2 val) = disp v <> " = load " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val
@@ -97,9 +112,12 @@ instance Disp LInst where
     disp (LExtractValue v ty v1 idx) = disp v <> " = extractvalue " <> disp ty <> " " <> disp v1 <> ", " <> disp idx
     disp (LInsertValue v ty v1 ty1 v2 idx) = disp v <> " = insertvalue " <> disp ty <> " " <> disp v1 <> ", " <> disp ty1 <> " " <> disp v2 <> ", " <> disp idx
     disp (LBitcast v ty v1 ty2) = disp v <> " = bitcast " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
-    disp (LCBr lv lbltrue lblfalse) = "br i1 " <> disp lv <> ", label " <> disp lbltrue <> ", label " <> disp lblfalse
-    disp (LUBr lbl) = "br label " <> disp lbl
-    disp (LPhi v ty vals) = disp v <> " = phi " <> disp ty <> " " <> intercalate ", " (map (\(lv, lbl) -> "[" <> disp lv <> ", " <> disp lbl <> "]") vals)
+    disp (LCBr lv lbltrue lblfalse) = "br i1 " <> disp lv <> ", label %" <> disp lbltrue <> ", label %" <> disp lblfalse
+    disp (LUBr lbl) = "br label %" <> disp lbl
+    disp (LPhi v ty vals) = disp v <> " = phi " <> disp ty <> " " <> intercalate ", " (map (\(lv, lbl) -> "[" <> disp lv <> ", %" <> disp lbl <> "]") vals)
+    disp (LAnd v ty v1 v2) = disp v <> " = and " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LOr v ty v1 v2) = disp v <> " = or " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LIcmp v op ty v1 v2) = disp v <> " = icmp " <> disp op <> " " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
 
 data LValue = LTemp String | -- temp, like %2
               LGlob String | -- global, like @abc

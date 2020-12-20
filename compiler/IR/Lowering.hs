@@ -11,6 +11,7 @@ import IR.Syntax
 
 import Control.Monad.State
 
+
 data Context = Context {
     nameTbl :: [(TypedName, IR.Syntax.Name)],
     typeTbl :: [(IR.Syntax.Name, IR.Syntax.Type)], 
@@ -71,8 +72,8 @@ registerName tn@(TypedName ty (Pass.Namer.Name s i)) = do
     ctx <- get
     -- hack, main -> -1 
     -- TODO, not hack here.
-    let nm = if s == "main" then (-1) else nextName ctx
-    put $ Context { nameTbl = (tn, IR.Syntax.Name nm):(nameTbl ctx), typeTbl = (IR.Syntax.Name nm, (convTy ty)):(typeTbl ctx), nextName = nm+1}
+    let (nm, nxt) = if s == "main" then (-1, nextName ctx) else (nextName ctx, (nextName ctx) + 1)
+    put $ Context { nameTbl = (tn, IR.Syntax.Name nm):(nameTbl ctx), typeTbl = (IR.Syntax.Name nm, (convTy ty)):(typeTbl ctx), nextName = nxt}
     return (IR.Syntax.Name nm)
 
 -- register "existing" name
@@ -155,6 +156,12 @@ lexp (Block ((Expr b):bs)) = do
     return $ Seq nb nbs
 
 lexp (Block []) = error "Block must terminate in yield or return"
+
+lexp (IfStmt cond thn els) = do
+    cond' <- lexp cond
+    thn' <- lexp thn
+    els' <- lexp els
+    return $ IR.Syntax.If cond' thn' els'
 
 lexp (FunctionCall e1 e2) = do
     ne1 <- lexp e1

@@ -1,0 +1,8 @@
+// Right (55, "")
+
+fib := \x -> if x == 1 then 1 else if x <= 0 then 0 else fib(x-1) + fib(x-2)
+
+main := \() -> {
+    r := fib 10
+    __ire__exit__(r)
+}

@@ -31,7 +31,6 @@ import Pass.Namer
 import Control.Monad.State
 import Data.List
 
-
 data TyCons = TyCons Type Type 
 data TyVar  = TyVar Name Type
 
@@ -50,7 +49,7 @@ instance Disp (ConstraintTbl) where
 
 getType a (ConstraintTbl nt tc tvs t6) = case getVar a tvs of
                                            (Just t) -> t
-                                           _ -> error "gettype #0738607346895"
+                                           _ -> error ("gettype #0738607346895" <> disp a <> intercalate "," (map disp tvs))
 
 getVar a tvars = case p of
                       [TyVar b t] -> Just t
@@ -220,6 +219,7 @@ genConsExpr (IfStmt i t e) n = do
     ne <- getInt
     mkCons nt (General ne)
     mkCons n (General nt)
+    genConsExpr i ni
     genConsExpr t nt
     genConsExpr e ne
     return ()

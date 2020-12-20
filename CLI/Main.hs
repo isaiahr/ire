@@ -103,10 +103,10 @@ main = do
                           passGenLLVM -- IR -> LLVM
                           
                    
-    let (msg, result) = runPass contents transformations
-    maybe (return ()) (\y -> writeOutput (disp y) (oOutput op) (oTarget op) (oStage op)) result
+    let (msg, result) = runPass contents transformations 
     let fmsg = if oDumptrees op then msg else filterDbg msg
     putStrLn $ disp fmsg
+    maybe (return ()) (\y -> writeOutput (disp y) (oOutput op) (oTarget op) (oStage op)) result
     return exitSuccess
 
     

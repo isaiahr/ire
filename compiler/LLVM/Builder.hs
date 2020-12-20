@@ -86,6 +86,21 @@ createAdd ty v1 v2 = do
     addInst $ LAdd ret ty v1 v2 False False 
     return ret
     
+createOr ty v1 v2 = do
+    ret <- newValue
+    addInst $ LOr ret ty v1 v2
+    return ret
+
+createAnd ty v1 v2 = do
+    ret <- newValue
+    addInst $ LAnd ret ty v1 v2
+    return ret
+
+createIcmp op ty v1 v2 = do
+    ret <- newValue
+    addInst $ LIcmp ret op ty v1 v2
+    return ret
+    
 createSub ty v1 v2 = do
     ret <- newValue
     addInst $ LSub ret ty v1 v2 False False 

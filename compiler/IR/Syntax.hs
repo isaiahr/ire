@@ -37,6 +37,13 @@ data PrimE
     | IntAdd -- prim add int
     | IntSub -- prim sub int
     | IntMul -- prim multiply int
+    | IntEq
+    | IntGET
+    | IntGT
+    | IntLET
+    | IntLT
+    | BoolOr
+    | BoolAnd
     | LibPrim Native -- "library" primitive, this is typically a function that is linked with all binaries.
 
 -- literals. these are different from AST literals, and are not mutually recursive with expr.
@@ -100,8 +107,17 @@ instance Disp PrimE where
     disp (SetPtr ty) = "@SetPtr!" <> disp ty
     disp (CreatePtr ty) = "@CreatePtr!" <> disp ty
     disp (IntAdd) = "@IntAdd!"
+    disp (IntSub) = "@IntSub!"
+    disp (IntMul) = "@IntMul!"
+    disp (IntEq) = "@IntEq!"
+    disp (IntGET) = "@IntGET!"
+    disp (IntGT) = "@IntGT!"
+    disp (IntLET) = "@IntLET!"
+    disp (IntLT) = "@IntLT!"
+    disp (BoolOr) = "@BoolOr!"
+    disp (BoolAnd) = "@BoolAnd!"
     disp (LibPrim lb) = "@LibPrim!" <> disp lb
-    
+
 allNames :: IR -> [Name]
 allNames (IR ((TLFunction name clv params ex):tl) x) = name:(clv ++ params ++ names ex) ++ allNames (IR tl x)
     where names (Var n) = [n]
@@ -127,7 +143,11 @@ exprType :: Expr -> (Name -> Type) -> Type
 exprType (Var n) nf = nf n
 exprType (App e1 en) nf = case (exprType e1 nf) of
                                (Function t1 t2) -> t2
-                               _ -> error "bad"
+                               _ -> error ("bad#890589053")
+exprType (Call n en) nf = case (nf n) of 
+                               (Function t1 t2) -> t2
+                               _ -> error ("bad#43978298374")
+                               
 exprType (Abs names ex) nf = Function (map nf names) (exprType ex nf)
 exprType (Close fn nms) nf = case nf fn of 
                                   (EnvFunction a _ b) -> (Function a b)
@@ -142,12 +162,19 @@ exprType (Prim (GetTupleElem (Tuple tys) indx)) nf = Function [Tuple tys] (tys !
 exprType (Prim (IntAdd)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
 exprType (Prim (IntSub)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
 exprType (Prim (IntMul)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
+exprType (Prim (IntEq)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
+exprType (Prim (IntGET)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
+exprType (Prim (IntGT)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
+exprType (Prim (IntLET)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
+exprType (Prim (IntLT)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
+exprType (Prim (BoolOr)) nf = Function [Tuple [Bits 1, Bits 1]] (Bits 1)
+exprType (Prim (BoolAnd)) nf = Function [Tuple [Bits 1, Bits 1]] (Bits 1)
 exprType (Prim (LibPrim lb)) nf = libtypeof lb
 exprType (Assign n _) nf = (Tuple [])
 exprType (Seq e1 e2) nf = exprType e2 nf
 exprType (If e1 e2 e3) nf = exprType e2 nf -- if e2 == e3 then e2 else error "ifstmt bad ty"
 exprType (Lit (IntL _)) nf = Bits 64
-exprType (Lit (BoolL _)) nf = Bits 2
+exprType (Lit (BoolL _)) nf = Bits 1
 exprType (Lit (StringL _)) nf = StringIRT
 
 exprSubExprs (Var _) = []
@@ -184,6 +211,13 @@ primName Native_Print = LibPrim Native_Print
 primName Native_Addition = IntAdd
 primName Native_Subtraction = IntSub
 primName Native_Multiplication = IntMul
+primName Native_Equal = IntEq
+primName Native_Greater = IntGT
+primName Native_Less = IntLT
+primName Native_GreaterEqual = IntGET
+primName Native_LesserEqual = IntLET
+primName Native_Or = BoolOr
+primName Native_And = BoolAnd
 
 libtypeof Native_Exit = Function [Bits 64] (Tuple [])
 libtypeof Native_Print = Function [StringIRT] (Tuple [])
