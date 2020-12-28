@@ -48,7 +48,7 @@ def run_config(debug):
     elif sys.platform == "darwin":
         os = "macos"
     else:
-        os = fail("Error Determining Operating System" "(linux/windows/macos)")
+        os = fail("Error Determining Operating System", "(linux/windows/macos)")
     
     mach = platform.machine()
     
@@ -56,18 +56,22 @@ def run_config(debug):
         arch = "amd64"
     elif mach == "i386":
         arch = "i386"
+    elif mach == "aarch64":
+        arch = "aarch64"
+    elif mach == "aarch32":
+        arch = "aarch32"
     else:
         arch = fail("Error Identifying Arch", "(amd64/i386/aarch32/aarch64)")
     
     linux_linker = shutil.which("ld.lld")
     if linux_linker == None:
-        linux_linker = fail("Error Finding ld.lld on path" "path/to/ld")
+        linux_linker = fail("Error Finding ld.lld on path", "path/to/ld")
     opt = shutil.which("opt")
     if opt == None:
-        opt = fail("Error Finding opt on path" "path/to/opt")
+        opt = fail("Error Finding opt on path", "path/to/opt")
     llc = shutil.which("llc")
     if llc == None:
-        llc = fail("Error Finding llc on path" "path/to/llc")
+        llc = fail("Error Finding llc on path", "path/to/llc")
     
     config = {
         "HOST_SYSTEM" : os + "-" + arch,
@@ -98,3 +102,4 @@ if __name__ == "__main__":
         pass
     run_version();
     run_config(True);
+    print("Done writing config. build irert now")
