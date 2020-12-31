@@ -4,6 +4,7 @@ import Common.Common
 import Parser.ParserCore
 import AST.AST
 import Parser.Lexer
+import qualified Parser.ParserRels (parseFile)
 import Common.Pass
 
 import Control.Applicative
@@ -11,10 +12,6 @@ import Control.Category
 import Data.List
 import Data.Functor
 
-
--- runs parser on tokenstream
-run :: Parser p -> [AnnotatedToken] -> ParseResult p
-run (Parser ps) = ps
 
 passParse :: Pass [AnnotatedToken] (AST String)
 passParse = Pass {pName = ["Parser"], pFunc = doPs}
@@ -24,7 +21,7 @@ passParse = Pass {pName = ["Parser"], pFunc = doPs}
 
 
 parseFile :: Parser (AST String)
-parseFile = fmap AST $ collectM parseDefinition $ parseToken Term
+parseFile = Parser.ParserRels.parseFile *> (fmap AST $ collectM parseDefinition $ parseToken Term)
 
 -- parses an identifier
 parseIdentifier :: Parser String

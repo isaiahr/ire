@@ -1,4 +1,4 @@
-// Left FailAtTypeInference
+// Fail FailAtTypeInference
 main := \() -> {
     c := 2
     c = "1"

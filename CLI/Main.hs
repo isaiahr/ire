@@ -12,22 +12,10 @@ import Data.List
 import Data.Maybe
 import Control.Exception (evaluate)
 
-import Common.Target
 import Common.Common
-import Common.Pass
-import Parser.Lexer
-import Parser.Parser
-import AST.AST
-import Pass.YieldInjection
-import Pass.Typer
-import Pass.Namer
-import Pass.NameTyper
-import Pass.TypeChecker
-import IR.DirectCall
-import IR.Lowering
-import IR.HeapConversion
-import IR.LambdaLift
-import IR.CodeGen
+
+import Pipeline.Pipeline
+import Pipeline.Target
 
 data Options = Options {
     oDumptrees :: Bool,
@@ -84,29 +72,7 @@ main = do
     pn <- getProgName
     op <- process a pn
     let filename = oInput op
-    inhandle <- openFile filename ReadMode
-    hSetEncoding inhandle utf8
-    contents <- hGetContents inhandle
-    -- trick. lazy IO is dumb, so we force evaluation to actually close the handle.
-    contents_sz <- evaluate (length contents)
-    hClose inhandle
-    let transformations = passLexer >>> -- plaintext -> tokens
-                          passParse >>> -- tokens -> ast<string>
-                          passYieldInj >>> -- ast<string> -> ast<string>
-                          passName >>> -- ast<string> -> ast<name>
-                          passType >>> -- ast<name> -> ast<typedname>
-                          passTypeCheck >>> -- ast<typedname> -> ast<typedname>, ensures type annotation correctness
-                          passLower >>>  -- ast<typedname> -> IR
-                          passDCall >>> -- IR -> IR, direct call conversion
-                          passHConv >>> -- IR -> IR, promote freevars to heap 
-                          passLLift >>> -- IR -> IR, lift nested functions to top level
-                          passGenLLVM -- IR -> LLVM
-                          
-                   
-    let (msg, result) = runPass contents transformations 
-    let fmsg = if oDumptrees op then msg else filterDbg msg
-    putStrLn $ disp fmsg
-    maybe (return ()) (\y -> writeOutput (disp y) (oOutput op) (oTarget op) (oStage op)) result
+    pipelineIO (oTarget op) filename (oStage op) (oOutput op)
     return exitSuccess
 
     

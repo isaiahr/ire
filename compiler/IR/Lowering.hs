@@ -15,14 +15,15 @@ import Control.Monad.State
 data Context = Context {
     nameTbl :: [(TypedName, IR.Syntax.Name)],
     typeTbl :: [(IR.Syntax.Name, IR.Syntax.Type)], 
-    nextName :: Int
+    nextName :: Int,
+    fileId :: FileInfo
 }
 
-passLower = Pass {pName = ["AST to IR lowering"], pFunc = runP }
-    where runP ast = let r = lower ast in (messageNoLn "AST to IR lowering" (disp r) Debug, Just r)
+passLower x fi = Pass {pName = ["AST to IR lowering"], pFunc = runP }
+    where runP ast = let r = lower fi x ast in (messageNoLn "AST to IR lowering" (disp r) Debug, Just r)
           
-lower :: AST TypedName -> IR
-lower (AST defs) = let (a, b) = evalState (lowerAll defs) (Context {nameTbl = [], typeTbl = [], nextName = 0}) in IR a b
+lower :: FileInfo -> [(String, Int)] -> AST TypedName -> IR
+lower fi x (AST defs) = let (a, b) = evalState (lowerAll defs) (Context {nameTbl = [], typeTbl = [], nextName = 0, fileId = fi}) in IR a b fi
     where 
         lowerAll :: [Definition TypedName] -> State Context ([TLFunction], [(IR.Syntax.Name, IR.Syntax.Type)])
         lowerAll defs = do
@@ -32,9 +33,9 @@ lower (AST defs) = let (a, b) = evalState (lowerAll defs) (Context {nameTbl = []
             return (res, typeTbl ctx)
         -- needs to be done first to avoid forward declaration problems
         regN (d:ds) = do
-            name <- registerName (case identifier d of
-                                       TupleUnboxing t -> error "not allowed to use tuple in tldefns"
-                                       Plain t -> t)
+            name <- registerTLName x (case identifier d of
+                                           TupleUnboxing t -> error "not allowed to use tuple in tldefns"
+                                           Plain t -> t)
             regN ds
             return ()
         regN [] = do
@@ -70,11 +71,22 @@ convTy (AST.AST.Tuple tys) = IR.Syntax.Tuple (map convTy tys)
 registerName :: Pass.NameTyper.TypedName -> State Context IR.Syntax.Name
 registerName tn@(TypedName ty (Pass.Namer.Name s i)) = do
     ctx <- get
-    -- hack, main -> -1 
-    -- TODO, not hack here.
-    let (nm, nxt) = if s == "main" then (-1, nextName ctx) else (nextName ctx, (nextName ctx) + 1)
-    put $ Context { nameTbl = (tn, IR.Syntax.Name nm):(nameTbl ctx), typeTbl = (IR.Syntax.Name nm, (convTy ty)):(typeTbl ctx), nextName = nxt}
-    return (IR.Syntax.Name nm)
+    let (nm, nxt) = (nextName ctx, (nextName ctx) + 1)
+    let name = IR.Syntax.Name { nPk = nm, nSrcName = Just s, nMangleName = (s /= "main"), nImportedName = False, nVisible = (s == "main"), nSrcFileId = fiFileId (fileId ctx) }
+    put $ ctx { nameTbl = (tn, name):(nameTbl ctx), typeTbl = (name, (convTy ty)):(typeTbl ctx), nextName = nxt}
+    return name
+
+-- register "top level" name, different because it might participate in linkage
+registerTLName x tn@(TypedName ty (Pass.Namer.Name s i)) = do
+    if (s, i) `elem` x then do
+        -- export,  participates in linkage
+        ctx <- get
+        let (nm, nxt) = (nextName ctx, (nextName ctx) + 1)
+        let name = IR.Syntax.Name { nPk = nm, nSrcName = Just s, nMangleName = False, nImportedName = False, nVisible = True, nSrcFileId = fiFileId (fileId ctx) }
+        put $ ctx { nameTbl = (tn, name):(nameTbl ctx), typeTbl = (name, (convTy ty)):(typeTbl ctx), nextName = nxt}
+        return name
+    else
+        registerName tn
 
 -- register "existing" name
 registerEName :: Pass.NameTyper.TypedName -> State Context IR.Syntax.Name
@@ -84,16 +96,25 @@ registerEName tn = do
     where findin tn ((t, n):r) = if tn == t then n else (findin tn r)
           findin tn [] = error $ "registerEName non-existing name: " <> (disp tn)
 
+-- register symbol
+registerSymbol :: String -> AST.AST.Type -> FileInfo -> State Context IR.Syntax.Name
+registerSymbol s t fi = do
+    ctx <- get
+    let (nm, nxt) = (nextName ctx, (nextName ctx) + 1)
+    let name = IR.Syntax.Name { nPk = nm, nSrcName = Just s, nMangleName = False, nImportedName = True, nVisible = False, nSrcFileId = fiFileId fi  }
+    put $ ctx { nameTbl = ((TypedName t (Symbol s t fi)), name):(nameTbl ctx), typeTbl = (name, (convTy t)):(typeTbl ctx), nextName = nxt}
+    return name
+
 -- create new name, but not associated w/ an ast variable
 newName :: AST.AST.Type -> State Context IR.Syntax.Name
 newName typ = do
     ctx <- get
     let nm = nextName ctx
-    put $ ctx { typeTbl = (IR.Syntax.Name nm, (convTy typ)):(typeTbl ctx),  nextName = nm + 1 }
-    return (IR.Syntax.Name nm)
+    let name = IR.Syntax.Name { nPk = nm, nSrcName = Nothing, nMangleName = True, nImportedName = False, nVisible = False, nSrcFileId = fiFileId (fileId ctx)  }
+    put $ ctx { typeTbl = (name, (convTy typ)):(typeTbl ctx),  nextName = nm + 1 }
+    return name
 
     
-
 magic2 (l:lst) tupleexpr tty indx restexpr = do
     newMagic <- (magic2 lst tupleexpr tty (indx+1) restexpr)
     return $ Seq (Assign l (App (Prim $ GetTupleElem tty indx) [tupleexpr])) newMagic
@@ -174,6 +195,9 @@ lexp (FunctionCall e1 e2) = do
 
 lexp (Variable (TypedName t (NativeName n))) = return $ Prim $ primName n
     
+lexp (Variable (TypedName t (Symbol s t2 fi))) = do
+    na <- registerSymbol s t2 fi
+    return $ Var na
 
 lexp (Variable a) = do
     na <- registerEName a

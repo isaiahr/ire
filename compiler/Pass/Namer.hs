@@ -7,11 +7,17 @@ import Common.Pass
 
 import Control.Monad.State
 
-data Name = Name String Int | NativeName Native | NameError deriving Eq
+data Name 
+    = Name String Int -- "normal" name
+    | NativeName Native -- "native", or built - in (magic) name
+    | Symbol String Type FileInfo -- "symbol", an external name imported from another file (file: fileinfo)
+    | NameError -- error placeholder.
+      deriving Eq
 
 instance Disp Name where
     disp (Name s i) = disp s ++ "#" ++ disp i
-    disp (NativeName n) = disp n
+    disp (NativeName n) = "n<" <> disp n <> ">"
+    disp (Symbol s t fi) = "sym<" <> disp s <> ":" <> disp t <> ">"
     disp (NameError) = "NameError 143016"
 
 -- the symbol table. 1st param: strings in scope, 2nd: up lexical scope
@@ -22,9 +28,11 @@ data NError = NError String
 instance Disp NError where
     disp (NError s) = disp s
 
+-- yes, this doesnt have nativname. this is ok.
 contains (SymbolTable (Name s i:ns) e st) str = if s == str then Name s i else contains (SymbolTable ns e st) str
+contains (SymbolTable (Symbol s t fi:ns) e st) str = if s == str then Symbol s t fi else contains (SymbolTable ns e st) str
 contains (SymbolTable _ _ (Just st)) str = contains st str
-contains _ _ = NameError
+contains _ str = NameError
 
 mkError s = NError s
 
@@ -61,10 +69,10 @@ exitScope = state $ \param ->
          (tbl@(SymbolTable arr e (Just (SymbolTable arr2 e2 p2))), i) -> ((), (SymbolTable arr2 (e++e2) p2, i))
          _ -> error "exitScope no parent scope #2618093230914823"
 
-passName = Pass {pName = ["Namer"], pFunc = doName}
-    where doName s = let r = name s in (messageNoLn "Namer" (disp r) Debug, Just r)
+passName withSyms = Pass {pName = ["Namer"], pFunc = doName}
+    where doName s = let r = name s (map (\(x, y, fi) -> Symbol x y fi) withSyms) in (messageNoLn "Namer" (disp r) Debug, Just r)
 
-name a = fst (runState (nameAST a) ((SymbolTable [] [] Nothing, 0)))
+name a syms = fst (runState (nameAST a) ((SymbolTable syms [] Nothing, 0)))
 
 nameAST :: AST String -> State (SymbolTable, Int) (AST Name)
 nameAST (AST (ds)) = do

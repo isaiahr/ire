@@ -2,7 +2,7 @@
 Pass.hs: machinery to run a pass, including associated logging tools
 
 --}
-module Common.Pass (runPass, messageNoLn, messageLn, filterDbg, Pass(..), (>>>), Severity(..), arr) where
+module Common.Pass (runPass, messageNoLn, messageLn, filterDbg, Messages, Pass(..), (>>>), Severity(..), arr) where
 
 import Common.Common
 

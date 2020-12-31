@@ -12,3 +12,12 @@ instance Disp Char where
 
 instance Disp ([Char]) where
     disp x = x
+
+    
+data FileInfo = FileInfo {
+    fiSrcFileName :: String,
+    fiFileId :: Int
+} deriving (Eq, Show)
+    
+instance Disp FileInfo where
+    disp fi = fiSrcFileName fi <> "#" <> disp (fiFileId fi)

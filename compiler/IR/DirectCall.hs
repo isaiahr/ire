@@ -14,12 +14,15 @@ import Common.Common
 import Common.Pass
 
 passDCall = Pass {pName = ["Direct call Conversion"], pFunc = runP }
-    where runP ir@(IR tlf tbl) = let r = IR (map (mexpr (getGlobals ir)) tlf) tbl in (messageNoLn "Direct call Conversion" (disp r) Debug, Just r)
+    where runP ir@(IR tlf tbl d0) = let r = IR (map (mexpr (getGlobals ir)) tlf) tbl d0 in (messageNoLn "Direct call Conversion" (disp r) Debug, Just r)
           mexpr g (TLFunction n cl p ex) = (TLFunction n cl p (expr g ex))
 
 
-getGlobals (IR tlf _) = map extractName tlf
+getGlobals (IR tlf _ _) = map extractName tlf
     where extractName (TLFunction name cl params ex) = name
 
-expr globals orig@(App (Var n) e) = if n `elem` globals then (Call n e) else orig
+expr globals orig@(App (Var n) e)
+    | nImportedName n = (Call n e) 
+    | n `elem` globals = (Call n e)
+    | otherwise = orig
 expr globals otherwis3 = rebuild otherwis3 (map (expr globals) (exprSubExprs otherwis3))

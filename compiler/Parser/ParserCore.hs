@@ -1,4 +1,4 @@
-module Parser.ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, collect, collectM, infbuild, parseToken)  where 
+module Parser.ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, collect, run, collectM, infbuild, parseToken)  where 
 
 import Common.Common
 import Parser.Lexer

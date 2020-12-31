@@ -1,4 +1,4 @@
-// Left FailAtParser
+// Fail FailAtParser
 main := \() -> {
     c := 2
     

@@ -36,10 +36,15 @@ createLLVMModule :: String -> String -> [LFunction] -> LMod
 createLLVMModule fn ident lf = LMod { sourcefn = Just fn, targetdatalayout = Nothing, targettriple = Nothing, compilerident = Just ident, fns = lf }
 
 
-data FunctionHeader = FunctionHeader { name :: String, retty :: LType, paramty :: [LType] }
+data FunctionHeader = FunctionHeader {
+    name :: String,
+    retty :: LType, 
+    paramty :: [LType],
+    linkage :: LLinkType
+}
     
-createFunction :: String -> LType -> FunctionHeader
-createFunction name (LLVMFunction retty party) = FunctionHeader { name = name, retty = retty, paramty = party }
+createFunction :: String -> LType -> LLinkType -> FunctionHeader
+createFunction name (LLVMFunction retty party) lnk = FunctionHeader { name = name, retty = retty, paramty = party, linkage = lnk }
 
 -- opens the function for writing code into the body, and starts the first basic block.
 writeFunction :: FunctionHeader -> LLVMBodyM ()
@@ -52,10 +57,10 @@ writeFunction fh = do
 closeFunction :: FunctionHeader -> LLVMBodyM LFunction
 closeFunction fh = do
     bodym <- get
-    return LFunction { fName = name fh,  fType = LLVMFunction (retty fh) (paramty fh), fBody = body bodym} 
+    return LFunction { fName = name fh,  fType = LLVMFunction (retty fh) (paramty fh), fBody = body bodym, fLinkage = (linkage fh)} 
 
 -- function stub, for external defines
-createFunctionStub name ty = LFunction {fName = name, fType = ty, fBody = []}
+createFunctionStub name ty lnk = LFunction {fName = name, fType = ty, fBody = [], fLinkage = lnk}
 
 getParams :: FunctionHeader -> [LValue]
 getParams fh = map (LTemp . show) [0..((length (paramty fh))-1)]

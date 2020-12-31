@@ -1,4 +1,4 @@
-// Right (120, "")
+// Ok (120, "")
 
 fact := \x -> {
     return if 0 >= x then {

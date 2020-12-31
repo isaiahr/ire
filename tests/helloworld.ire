@@ -1,4 +1,4 @@
-// Right (0, "Hello, World!\n")
+// Ok (0, "Hello, World!\n")
 
 main := \() -> __ire__print__ "Hello, World!\n"
 

@@ -1,0 +1,9 @@
+// Skip
+
+export exit
+
+exit := \x -> {
+    __ire__exit__(x)
+    return 3
+}
+

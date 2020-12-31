@@ -5,6 +5,7 @@
 module IR.CodeGen (passGenLLVM) where
 
 
+import Data.Maybe (fromJust)
 import qualified Data.Text (pack)
 import qualified Data.ByteString (unpack)
 import qualified Data.Text.Encoding (encodeUtf8)
@@ -26,8 +27,6 @@ import Common.Natives
         -- run llift to get rid of abs nodes.
     2) parameters cannot be assigned.
         -- this should already be done when lowering to IR.
-    3) the main function needs to be Int -1. 
-        -- kind of a hack, but this is how i identify main since string is not preserved.
 -} 
 
 {-
@@ -39,7 +38,9 @@ data Ctx = Ctx {
     ntbl :: [(Name, LValue)], -- table of ir names to llvm values.
     tyf :: Expr -> Type, -- function to convert expressions to types
     ftbl :: [(TLFunction, FunctionHeader)],
+    externs :: [(Name, LFunction)],
     bodyc :: BodyCtx,
+    fileId :: FileInfo,
     writRet :: Bool -- hack (sortof) to not write a 2nd return after writing a (nested) return
 }
 
@@ -48,7 +49,17 @@ passGenLLVM = Pass {pName = ["LLVM Gen"], pFunc = runP }
 
 
 genLLVM :: IR -> LMod
-genLLVM (IR tl tbl) = evalState (genLLVM2 tl) (Ctx { tytbl = [], ntbl = [], tyf = tf, ftbl = [], bodyc = error "poked error thunk", writRet = False} ) 
+genLLVM (IR tl tbl fi) = evalState (genLLVM2 tl) (
+    Ctx {
+        tytbl = [],
+        ntbl = [],
+        tyf = tf, 
+        ftbl = [], 
+        externs = [], 
+        bodyc = error "poked error thunk", 
+        fileId = fi, 
+        writRet = False
+        }) 
     where tf = \x -> exprType x (getTypeFuncTbl tbl)
 
 llvmntypeof Native_Exit = LLVMFunction LLVMVoid [LLVMInt 64]
@@ -56,10 +67,11 @@ llvmntypeof Native_Print = LLVMFunction LLVMVoid [ir2llvmtype StringIRT]
 llvmntypeof Native_Alloc = LLVMFunction (LLVMPtr (LLVMInt 8)) [LLVMInt 64]
 
 genLLVM2 tlfs = do
-    let lfs2 = map (\n -> createFunctionStub (prim2llvmname n) (llvmntypeof n)) llvmLibNatives
+    let lfs2 = map (\n -> createFunctionStub (prim2llvmname n) (llvmntypeof n) Linkage_External) llvmLibNatives
     fhs <- forM tlfs genTLF
     lfs <- forM (zip tlfs fhs) genTLFe
-    return $ createLLVMModule "todo: make filename available" ("irec " <> VERSION_STRING <> " commit " <> COMMIT_ID)  (lfs2 <> lfs)
+    ctx <- get
+    return $ createLLVMModule (fiSrcFileName (fileId ctx)) ("irec " <> VERSION_STRING <> " commit " <> COMMIT_ID)  (map snd (externs ctx) <> lfs2 <> lfs)
     --- do things
 
 getIRType :: Expr -> State Ctx Type
@@ -75,13 +87,13 @@ getRetty name = do
          EnvFunction p cl out -> return out
     
 genTLF :: TLFunction -> State Ctx FunctionHeader
-genTLF tlf@(TLFunction (Name nm) clvars params expr) = do
+genTLF tlf@(TLFunction name clvars params expr) = do
     pty <- forM (map Var params) getIRType
-    exprty <- getRetty (Name nm)
+    exprty <- getRetty name
     -- do not mangle entry
-    let text_name = if nm == (-1) then "main" else ("ire_function_" ++ disp nm)
-    let fh = createFunction text_name (LLVMFunction (ir2llvmtype exprty) ((if null clvars then [] else [LLVMPtr (LLVMPtr (LLVMInt 8))]) ++ map ir2llvmtype (pty)))
-    modify $ \ctx -> ctx {ftbl=(tlf, fh):(ftbl ctx), ntbl = (Name nm, LGlob text_name):(ntbl ctx)}
+    let text_name = if nSrcName name == Just "main" then "main" else if nMangleName name then ("function_" ++ show (nSrcFileId name) ++ "_" ++ disp (nPk name)) else "function_" ++ show (nSrcFileId name) ++ "_" ++ fromJust (nSrcName name)
+    let fh = createFunction text_name (LLVMFunction (ir2llvmtype exprty) ((if null clvars then [] else [LLVMPtr (LLVMPtr (LLVMInt 8))]) ++ map ir2llvmtype (pty))) (if nVisible name then Linkage_External else Linkage_Private)
+    modify $ \ctx -> ctx {ftbl=(tlf, fh):(ftbl ctx), ntbl = (name, LGlob text_name):(ntbl ctx)}
     return fh
 
 genTLFe :: (TLFunction, FunctionHeader) -> State Ctx LFunction
@@ -381,8 +393,25 @@ helper1 bigptr (ty, idx) = do
 
 lookupName :: Name -> State Ctx LValue
 lookupName name = do
-    st <- get
-    return $ snd $ (filter (\(n, t) -> n == name) (ntbl st)) !! 0
+    case nSrcName name of
+        -- TODO: maybe fix this hack ? 
+        -- this basically assumses non mangled names are imports. 
+        Just s -> if nImportedName name then do
+            st <- get
+            if (name `elem` (map fst (externs st))) then
+                return $ LGlob s
+                                                    else do
+                                                        
+                irty <- getIRType (Var name)
+                let fs = createFunctionStub ("function_" ++ show (nSrcFileId name) ++ "_" ++ s) (ir2llvmtype irty) Linkage_External
+                put st { externs = (name, fs):externs st }
+                return $ LGlob ("function_" ++ show (nSrcFileId name) ++ "_" ++ s)
+                                        else do
+            st <- get
+            return $ snd $ (filter (\(n, t) -> n == name) (ntbl st)) !! 0
+        Nothing -> do
+            st <- get
+            return $ snd $ (filter (\(n, t) -> n == name) (ntbl st)) !! 0
 
 createName :: Name -> LValue -> State Ctx ()
 createName name lv = do

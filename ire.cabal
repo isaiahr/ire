@@ -8,6 +8,7 @@ library
   hs-source-dirs:      compiler
   exposed-modules:
       AST.AST
+      AST.ASTUtils
       Common.Common
       Common.Natives
       Common.Pass
@@ -23,19 +24,23 @@ library
       Parser.Lexer
       Parser.Parser
       Parser.ParserCore
+      Parser.ParserRels
       Pass.NameTyper
       Pass.Namer
       Pass.TypeChecker
       Pass.Typer
       Pass.YieldInjection
-      Common.Target
+      Pipeline.Target
+      Pipeline.Relations
+      Pipeline.Pipeline
   build-depends:     
       base >= 4.7 && < 5,
       mtl >= 2.2.2,
       text >= 1.2.3.2,
       bytestring >= 0.10.10.0,
       process >= 1.6.9.0,
-      directory >= 1.3.6.0
+      directory >= 1.3.6.0,
+      filepath >= 1.4.1.2
 
 executable irec
   main-is:             CLI/Main.hs
@@ -54,4 +59,5 @@ test-suite runtests
       base,
       process,
       directory,
-      ire
+      ire,
+      filepath,

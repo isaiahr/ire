@@ -67,6 +67,14 @@ newVar a@(NativeName n) = do
              put $ ConstraintTbl (n+1) ((TyCons (General n) actualty):c) ((TyVar a (General n)):v) ft
              return n
 
+newVar a@(Symbol str ty fi) = do
+    (ConstraintTbl n c v ft) <- get
+    case getVar a v of
+         (Just (General a2)) -> return a2
+         Nothing -> do
+             put $ ConstraintTbl (n+1) ((TyCons (General n) ty):c) ((TyVar a (General n)):v) ft
+             return n
+
 newVar a = do
     (ConstraintTbl n c v ft) <- get
     case getVar a v of

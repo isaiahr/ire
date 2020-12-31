@@ -107,7 +107,7 @@ instance (Disp a) => (Disp (PatternMatching a)) where
     disp (Plain a) = disp a
     disp (TupleUnboxing a) = "(" <> intercalate ", " (map disp a) <> ")"
 
-newtype AST a = AST [Definition a] deriving (Eq)
+data AST a = AST [Definition a] deriving (Eq)
 
 instance (Disp a) => Disp (AST a) where
     disp (AST (d:ds)) = disp d ++ "\n" ++ disp (AST ds)

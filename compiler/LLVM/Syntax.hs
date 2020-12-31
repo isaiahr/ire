@@ -21,8 +21,11 @@ data LMod = LMod {
 data LFunction = LFunction {
     fName :: String,
     fType :: LType,
-    fBody :: [LBasicBlock]
+    fBody :: [LBasicBlock],
+    fLinkage :: LLinkType
 }
+
+data LLinkType = Linkage_Private | Linkage_Internal | Linkage_External
 
 type LLabel = String
 
@@ -43,11 +46,16 @@ instance Disp LMod where
 
 instance Disp LFunction where
     disp lf = case (fBody lf) of
-                   [] -> "declare " <> retty <> " @" <> fName lf <> "(" <> paramty <> ")"
-                   otherwise -> "define " <> retty <> " @" <> fName lf <> "(" <> paramty <> "){\n" <> intercalate "\n" (map disp (fBody lf)) <> "\n}"
+                   [] -> "declare " <> disp (fLinkage lf) <> " " <> retty <> " @" <> fName lf <> "(" <> paramty <> ")"
+                   otherwise -> "define " <> disp (fLinkage lf) <> " " <> retty <> " @" <> fName lf <> "(" <> paramty <> "){\n" <> intercalate "\n" (map disp (fBody lf)) <> "\n}"
         where (retty, paramty) = case (fType lf) of 
                                       LLVMFunction ty1 ty2 -> (disp ty1, intercalate ", " (map disp ty2))
                                       _ -> error "Function with non-function ty" 
+
+instance Disp LLinkType where
+    disp Linkage_External = "external"
+    disp Linkage_Internal = "internal"
+    disp Linkage_Private = "private"
 
 instance Disp LBasicBlock where
     disp lb = "  " <> (bbLabel lb) <> ":\n  " <> (intercalate "\n  " (map disp (bbInsts lb)))

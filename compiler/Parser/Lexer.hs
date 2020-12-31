@@ -14,7 +14,7 @@ import Control.Applicative
 data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integer Int | Character Char | String String | Identifier String
            | Term | Comma | Equals | Return | Yield | PlusEquals | Pipe | New | Void | Type | Colon | Dot | Arrow | If | Then
            | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals | FSlash | BSlash
-           | Exclamation | Else | GreaterEqual | LesserEqual | Error deriving (Show, Eq)
+           | Exclamation | Else | GreaterEqual | LesserEqual | Import | Export | Error deriving (Show, Eq)
 
 {- an token annotated with other data such as line number, characters held -}
 data AnnotatedToken = AnnotatedToken Token Int String deriving Eq
@@ -136,6 +136,8 @@ lexKw str
     | kwMatch str "type" = Just (Type, drop 4 str)
     | kwMatch str "return" = Just (Return, drop 6 str)
     | kwMatch str "yield" = Just (Yield, drop 5 str)
+    | kwMatch str "import" = Just (Import, drop 6 str)
+    | kwMatch str "export" = Just (Export, drop 6 str)
     | otherwise = Nothing
  
 kwMatch :: String -> String -> Bool

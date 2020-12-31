@@ -14,18 +14,18 @@ passLLift = Pass {pName = ["LambdaLifting"], pFunc = runP }
     where runP ir = let r = llift ir in (messageNoLn "LambdaLifting" (disp r) Debug, Just r)
 
 --                      mains         add          nametypetbl  nextnameint
-data Context = Context [TLFunction] [TLFunction] [(Name, Type)] Int
+data Context = Context [TLFunction] [TLFunction] [(Name, Type)] Int FileInfo
 
 
 llift :: IR -> IR
-llift ir@(IR mains tbl) = evalState liftAll (Context mains [] tbl nextname)
-    where (Name nextname) = nextIntName ir
+llift ir@(IR mains tbl d0) = evalState liftAll (Context mains [] tbl nextname d0)
+    where nextname = nextIntName ir
 
 liftAll = do
-    (Context main _  _ _) <- get
+    (Context main _  _ _ _) <- get
     newMains <- forM main liftTLF
-    (Context _ add tbl nt) <- get
-    return $ IR (newMains ++ add) tbl
+    (Context _ add tbl nt inf) <- get
+    return $ IR (newMains ++ add) tbl inf
 
 liftTLF (TLFunction n cl p e) = do
     ne <- liftE e
@@ -33,16 +33,17 @@ liftTLF (TLFunction n cl p e) = do
 
 newTLF :: [Name] -> [Name] -> Expr -> State Context Name
 newTLF params clvars ex = do
-    (Context mains add tbl nt) <- get
-    let ntl = TLFunction (Name nt) clvars params ex
+    (Context mains add tbl nt inf) <- get
+    let name = Name { nPk = nt, nSrcName = Nothing, nMangleName = True, nImportedName = False, nVisible = False, nSrcFileId = fiFileId inf}
+    let ntl = TLFunction name clvars params ex
     let nf = getTypeFuncTbl tbl
     let retty = exprType ex nf
     let ty = (EnvFunction (map nf params) (map nf clvars) (retty))
-    put $ Context mains (ntl:add) ((Name nt, ty):tbl) (nt+1)
-    return (Name nt)
+    put $ Context mains (ntl:add) ((name, ty):tbl) (nt + 1) inf
+    return name
 
 getGlobals = do
-    (Context tlf tlf2 tbl nt) <- get
+    (Context tlf tlf2 tbl nt inf) <- get
     return (map extractName (tlf++tlf2)) where
         extractName (TLFunction n _ _ _) = n
 

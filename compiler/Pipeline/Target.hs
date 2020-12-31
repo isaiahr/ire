@@ -2,7 +2,7 @@
 
 #include "../../build/config.h"
 
-module Common.Target where
+module Pipeline.Target where
 
 import System.IO
 import System.Process

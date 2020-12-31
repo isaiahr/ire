@@ -16,13 +16,13 @@ import IR.Syntax
 passHConv = Pass {pName = ["HeapConversion"], pFunc = runP }
     where runP ir = let r = doHconv ir in (messageNoLn "HeapConversion" (disp r) Debug, Just r)
 
-doHconv ir@(IR tlf@((TLFunction n cl p e):r) tbl) = IR (conv fvs tf tlf) newtbl
+doHconv ir@(IR tlf@((TLFunction n cl p e):r) tbl d0) = IR (conv fvs tf tlf) newtbl d0
     where fvs = ffvs tlf globs
           globs = getGlobals ir
           tf = getTypeFunc ir
           newtbl = map (\(name, ty) -> if name `elem` fvs then (name, Ptr ty) else (name, ty)) tbl
     
-getGlobals (IR tlf _) = map extractName tlf
+getGlobals (IR tlf _ _) = map extractName tlf
     where extractName (TLFunction name cl params ex) = name
 
 

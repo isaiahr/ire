@@ -5,12 +5,22 @@ import Common.Natives
 
 import Data.List
 -- https://www.cs.cmu.edu/~rwh/papers/closures/popl96.pdf
-newtype Name = Name Int deriving Eq 
+data Name = Name {
+    nPk :: Int, -- "primary key, should be unique within the ir."
+    nSrcName :: Maybe String,
+    nMangleName :: Bool,
+    nImportedName :: Bool,
+    nVisible :: Bool,
+    nSrcFileId :: Int -- unique id for file, used to essentially "namespace" each name to avoid name conflict
+}
+
+instance Eq Name where
+    n == n2 = (nPk n == nPk n2)
 
 -- top level function. name, clvars, params, expression.
 data TLFunction = TLFunction Name [Name] [Name] Expr 
 
-data IR = IR [TLFunction] [(Name, Type)]
+data IR = IR [TLFunction] [(Name, Type)] FileInfo
 
 data Expr 
     = Var Name -- variable
@@ -63,7 +73,7 @@ data Type
     | Ptr Type deriving Eq
     
 instance Disp IR where
-    disp (IR tls _) = intercalate "\n" (map disp tls)
+    disp (IR tls _ _) = intercalate "\n" (map disp tls)
     
 instance Disp TLFunction where
     disp (TLFunction name cl p ex) = disp name <> " cl: (" <>  intercalate ", " (map disp cl) <> ") p: (" <> intercalate ", " (map disp p)  <> ") ex: " <> disp ex
@@ -78,7 +88,7 @@ instance Disp Type where
     disp (StringIRT) = "str"
     
 instance Disp Name where
-    disp (Name i) = "#" <> show i
+    disp (name) = "#" <> show (nPk name) <> "!" <> show (nSrcName name)
     
 instance Disp Expr where
     disp (Var n) = "V[" <> disp n <> "]"
@@ -119,7 +129,7 @@ instance Disp PrimE where
     disp (LibPrim lb) = "@LibPrim!" <> disp lb
 
 allNames :: IR -> [Name]
-allNames (IR ((TLFunction name clv params ex):tl) x) = name:(clv ++ params ++ names ex) ++ allNames (IR tl x)
+allNames (IR ((TLFunction name clv params ex):tl) x d0) = name:(clv ++ params ++ names ex) ++ allNames (IR tl x d0)
     where names (Var n) = [n]
           names (Call n ex) = [n] ++ (magic ex)
           names (App e ex) = names e ++ magic ex
@@ -134,9 +144,9 @@ allNames (IR ((TLFunction name clv params ex):tl) x) = name:(clv ++ params ++ na
           names (Lit _) = []
           magic exs = foldl (++) [] (map names exs)
 
-allNames (IR [] x) = []
-nextIntName ir = (foldl largest (Name 0) (allNames ir))
-    where largest (Name a) (Name b) = if a > b then (Name a) else (Name b)
+allNames (IR [] x _) = []
+nextIntName ir = (foldl largest 0 (map nPk (allNames ir)))
+    where largest a b = if a > b then a else b
 
 -- determines the type of a expr given a function mapping names to types
 exprType :: Expr -> (Name -> Type) -> Type
@@ -205,7 +215,7 @@ rebuild (Lit n) news = Lit n
 rebuild (Ret _) news = Ret (news !! 0)
 
 
-getTypeFunc (IR _ tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
+getTypeFunc (IR _ tbl _) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
 getTypeFuncTbl (tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
 
 
