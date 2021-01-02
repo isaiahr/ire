@@ -108,6 +108,7 @@ instance Disp LitE where
     disp (IntL i) = "$" <> disp i
     disp (BoolL True) = "$True"
     disp (BoolL False) = "$False"
+    disp (StringL str) = "$" <> show str
     
 instance Disp PrimE where
     disp (MkTuple ty) = "@MkTuple!(" <> (intercalate ", " (map disp ty)) <> ")"

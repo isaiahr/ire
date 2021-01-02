@@ -66,6 +66,7 @@ pipelineIO target filename S_BIN outfile = do
         liftIO $ putStrLn $ " [OK]")) []
     libs <- getLinkedLibs target
     runLinker target (libs <> (map pObjLocation processed_files)) outfile
+    return $ foldl (<>) mempty (map pMsgs processed_files)
     
 pipelineIO target filename stage outfile = do
     files <- importDag filename
@@ -105,6 +106,7 @@ pipelineIO target filename stage outfile = do
                   Nothing -> ioError (userError $ disp (msg <> msg2))
                   Just y -> do 
                       writeOutput (disp y) outfile target stage
+                      return (msg <> msg2)
 
 
 pipeline1 x = passLexer >>> 

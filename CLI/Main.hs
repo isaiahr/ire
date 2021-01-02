@@ -13,6 +13,7 @@ import Data.Maybe
 import Control.Exception (evaluate)
 
 import Common.Common
+import Common.Pass
 
 import Pipeline.Pipeline
 import Pipeline.Target
@@ -72,7 +73,9 @@ main = do
     pn <- getProgName
     op <- process a pn
     let filename = oInput op
-    pipelineIO (oTarget op) filename (oStage op) (oOutput op)
+    msgs <- pipelineIO (oTarget op) filename (oStage op) (oOutput op)
+    let fmsg = if oDumptrees op then msgs else filterDbg msgs
+    putStrLn $ disp fmsg
     return exitSuccess
 
     
