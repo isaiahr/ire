@@ -2,7 +2,7 @@
 Pass.hs: machinery to run a pass, including associated logging tools
 
 --}
-module Common.Pass (runPass, messageNoLn, messageLn, filterDbg, Messages, Pass(..), (>>>), Severity(..), arr) where
+module Common.Pass (runPass, messageNoLn, messageLn, filterDbg, filterErrs, Messages, Pass(..), (>>>), Severity(..), arr) where
 
 import Common.Common
 
@@ -42,6 +42,7 @@ header message = "[" <> (longS (mSeverity message)) <> "] [" <> mPassName messag
                     Nothing -> ""
           
 filterDbg (Messages msg) = Messages (filter (\x -> mSeverity x /= Debug) msg)
+filterErrs (Messages msg) = Messages (filter (\x -> mSeverity x == Error) msg)
 
 newtype Messages = Messages [Message]
 

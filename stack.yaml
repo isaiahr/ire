@@ -40,6 +40,9 @@ packages:
 #   commit: e7b331f14bcffb8367cd58fbfc8b40ec7642100a
 #
 # extra-deps: []
+extra-deps:
+- ansi-terminal-0.11@sha256:97470250c92aae14c4c810d7f664c532995ba8910e2ad797b29f22ad0d2d0194,3307
+- colour-2.3.5@sha256:b27db0a3ad40d70bdbd8510a104269f8707592e80757a1abc66a22ba25e5a42f,1801
 
 # Override default flag values for local packages and extra-deps
 # flags: {}
