@@ -76,10 +76,14 @@ targetFromStr str = case (filter (\(x, y) -> y == str) (map (\x -> (x, disp x)) 
 getTempFile = do
     time <- getCPUTime
     return $ "/tmp/iretmp" <> show time
-    
-    
+
+
+getMarch (Target _ AArch64) = "aarch64"
+getMarch (Target _ AMD64) = "x86-64"
+
 -- get the other libs to pass to linker 
 getLinkedLibs (Target Linux AMD64) = return [LINUX_AMD64_LIB_PATH]
+getLinkedLibs (Target Linux AArch64) = return [LINUX_AARCH64_LIB_PATH]
     
 -- ok, it will exit. 
 getLinkedLibs t = targetUnsupported t
@@ -96,14 +100,14 @@ runLinker t@(Target _ _) filepath output = targetUnsupported t
 
 runLLC :: Target -> String -> String ->  IO ()
 runLLC target path output = do
-    handle <- runProcess LLC_PATH [path, "-o", output] Nothing Nothing Nothing Nothing Nothing
+    handle <- runProcess LLC_PATH ["--march", getMarch target, path, "-o", output] Nothing Nothing Nothing Nothing Nothing
     result <- waitForProcess handle
     return ()
 
 -- llc with assembler, to emit obj.
 runLLCAsm :: Target -> String -> String -> IO ()
 runLLCAsm target path output = do
-    handle <- runProcess LLC_PATH [path, "--filetype=obj",  "-o", output] Nothing Nothing Nothing Nothing Nothing
+    handle <- runProcess LLC_PATH ["--march", getMarch target, path, "--filetype=obj",  "-o", output] Nothing Nothing Nothing Nothing Nothing
     result <- waitForProcess handle
     return ()
 

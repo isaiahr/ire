@@ -79,6 +79,7 @@ def run_config(debug):
         "LLC_PATH" : llc,
         "OPT_PATH" : opt,
         "LINUX_AMD64_LIB_PATH" : "build/irert_linux_amd64.o",
+        "LINUX_AARCH64_LIB_PATH" : "build/irert_linux_aarch64.o"
         }
     
     if hasfailed:
