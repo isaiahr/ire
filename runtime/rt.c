@@ -1,8 +1,13 @@
-#include <sys/syscall.h>
-#include <sys/types.h>
+#include <stdint.h>
 
-extern size_t _syscall1(size_t, size_t);
-extern size_t _syscall6(size_t, size_t, size_t, size_t, size_t, size_t, size_t);
+#ifdef LINUX_AARCH64
+#include "linux_aarch64.h"
+#endif
+
+#ifdef LINUX_AMD64
+#include"linux_amd64.h"
+#endif
+
 
 extern void main();
 

@@ -1,5 +1,4 @@
 compile:
 	mkdir -p ../build/
-	clang -nostdlib -fno-builtin -ffreestanding entry_linux.c -S -emit-llvm -o ../build/temp0.ll
-	llvm-link -S ../build/temp0.ll syscall_linux_amd64.ll > ../build/irert.ll
-	llc --filetype=obj ../build/irert.ll -o ../build/irert_linux_amd64.o
+	clang -DLINUX_AMD64=1 -target x86_64-unknown-none-elf -nostdlib -fno-builtin -ffreestanding rt.c -c -o ../build/irert_linux_amd64.o
+	clang -DLINUX_AARCH64=1 -target arm64-unknown-none-elf -nostdlib -fno-builtin -ffreestanding rt.c -c -o ../build/irert_linux_aarch64.o
