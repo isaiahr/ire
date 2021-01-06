@@ -47,6 +47,12 @@ lexLine "" ln = []
 -- ignore whitespace
 lexLine (' ':tr) ln = lexLine tr ln
 lexLine ('/':'/':tr) ln = lexLine (nextLine tr) (ln+1)
+lexLine ('/':'*': tr) ln = skipToEnd tr ln
+    where 
+    skipToEnd ('*': '/' : tr) ln = lexLine tr ln
+    skipToEnd ('\n':tr) ln = skipToEnd tr (ln+1)
+    skipToEnd (a:tr) ln = skipToEnd tr ln
+    skipToEnd [] ln = []
 
 -- compare input and output from lexone, update metadata
 lexLine str ln = AnnotatedToken token ln missing : lexLine rest newln

@@ -21,7 +21,7 @@ passParse = Pass {pName = ["Parser"], pFunc = doPs}
 
 
 parseFile :: Parser (AST String)
-parseFile = Parser.ParserRels.parseFile *> (fmap AST $ collectM parseDefinition $ parseToken Term)
+parseFile = Parser.ParserRels.parseFile *> ((fmap AST $ collectM parseDefinition $ parseToken Term) <|> ((collectM (pure ()) $ parseToken Term) *> parseEOF *> pure (AST [])))
 
 -- parses an identifier
 parseIdentifier :: Parser String

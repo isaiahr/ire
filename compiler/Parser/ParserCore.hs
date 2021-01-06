@@ -1,9 +1,9 @@
-module Parser.ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, collect, run, collectM, infbuild, parseToken)  where 
+module Parser.ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, parseEOF, collect, run, collectM, infbuild, parseToken)  where 
 
 import Common.Common
 import Parser.Lexer
 import AST.AST
-
+import Debug.Trace
 import Control.Applicative
 
 -- result of running a parser on something.
@@ -117,3 +117,9 @@ infbuild (Parser a) b = Parser (\ts ->
                 -- this one succeeds, so we can keep building.
                 -- run a new parser that will always parse the construct, and possibly construct larger result
                 ParseSuccess cn2 ts3 -> run (infbuild (pure cn2) b) ts3)
+
+-- parse end of file
+parseEOF :: Parser ()
+parseEOF = Parser (\ts -> case ts of
+                              [] -> ParseSuccess () []
+                              p -> trace (disp p) ParseFailure)
