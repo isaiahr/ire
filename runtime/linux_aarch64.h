@@ -13,12 +13,12 @@ static inline linux_reg_size_t _syscall1 (linux_reg_size_t syscall, linux_reg_si
     register linux_reg_size_t x0 __asm__ ("x0") = param0;
     __asm__ volatile (
         "svc 0;"
-        :"+r" (x8)
-        :"r" (x0)
+        :"+r" (x0)
+        :"r" (x8)
         :"cc", "memory"
         // cc = FLAGS (maybe not modified?) 
     );
-    return x8;
+    return x0;
 }
 
 static inline linux_reg_size_t _syscall6 (linux_reg_size_t syscall, linux_reg_size_t param0, linux_reg_size_t param1, linux_reg_size_t param2, linux_reg_size_t param3, linux_reg_size_t param4, linux_reg_size_t param5){
@@ -31,11 +31,12 @@ static inline linux_reg_size_t _syscall6 (linux_reg_size_t syscall, linux_reg_si
     register linux_reg_size_t x5 __asm__ ("x5") = param5;
     __asm__ volatile (
         "svc 0;"
-        :"+r" (x8)
-        :"r" (x0), "r" (x1), "r" (x2), "r" (x3), "r" (x4), "r" (x5)
+        :"+r" (x0)
+        :"r" (x8), "r" (x1), "r" (x2), "r" (x3), "r" (x4), "r" (x5)
         :"cc", "memory"
     );
-    return x8;
+    // note: different than x86, return val is x0
+    return x0;
 }
 
 #endif
