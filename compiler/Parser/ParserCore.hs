@@ -3,7 +3,6 @@ module Parser.ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), 
 import Common.Common
 import Parser.Lexer
 import AST.AST
-import Debug.Trace
 import Control.Applicative
 
 -- result of running a parser on something.
@@ -122,4 +121,4 @@ infbuild (Parser a) b = Parser (\ts ->
 parseEOF :: Parser ()
 parseEOF = Parser (\ts -> case ts of
                               [] -> ParseSuccess () []
-                              p -> trace (disp p) ParseFailure)
+                              p ->  ParseFailure)

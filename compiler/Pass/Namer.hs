@@ -5,6 +5,7 @@ import Common.Common
 import Common.Natives
 import Common.Pass
 
+import Data.List
 import Control.Monad.State
 
 data Name 
@@ -27,6 +28,8 @@ data NError = NError String
 
 instance Disp NError where
     disp (NError s) = disp s
+    
+fmtErrs nes = intercalate "\n" (map disp nes)
 
 -- yes, this doesnt have nativname. this is ok.
 contains (SymbolTable (Name s i:ns) e st) str = if s == str then Name s i else contains (SymbolTable ns e st) str
@@ -70,9 +73,12 @@ exitScope = state $ \param ->
          _ -> error "exitScope no parent scope #2618093230914823"
 
 passName withSyms = Pass {pName = ["Namer"], pFunc = doName}
-    where doName s = let r = name s (map (\(x, y, fi) -> Symbol x y fi) withSyms) in (messageNoLn "Namer" (disp r) Debug, Just r)
+    where doName s = name s (map (\(x, y, fi) -> Symbol x y fi) withSyms)
 
-name a syms = fst (runState (nameAST a) ((SymbolTable syms [] Nothing, 0)))
+name a syms = case (runState (nameAST a) ((SymbolTable syms [] Nothing, 0))) of
+                   (result, (SymbolTable syms [] Nothing, _)) -> (messageNoLn "Namer" (disp result) Debug, Just result)
+                   (result, (SymbolTable syms errs Nothing, _)) -> (messageNoLn "Namer" (fmtErrs errs) Error, Nothing)
+                   _ -> error "symtbl stack didn't pop namer#237"
 
 nameAST :: AST String -> State (SymbolTable, Int) (AST Name)
 nameAST (AST (ds)) = do

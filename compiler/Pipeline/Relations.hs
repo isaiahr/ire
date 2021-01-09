@@ -58,14 +58,21 @@ loadFiles preds pth = do
                        liftIO $ setCurrentDirectory curdir
                        return $ UFile {uPath = path, uImports = impaths, uExports = ex}
     liftIO $ hClose inhandle
-    modify $ \ ctx -> ctx {files = tsortInsert ufile preds (files ctx)}
+    modify $ \ ctx -> ctx {files = rds (tsortInsert ufile preds (files ctx))}
     forM (uImports ufile) (loadFiles (path:preds))
     return ()
 
 -- topological sort insert. 
 -- this inserts a before the first occurence of anything in preds.
 tsortInsert :: UFile -> [String] -> [UFile] -> [UFile]
-tsortInsert a preds (l:ls) = if (uPath l) `elem` preds then (a:l:ls) else tsortInsert a preds ls
+tsortInsert a preds (l:ls) = if (uPath l) `elem` preds then (a:l:ls) else l:(tsortInsert a preds ls)
 tsortInsert a preds [] = [a]
 -- a has no predessors. this means we can put it at the end. (already happens, optimization)
 -- tsortInsert a [] lst = lst ++ [a]
+
+-- remove duplicates from tsort 
+rds :: [UFile] -> [UFile]
+rds (u:ufs) = u : rds (filter (\x -> (uPath x) /= (uPath u)) ufs)
+rds [] = []
+
+

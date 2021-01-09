@@ -31,8 +31,6 @@ import IR.CodeGen
 import Pipeline.Relations
 import Pipeline.Target
 
-import Debug.Trace
-
 data PFile = PFile {
     pLocation :: String,
     pObjLocation :: String,
@@ -137,15 +135,18 @@ pipelineIO target filename stage outfile = do
         hSetEncoding inhandle utf8
         contents <- hGetContents inhandle
         contents_sz <- evaluate (length contents)
-        hClose inhandle
-        let (msg, result) = runPass contents (pipeline1 (importedSymsQ me processed))
+        hClose inhandle 
+        importedsyms <- case importedSyms me processed of
+            Left p -> ioError (userError p)
+            Right t -> return t
+        let (msg, result) = runPass contents (pipeline1 importedsyms)
         case result of
             Nothing -> ioError (userError $ disp msg)
             Just (AST ds) -> do
                 
                 let astsyms = map (\(TypedName t (Name s _)) -> (s, t)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds))
                 
-                let allsyms = (astsyms ++ importedSyms me processed)
+                let allsyms = (astsyms ++ (map (\(x, y, t) -> (x, y)) importedsyms))
                 if allsyms /= nub allsyms then
                     ioError (userError "Conflicting symbols")
                                         else 
@@ -190,15 +191,17 @@ compile dry target file processed idx = do
     -- trick. lazy IO is dumb, so we force evaluation to actually close the handle.
     contents_sz <- evaluate (length contents)
     hClose inhandle
-    let importedsyms = importedSyms file processed
-    let (msg, result) = runPass contents (pipeline1 (importedSymsQ file processed))
+    importedsyms <- case importedSyms file processed of
+        Left p -> ioError (userError p)
+        Right t -> return t
+    let (msg, result) = runPass contents (pipeline1 importedsyms)
     case result of
          Nothing -> ioError (userError $ disp (filterErrs msg))
          Just (AST ds) -> do
              
              let astsyms = map (\(TypedName t (Name s _)) -> (s, t)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds))
              
-             let allsyms = (astsyms ++ importedsyms)
+             let allsyms = (astsyms ++ (map (\(x, y, t) -> (x, y)) importedsyms))
              if allsyms /= nub allsyms then
                  ioError (userError "Conflicting symbols")
                                        else 
@@ -233,12 +236,51 @@ compile dry target file processed idx = do
                              pMsgs = (msg <> msg2),
                              pFileInfo = FileInfo { fiSrcFileName = (uPath file), fiFileId = idx}
                          }
-    
-        
-importedSyms :: UFile -> [PFile] -> [(String, Type)]
-importedSyms ufile allpfiles = foldl (++) [] $ map pExports (filter (\p -> (pLocation p) `elem` (uImports ufile)) allpfiles)
 
+importedSyms :: UFile -> [PFile] -> Either String [(String, Type, FileInfo)]
+importedSyms uf apf = case nub eof1 == eof1 of
+                           True -> Right $ eof
+                           False -> Left $ "Duplicate symbol"
+    where eof = exportsOf (uImports uf) apf
+          eof1 = map (\(x,y,z) -> x) eof
+
+exportsOf :: [String] -> [PFile] -> [(String, Type, FileInfo)]
+exportsOf s pf = execState (forM s $ \x -> do
+    let t = (filter (\y -> (pLocation y) == x) pf) !! 0
+    let yy = exportsOf (pImports t) pf
+    (forM yy $ \xyz -> do
+        st <- get
+        if xyz `elem` st then do
+            return ()
+                         else do
+            put $ xyz:st)
+    forM (pExports t) $ \(str, ty) -> do
+        st <- get
+        if (str, ty) `elem` (map (\(x0, y0, z0) -> (x0, y0)) yy) then 
+            return () -- reexport
+        else
+            if (str, ty, (pFileInfo t)) `elem` st then
+                return ()
+            else 
+                put $ (str, ty, (pFileInfo t)):st
+    ) []
+
+    {-
+
+if any (\xsq -> 1 < length xsq) (map nub ogex) then Left "Duplicate Symbols" else Right (nub isq)
+    where isq = importedSymsQ uf apf
+          ogex = map (\(s, t, fi) -> findOrigExporter (uPath uf) (uImports uf) s apf) isq
+        
 importedSymsQ :: UFile -> [PFile] -> [(String, Type, FileInfo)]
-importedSymsQ ufile allpfiles = foldl (++) [] $ map (\f -> mgc (pExports f) (pFileInfo f) ) (filter (\p -> (pLocation p) `elem` (uImports ufile)) allpfiles)
-    where mgc ((a, b):ds) c = (a, b, c): (mgc ds c)
+importedSymsQ ufile allpfiles = y
+    where y = foldl (++) [] $ map (\f -> mgc (pExports f) (pFileInfo f) ) (filter (\p -> (pLocation p) `elem` (uImports ufile)) allpfiles)
+          mgc ((a, b):ds) c = (a, b, c): (mgc ds c)
           mgc [] c = []
+
+findOrigExporter me imports string allpfiles = case expstring of
+                                                    [] -> [me]
+                                                    xs -> foldl (++) [] (map (\x -> findOrigExporter (pLocation x) (pImports x) string allpfiles) xs)
+    where pfim = filter (\p -> (pLocation p) `elem` imports) allpfiles
+          -- pfiles that export the sym
+          expstring = filter (\p -> any (\(s, t) -> s == string) (pExports p)) pfim
+          -}
