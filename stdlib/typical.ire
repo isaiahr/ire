@@ -1,0 +1,10 @@
+/*
+* Ire Stdlib - typical.ire
+* This is a mass reexport of common functions used in applications.
+* 
+*
+*/
+
+import "system.ire"
+
+export exit
