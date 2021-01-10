@@ -6,5 +6,6 @@
 */
 
 import "system.ire"
+import "io.ire"
 
-export exit
+export exit, print

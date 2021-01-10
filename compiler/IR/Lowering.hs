@@ -63,6 +63,7 @@ getTypeFunc2 = do
     return namefunc
     
 convTy (AST.AST.Array ty) = IR.Syntax.Array (convTy ty)
+convTy (AST.AST.StringT) = IR.Syntax.StringIRT
 convTy (AST.AST.Bits i) = IR.Syntax.Bits i
 convTy (AST.AST.Function ty1 ty2) = IR.Syntax.Function [convTy ty1] (convTy ty2)
 convTy (AST.AST.Tuple tys) = IR.Syntax.Tuple (map convTy tys)

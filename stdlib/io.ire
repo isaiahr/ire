@@ -1,0 +1,12 @@
+/*
+* Ire Stdlib - io.ire
+* This is file for common io tasks, such as reading / writing fds
+* 
+*
+*/
+export print
+
+print := \x ->  {
+    __ire__print__(x)
+}
+

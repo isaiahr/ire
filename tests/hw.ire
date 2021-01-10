@@ -1,0 +1,5 @@
+// Ok (0, "Hello, World!\n")
+
+import io
+
+main := \() -> print "Hello, World!\n"
