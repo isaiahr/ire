@@ -39,16 +39,16 @@ def run_version():
         fd.write("#endif")
         fd.close()
 def run_config(debug):
-    os = ""
+    opsys = ""
     # why startswith? see https://docs.python.org/3/library/sys.html#sys.platform
     if sys.platform.startswith("linux"):
-        os = "linux"
+        opsys = "linux"
     elif sys.platform == "win32":
-        os = "windows"
+        opsys = "windows"
     elif sys.platform == "darwin":
-        os = "macos"
+        opsys = "macos"
     else:
-        os = fail("Error Determining Operating System", "(linux/windows/macos)")
+        opsys = fail("Error Determining Operating System", "(linux/windows/macos)")
     
     mach = platform.machine()
     
@@ -72,14 +72,15 @@ def run_config(debug):
     llc = shutil.which("llc")
     if llc == None:
         llc = fail("Error Finding llc on path", "path/to/llc")
-    
+    stdlib_path = os.path.abspath("stdlib" if debug else "/usr/lib/ire/stdlib")# todo: dont hardcode this
     config = {
-        "HOST_SYSTEM" : os + "-" + arch,
+        "HOST_SYSTEM" : opsys + "-" + arch,
         "LINUX_LINKER_PATH" : linux_linker,
         "LLC_PATH" : llc,
         "OPT_PATH" : opt,
-        "LINUX_AMD64_LIB_PATH" : "build/irert_linux_amd64.o",
-        "LINUX_AARCH64_LIB_PATH" : "build/irert_linux_aarch64.o"
+        "STDLIB_PATH": stdlib_path,
+        "LINUX_AMD64_LIB_PATH" : os.path.abspath("build/irert_linux_amd64.o"),
+        "LINUX_AARCH64_LIB_PATH" : os.path.abspath("build/irert_linux_aarch64.o")
         }
     
     if hasfailed:

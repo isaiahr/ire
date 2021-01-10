@@ -1,0 +1,9 @@
+// Ok (1, "")
+//
+
+import system
+
+main := \() -> {
+    __ire__exit__(1)
+}
+

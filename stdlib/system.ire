@@ -1,0 +1,11 @@
+/*
+* Ire Stdlib - system.ire
+* This is file for common os/system tasks, such as exiting.
+* 
+*
+*/
+export exit
+
+exit := \x ->  {
+    __ire__exit__(x)
+}

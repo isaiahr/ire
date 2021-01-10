@@ -1,4 +1,7 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE CPP #-}
+
+#include "../../build/config.h"
 
 module Pipeline.Relations (importDag, UFile(..)) where
 
@@ -54,7 +57,7 @@ loadFiles preds pth = do
                    Just (im, ex) -> do
                        curdir <- liftIO $ getCurrentDirectory
                        liftIO $ setCurrentDirectory (takeDirectory path)
-                       impaths <- forM im (liftIO . canonicalizePath)
+                       impaths <- forM im $ \(b, t0) -> liftIO $ canonicalizePath $ if b then STDLIB_PATH </> t0 <> ".ire" else t0
                        liftIO $ setCurrentDirectory curdir
                        return $ UFile {uPath = path, uImports = impaths, uExports = ex}
     liftIO $ hClose inhandle

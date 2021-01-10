@@ -14,23 +14,24 @@ parser for import / exports
 
 --}
 
-passParseRels :: Pass [AnnotatedToken] ([String], [String])
+passParseRels :: Pass [AnnotatedToken] ([(Bool, String)], [String])
 passParseRels = Pass {pName = ["Parser"], pFunc = doPs}
     where doPs x = case run parseFile x of
                         ParseSuccess n t -> (mempty, Just n)
                         otherwise -> (messageNoLn "ParserRels" "Error parsing" Common.Pass.Error, Nothing)
 
-parseFile :: Parser ([String], [String])
+parseFile :: Parser ([(Bool, String)], [String])
 parseFile = liftA2 (,) parseImports parseExport
 
-parseImports :: Parser [String]
+parseImports :: Parser [(Bool, String)]
 parseImports = (collect (pure ()) (parseToken Term)) *> ((collectM parseImport (parseToken Term)) <|> (pure [])) <* (collect (pure ()) (parseToken Term))
 
 -- import "abcdef"
-parseImport :: Parser String
+parseImport :: Parser (Bool, String)
 parseImport = parseToken Import *> Parser (\x -> 
     case x of
-         (AnnotatedToken (String text) l str):zs -> ParseSuccess text zs
+         (AnnotatedToken (String text) l str):zs -> ParseSuccess (False, text) zs
+         (AnnotatedToken (Identifier text) l str):zs -> ParseSuccess (True, text) zs
          _ -> ParseFailure)
 
 -- export abc, dce, ueu, etc
