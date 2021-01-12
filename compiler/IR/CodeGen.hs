@@ -310,7 +310,7 @@ genE (App (Prim (BoolAnd)) [argtuple]) = do
 genE (App (Prim (LibPrim lb)) eargs) = do
     eargs' <- forM eargs genE
     -- efty <- getIRType (Prim (LibPrim lb)) 
-    -- ^^ DO NOT DO THIS!! need to translate things like empty tuple -> void, so use llvmntypeof
+    -- above:  DO NOT DO THIS!! need to translate things like empty tuple -> void, so use llvmntypeof
     let (rty, pty) = (case llvmntypeof lb of 
                            LLVMFunction rety pty -> (rety, pty)
                            otherwise -> error "e#523858")
