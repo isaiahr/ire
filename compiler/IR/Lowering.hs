@@ -6,7 +6,7 @@ import Common.Pass
 import Common.Common
 import Pass.Namer
 import Pass.NameTyper
-import AST.AST
+import AST.AST hiding (nextName)
 import IR.Syntax
 
 import Control.Monad.State

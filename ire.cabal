@@ -9,6 +9,8 @@ library
   exposed-modules:
       AST.AST
       AST.ASTUtils
+      AST.Syntax
+      AST.TypeSystem
       Common.Common
       Common.Natives
       Common.Pass

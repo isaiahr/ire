@@ -8,18 +8,6 @@ import Common.Pass
 import Data.List
 import Control.Monad.State
 
-data Name 
-    = Name String Int -- "normal" name
-    | NativeName Native -- "native", or built - in (magic) name
-    | Symbol String Type FileInfo -- "symbol", an external name imported from another file (file: fileinfo)
-    | NameError -- error placeholder.
-      deriving Eq
-
-instance Disp Name where
-    disp (Name s i) = disp s ++ "#" ++ disp i
-    disp (NativeName n) = "n<" <> disp n <> ">"
-    disp (Symbol s t fi) = "sym<" <> disp s <> ":" <> disp t <> ">"
-    disp (NameError) = "NameError 143016"
 
 -- the symbol table. 1st param: strings in scope, 2nd: up lexical scope
 data SymbolTable = SymbolTable [Name] [NError] (Maybe SymbolTable)

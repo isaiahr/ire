@@ -1,6 +1,5 @@
 module Common.Natives where 
 
-import AST.AST
 import Common.Common
 
 {---
@@ -73,19 +72,6 @@ fromString "|" = Just Native_Or
 fromString "&" = Just Native_And
 fromString _ = Nothing
 
-asttypeof Native_Exit = Function (Bits 64) (Tuple [])
-asttypeof Native_Addition = Function (Tuple [Bits 64, Bits 64]) (Bits 64)
-asttypeof Native_Subtraction = Function (Tuple [Bits 64, Bits 64]) (Bits 64)
-asttypeof Native_Multiplication = Function (Tuple [Bits 64, Bits 64]) (Bits 64)
--- for now. this will change in the future (after polymorphism is added)
-asttypeof Native_Equal = Function (Tuple [Bits 64, Bits 64]) (Bits 1)
-asttypeof Native_Greater = Function (Tuple [Bits 64, Bits 64]) (Bits 1)
-asttypeof Native_Less = Function (Tuple [Bits 64, Bits 64]) (Bits 1)
-asttypeof Native_GreaterEqual = Function (Tuple [Bits 64, Bits 64]) (Bits 1)
-asttypeof Native_LesserEqual = Function (Tuple [Bits 64, Bits 64]) (Bits 1)
-asttypeof Native_Or = Function (Tuple [Bits 1, Bits 1]) (Bits 1)
-asttypeof Native_And = Function (Tuple [Bits 1, Bits 1]) (Bits 1)
-asttypeof Native_Print = Function (StringT) (Tuple [])
 
 
 prim2llvmname Native_Exit = "__irert__exit__"
