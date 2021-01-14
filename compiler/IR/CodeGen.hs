@@ -16,7 +16,7 @@ import LLVM.Types
 import Common.Pass
 import Common.Common
 import Control.Monad.State
-import IR.Syntax
+import IR.IR
 import Common.Natives
 
 {-

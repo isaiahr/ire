@@ -7,7 +7,7 @@ import Common.Common
 import Pass.Namer
 import Pass.NameTyper
 import AST.AST hiding (nextName)
-import IR.Syntax
+import IR.IR as IR.Syntax
 
 import Control.Monad.State
 

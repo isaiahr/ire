@@ -1,7 +1,7 @@
 module IR.LambdaLift (passLLift) where
 
 import Control.Monad.State
-import IR.Syntax
+import IR.IR
 import Common.Common
 import Common.Pass
 

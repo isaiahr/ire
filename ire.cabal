@@ -14,6 +14,9 @@ library
       Common.Common
       Common.Natives
       Common.Pass
+      IR.IR
+      IR.Instances
+      IR.Utils
       IR.CodeGen
       IR.DirectCall
       IR.HeapConversion

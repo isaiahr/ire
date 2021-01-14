@@ -9,7 +9,7 @@ translates free vars captured by closures to heap, in preparation for lambda lif
 
 import Common.Common
 import Common.Pass
-import IR.Syntax
+import IR.IR
 
 
 passHConv = Pass {pName = ["HeapConversion"], pFunc = runP }

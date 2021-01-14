@@ -9,7 +9,7 @@ module IR.DirectCall (passDCall) where
   this compiles down to llvm's "invoke" vs a getelementptr into a structure and call.
 -}
 
-import IR.Syntax
+import IR.IR
 import Common.Common
 import Common.Pass
 
