@@ -54,10 +54,7 @@ liftE (Abs n e) = do --let (newe, rest) = liftE g e in (findFVs newe n g)
     newtlf <- newTLF n fvs ne
     return $ Close newtlf fvs
 
-liftE expr = do
-    let se = exprSubExprs expr
-    res <- mapM (liftE) se
-    return $ rebuild expr res
+liftE expr = traverseExpr liftE expr 
 
 findFVs :: Expr -> [Name] -> [Name] -> [Name]
 findFVs (Var n) parloc globals = if n `elem` (parloc ++ globals) then [] else [n]

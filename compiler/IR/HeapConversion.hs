@@ -48,5 +48,5 @@ hconv fvs tyf (Let n e1 e2) = let e1m = hconv fvs tyf e1 in
                                       if n `elem` fvs then (Let n (App (Prim (CreatePtr (tyf n))) [e1m]) e2m) else (Let n e1m e2m)
 hconv fvs tyf (Assign n e) = let em = hconv fvs tyf e in
                                  if n `elem` fvs then (App (Prim (SetPtr (tyf n))) [Var n, em]) else (Assign n e)
-hconv fvs tyf z = rebuild z (map (hconv fvs tyf) (exprSubExprs z))
+hconv fvs tyf z = traverseExprId (hconv fvs tyf) z
                 

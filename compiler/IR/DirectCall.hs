@@ -25,4 +25,4 @@ expr globals orig@(App (Var n) e)
     | nImportedName n = (Call n e) 
     | n `elem` globals = (Call n e)
     | otherwise = orig
-expr globals otherwis3 = rebuild otherwis3 (map (expr globals) (exprSubExprs otherwis3))
+expr globals otherwis3 = traverseExprId (expr globals) otherwis3

@@ -6,6 +6,8 @@ import Common.Common
 import Common.Natives
 
 import Data.List
+import Control.Monad
+import Control.Monad.Identity
     
 allNames (IR [] x _) = []
 nextIntName ir = (foldl largest 0 (map nPk (allNames ir)))
@@ -51,32 +53,6 @@ exprType (Lit (IntL _)) nf = Bits 64
 exprType (Lit (BoolL _)) nf = Bits 1
 exprType (Lit (StringL _)) nf = StringIRT
 
-exprSubExprs (Var _) = []
-exprSubExprs (Call _ es) = es
-exprSubExprs (App e es) = e:es
-exprSubExprs (Abs _ e) = [e]
-exprSubExprs (Close _ _) = []
-exprSubExprs (Let _ e1 e2) = [e1, e2]
-exprSubExprs (Prim _) = []
-exprSubExprs (Assign _ e) = [e]
-exprSubExprs (Seq e1 e2) = [e1, e2]
-exprSubExprs (If e1 e2 e3) = [e1, e2, e3]
-exprSubExprs (Lit _) = []
-exprSubExprs (Ret e) = [e]
-
-rebuild (Var n) news = Var n
-rebuild (Call n _) news = Call n news
-rebuild (App _ _) news = App (head news) (tail news)
-rebuild (Abs n _) news = Abs n (news !! 0)
-rebuild (Close n na) news = Close n na
-rebuild (Let n _ _) news = Let n (news !! 0) (news !! 1)
-rebuild (Prim n) news = Prim n
-rebuild (Assign n _) news = Assign n (news !! 0)
-rebuild (Seq _ _) news = Seq (news !! 0) (news !! 1)
-rebuild (If _ _ _ ) news = If (news !! 0) (news !! 1) (news !! 2)
-rebuild (Lit n) news = Lit n
-rebuild (Ret _) news = Ret (news !! 0)
-
 
 getTypeFunc (IR _ tbl _) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
 getTypeFuncTbl (tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
@@ -94,6 +70,45 @@ primName Native_GreaterEqual = IntGET
 primName Native_LesserEqual = IntLET
 primName Native_Or = BoolOr
 primName Native_And = BoolAnd
+
+exprSubExprs (Var _) = []
+exprSubExprs (Call _ es) = es
+exprSubExprs (App e es) = e:es
+exprSubExprs (Abs _ e) = [e]
+exprSubExprs (Close _ _) = []
+exprSubExprs (Let _ e1 e2) = [e1, e2]
+exprSubExprs (Prim _) = []
+exprSubExprs (Assign _ e) = [e]
+exprSubExprs (Seq e1 e2) = [e1, e2]
+exprSubExprs (If e1 e2 e3) = [e1, e2, e3]
+exprSubExprs (Lit _) = []
+exprSubExprs (Ret e) = [e]
+
+-- traversal functions. these apply a function to children of expr.
+-- this is supposed to be within a larger function transforming expressions, 
+-- as to recursively traverse the IR.
+
+
+
+traverseExprId :: (Expr -> Expr) -> Expr -> Expr
+traverseExprId f e = runIdentity $ traverseExpr fm e
+    where fm x = return (f x)
+
+
+traverseExpr :: Monad m => (Expr -> m Expr) -> Expr -> m Expr
+traverseExpr f e@(Var n) = return e
+traverseExpr f (Call n es) = liftM (Call n) (mapM f es)
+traverseExpr f (App e es) = liftM2 App (f e) (mapM f es)
+traverseExpr f (Abs n e) = liftM (Abs n) (f e)
+traverseExpr f e@(Close _ _) = return e 
+traverseExpr f (Let n e1 e2) = liftM2 (Let n) (f e1) (f e2)
+traverseExpr f e@(Prim _) = return e
+traverseExpr f (Assign n e) = liftM (Assign n) (f e)
+traverseExpr f (Seq e1 e2) = liftM2 Seq (f e1) (f e2)
+traverseExpr f (If e1 e2 e3) = liftM3 If (f e1) (f e2) (f e3)
+traverseExpr f e@(Lit _) = return e
+traverseExpr f (Ret e) = liftM Ret (f e)
+
 
 libtypeof Native_Exit = Function [Bits 64] (Tuple [])
 libtypeof Native_Print = Function [StringIRT] (Tuple [])
