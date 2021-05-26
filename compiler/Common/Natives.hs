@@ -23,7 +23,7 @@ data Native =
     Native_LesserEqual | 
     Native_Or | 
     Native_And
-      deriving Eq
+      deriving (Ord, Eq)
 
 instance Disp Native where
     disp Native_Exit = "__ire__exit__"

@@ -23,7 +23,7 @@ data Type =
             Function Type Type | -- a -> b
             Tuple [Type] | -- (a, b, c)
             Record [(String, Type)] | -- record
-            Union [(String, Type)] deriving (Eq, Show) --union
+            Union [(String, Type)] deriving (Eq, Ord, Show) --union
 
 instance Disp Type where 
     disp (Array t) = "[" ++ disp t ++ "]"

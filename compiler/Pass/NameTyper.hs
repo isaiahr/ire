@@ -6,20 +6,25 @@ import Pass.Namer
 import Pass.Typer
 import AST.AST
 
+import qualified Data.Map as Map
+
+import Data.List
+import Control.Monad.State
+
 
 {--
 NameTyper.hs:
 takes a named AST and assigns types to it
 --}
 
-    
+
 passType = Pass {pName = ["TypeInfer"], pFunc = doType}
-    where doType s = case solve (genConstraints s) of
-                          Ss k -> let r = nametypeAST k s in (messageNoLn "TypeInfer" (disp r) Debug, Just r)
-                          Un t t2 -> (messageNoLn "TypeInfer" ("Unable to unify types " <> disp t <> " and " <> disp t2) Common.Pass.Error, Nothing)
-                          Occ nt t -> (messageNoLn "TypeInfer" ("Occurs check; cannot solve constraint " <> disp (General nt) <> " ~ " <> disp t) Common.Pass.Error, Nothing)
-
-
+    where
+        doType s = if null (errors c) then (messageNoLn "TypeInfer" dbgmsgs Debug, Just (typeast (env c) s)) else (messageNoLn "TypeInfer" dbgmsgs Debug <> messageNoLn "TypeInfer" (intercalate "\n" (errors c)) Error,  Nothing)  
+            where c = execState (infer s) InferCtx { env = Env (Map.empty) , cons = [], errors = [], iMsgs = "", numName = 0, fnTy = (typeFunction (error "thunk") (error "thunk2"))}
+                  dbgmsgs = ((disp $ env c) <> "\n" <> (iMsgs c))
+                              
+                              
     
-nametypeAST :: ConstraintTbl -> AST Name -> AST TypedName
-nametypeAST tbl ast = fmap (\x -> TypedName (getType x tbl) x) ast
+
+typeast (Env e) ast = fmap (\x -> TypedName (tyscheme2astty (e Map.! x)) x) ast

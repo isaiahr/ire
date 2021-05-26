@@ -1,23 +1,54 @@
-{-
-Typer.hs: Type Inference engine
+{--
+Typer.hs - type inference engine for ire.
 
-this inferes the types of all names in a file.
+This is the type inference code.
 
-this uses constraint satisfaction to do this
-    1) Generate constraints for all expressions in the file.
-        each constraint is a equivalence relation between two types, denoted
-        t1 ~ t2. for example, in expression f 2, would generate
-        $0 ~ ($1 -> $2)
-        $1 ~ Int
-        additionally, there is a table of names with there infered type. f would be added to this
-        table with $0
-    2) constraint solving. this is done by unification, which is essentially repeated substitutions.
-    there are some caveats to be aware of, like the occurs check to prevent constructing infinite types.
-    (this is when something like $0 ~ [$0], then sub will get [$0] ~ [[$0]] etc.
-    after this we can use NameTyper.hs to annotate all vars with their type.
+This is based off of the HM rules for type inference https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system
 
--}
+Originally, this code was written without support for parametric polymorphism. 
+(original: https://github.com/isaiahr/ire/blob/e1f632fa9fa5d717d5ff105366f97eacde323d31/compiler/Pass/Typer.hs)
 
+The code for constraint generation is the same, but the representation of types is different now. 
+(this is to make type inference support new types easier). to handle this a isomorphism between AST types and Typer types is established.
+
+there is still some more work to be done by supporting mutual recursion, poly funcs decl after use, etc.
+
+note some of the code is from this link: http://dev.stephendiehl.com/fun/ (
+This is mostly the Substitutable typeclass, which I copied because I thought it was a good idea,
+and the constraint solving code. (although I already had a working constraint solver - see above)
+
+here is the copyright notice for the bits of code that are included: 
+
+Copyright (c) 2014-2016, Stephen Diehl
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to
+deal in the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
+
+
+
+
+
+--}
+
+
+
+-- should probably clean this up and remove it
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
 
 module Pass.Typer where 
 
@@ -29,323 +60,454 @@ import AST.AST
 import Pass.Namer
 
 import Control.Monad.State
+import Control.Monad.Except
+import Control.Monad.Identity
 import Data.List
+import qualified Data.Map as Map
+import qualified Data.Set as Set
 
-data TyCons = TyCons Type Type 
-data TyVar  = TyVar Name Type
+import Debug.Trace
 
-instance Disp (TyCons) where
-    disp (TyCons t1 t2) = disp t1 ++ " ~ " ++ disp t2
-instance Disp TyVar where
-    disp (TyVar a t) = disp a ++ " = " ++ disp t
+newtype TVar = TVar String deriving (Show, Eq, Ord)
 
-data ConstraintTbl = ConstraintTbl Int [TyCons] [TyVar] Type
+instance Disp TVar where 
+    disp (TVar s) = "$" <> s
 
-instance Disp (ConstraintTbl) where
-    disp (ConstraintTbl nt x (y:ys) t) = disp y ++ "\n" ++ disp (ConstraintTbl nt x ys t)
-    disp (ConstraintTbl nt (x:xs) z t) = disp x ++ "\n" ++ disp (ConstraintTbl nt xs z t)
-    disp (ConstraintTbl nt [] [] t) = ""
+newtype Env = Env (Map.Map Name TyScheme) deriving (Show, Eq)
+
+instance Disp Env where
+    disp (Env e) = Map.foldrWithKey (\k v acc -> acc <> "\n" <>  (disp k <> " : " <> disp v)) "" e
+
+instance Show Name where
+    show n = disp n
+
+type InferM a = State InferCtx a
+
+data InferCtx = InferCtx {
+    env :: Env, -- gamma
+    cons :: [Constraint],
+    errors :: [String],
+    numName :: Int,
+    iMsgs :: String,
+    fnTy :: Typ -- function type.
+} deriving Show
+
+instance Disp InferCtx where
+    disp i = show (env i) ++ "\n" ++ (show (errors i))
+
+data Constraint = Constraint Typ Typ deriving (Show, Eq)
+
+instance Disp Constraint where
+    disp (Constraint t1 t2) = (disp t1) <> " ~ " <> (disp t2)
+
+-- monotype
+data Typ = 
+    TyVar TVar | 
+    TyCon String | -- constant
+    TyApp String [Typ]  -- application of a type function. example: "->" Int String is function from int to string.
+    deriving (Show, Eq)
+    
+
+instance Disp Typ where
+    disp (TyVar s) = disp s
+    disp (TyCon s) = s
+    disp (TyApp s tys) = s <> "[" <> (intercalate "," (map disp tys)) <> "]"
+    
+data TyScheme = TyScheme [TVar] Typ deriving (Show, Eq)
+
+instance Disp TyScheme where
+    disp (TyScheme tv ty) = "∀" <> (intercalate "," (map disp tv)) <> ". " <> (disp ty)
+
+newtype Sub = Sub (Map.Map TVar Typ) deriving (Show, Eq, Semigroup, Monoid)
 
 
-getType a (ConstraintTbl nt tc tvs t6) = case getVar a tvs of
-                                           (Just t) -> t
-                                           _ -> error ("gettype #0738607346895" <> disp a <> intercalate "," (map disp tvs))
+typeInt = TyCon "int"
+typeBool = TyCon "boolean"
+typeStr = TyCon "string"
+typeArray oft = TyApp "array" [oft]
+typeFunction a b = TyApp "func" [a, b]
+typeTuple ty = TyApp "tuple" ty
 
-getVar a tvars = case p of
-                      [TyVar b t] -> Just t
-                      _ -> Nothing
-    where p = filter (\x -> case x of TyVar b _ -> b == a) tvars 
+-- bijection ast types tyinfer types
 
--- natives here is a bit funny, result is expected int even though we already know the type.
-newVar :: Name -> State ConstraintTbl Int
+ast2tyinfer (StringT) = typeStr
+ast2tyinfer (Function t1 t2) = typeFunction (ast2tyinfer t1) (ast2tyinfer t2)
+ast2tyinfer (Tuple tys) = typeTuple (map ast2tyinfer tys)
+ast2tyinfer (Bits 64) = typeInt
+ast2tyinfer (Bits 1) = typeBool
+ast2tyinfer (Record _) = error "not yet impl"
+ast2tyinfer (Union _) = error "not yet impl2"
+
+tyinfer2ast (TyCon "string") = StringT
+tyinfer2ast (TyCon "boolean") = Bits 1
+tyinfer2ast (TyCon "int") = Bits 64
+tyinfer2ast (TyApp "func" [t1, t2]) = Function (tyinfer2ast t1) (tyinfer2ast t2)
+tyinfer2ast (TyApp "tuple" t) = Tuple (map tyinfer2ast t)
+tyinfer2ast (TyApp "array" [t]) = Array (tyinfer2ast t)
+tyinfer2ast p = error (disp p) 
+
+tyscheme2astty (TyScheme [] p) = tyinfer2ast p
+
+
+class Substitutable a where
+    apply :: Sub -> a -> a
+    ftv   :: a -> Set.Set TVar
+
+instance Substitutable Typ where
+    apply _ (TyCon a) = TyCon a
+    apply (Sub s) t@(TyVar a) = Map.findWithDefault t a s
+    apply s (TyApp u t) = TyApp u (apply s t)
+
+    ftv (TyCon a) = Set.empty
+    ftv (TyVar a) = Set.singleton a
+    ftv (TyApp s t) = ftv t
+
+instance Substitutable TyScheme where
+    apply (Sub s) (TyScheme as t)   = TyScheme as $ apply (Sub s') t
+                            where s' = foldr Map.delete s as
+    ftv (TyScheme as t) = ftv t `Set.difference` Set.fromList as
+
+instance Substitutable Constraint where
+   apply s (Constraint t1 t2) = Constraint (apply s t1)  (apply s t2)
+   ftv (Constraint t1 t2) = ftv t1 `Set.union` ftv t2
+
+instance Substitutable a => Substitutable [a] where
+    apply = fmap . apply
+    ftv   = foldr (Set.union . ftv) Set.empty
+
+instance Substitutable Env where
+    apply s (Env env) =  Env $ Map.map (apply s) env
+    ftv (Env env) = ftv $ Map.elems env
+    
+writeMsgs :: String -> InferM ()
+writeMsgs str = do
+    ctx <- get
+    put $ ctx { iMsgs = (iMsgs ctx) <> str }
+  
+setFnType :: Typ -> InferM ()
+setFnType ty = do
+    ctx <- get
+    put $ ctx { fnTy = ty } 
+  
+getFnType :: InferM Typ
+getFnType = do
+    ctx <- get
+    return $ fnTy ctx
+
+-- gen fresh tvar
+fresh :: InferM TVar
+fresh = do
+    st <- get
+    let n = numName st
+    put st {numName = n + 1}
+    return (TVar (show n))
+
+freshN :: Int -> InferM [TVar]
+freshN 0 = return []
+
+freshN n = do
+    i <- freshN (n-1)
+    f <- fresh
+    return $ f:i
+    
+
+-- applies substitutions to monad, so env
+applyCtx :: Sub -> InferM ()
+applyCtx sub = do
+    st <- get
+    let e = (env st)
+    let newenv =  apply sub e
+    put $ st {env = newenv } 
+    return ()
+    
+
+    
+generalize :: Env -> Typ -> TyScheme
+generalize env ty = TyScheme fvs ty
+    where fvs = Set.toList $ Set.difference (ftv ty) (ftv env)
+
+instantiate :: TyScheme -> InferM Typ
+instantiate (TyScheme as ty) = do
+    as' <- mapM (\x -> do
+        v <- fresh
+        return (TyVar v)
+        )  as
+    let s = Sub $ Map.fromList $ zip as as'
+    return $ apply s ty
+    
+mkCons :: Typ -> Typ -> InferM [Constraint]
+mkCons tv ty = do
+    --st <- get
+    -- let c = cons st
+    --put $ st {cons = c <> [Constraint tv ty]}
+    return [Constraint tv ty]
+    
+getVar :: Name -> InferM (Maybe Typ)
+getVar n = do
+    st <- get
+    let (Env e) = (env st)
+    case Map.lookup n e of 
+         Just t -> do
+             monotype <- instantiate t
+             return (Just monotype)
+         Nothing -> return Nothing
+
+newVar :: Name -> InferM Typ
 newVar a@(NativeName n) = do
-    let actualty = asttypeof n
-    (ConstraintTbl n c v ft) <- get
-    case getVar a v of
-         (Just (General a2)) -> return a2
+    let actualty = ast2tyinfer (asttypeof n)
+    v <- getVar a
+    case v of
+         (Just tv) -> return tv
          Nothing -> do
-             put $ ConstraintTbl (n+1) ((TyCons (General n) actualty):c) ((TyVar a (General n)):v) ft
-             return n
+             st <- get
+             let (Env emap) = (env st)
+             put $ st {env = Env (Map.insert a (TyScheme [] (actualty)) emap) } 
+             return actualty
 
 newVar a@(Symbol str ty fi) = do
-    (ConstraintTbl n c v ft) <- get
-    case getVar a v of
-         (Just (General a2)) -> return a2
+    v <- getVar a
+    case v of
+         (Just tv) -> return tv
          Nothing -> do
-             put $ ConstraintTbl (n+1) ((TyCons (General n) ty):c) ((TyVar a (General n)):v) ft
-             return n
+             let actualty = (ast2tyinfer ty)
+             st <- get
+             let (Env emap) = (env st)
+             put $ st {env = Env (Map.insert a (TyScheme [] actualty) emap) } 
+             return actualty
 
-newVar a = do
-    (ConstraintTbl n c v ft) <- get
-    case getVar a v of
-         (Just (General a2)) -> return a2
+newVar a@(Name _ _) = do
+    v <- getVar a
+    case v of
+         (Just tv) -> return tv
          Nothing -> do
-             put $ ConstraintTbl (n+1) c ((TyVar a (General n)):v) ft
-             return n
+             tv <- fresh
+             st <- get
+             let (Env emap) = (env st)
+             put $ st {env = Env (Map.insert a (TyScheme [] (TyVar tv)) emap) }
+             return (TyVar tv)
+
+newVar a@(NameError) = error "NAME ERROR"
+
+infer (AST (d:ds)) = do
+    c1 <- inferD d
+    c2 <- infer (AST (ds))
+    return $ c1 <> c2
+
+infer (AST []) = return []
     
+inferD d = do
+    csc <- case (identifier d) of
+                (Plain s) -> do 
+                    st2 <- get
+                    let oldenv = (env st2)
+                    n <- newVar s
+                    c <- inferE (value d) n
+                    case (value d) of 
+                         (Literal (FunctionLiteral args value)) -> do
+                             writeMsgs $ "Attempting solve with constraints:\n" <> (intercalate "\n" (map disp c))
+                             case runSolve c of 
+                                  Left e -> do
+                                      st <- get
+                                      put st {errors = errors st <> [disp e] }
+                                      return mempty
+                                  Right sub -> do
+                                      applyCtx sub
+                                      nm <- newVar s
+                                      st <- get
+                                      -- NOTE: debug with trace doesnt work here for some reason. not sure why.
+                                      -- oldenv nessecary to make sure body of func is not considered part of env
+                                      let gen = generalize oldenv nm
+                                      let (Env th) = (env st)
+                                      let tr3 = Map.insert s gen th
+                                    --  put st {env = trace ("GEN\n" <> (disp gen) <> (show (env st)) <> (disp nm) <> "END")(Env tr3)}
+                                      put st {env = (Env tr3)}
+                                      return mempty
+                         expr -> return c
+                (TupleUnboxing ss) -> do
+                    ns <- forM ss newVar
+                    tc <- fresh
+                    c1 <- mkCons (TyVar tc) (typeTuple ns)
+                    c2 <- inferE (value d) (TyVar tc)
+                    return $ c1 <> c2
 
-mkCons :: Int -> Type -> State (ConstraintTbl) ()
-mkCons nt ty = state $ \(ConstraintTbl n c v ft) -> ((), ConstraintTbl n ((TyCons (General nt) ty):c) v ft)
+    return csc
 
-getInt :: State (ConstraintTbl) Int
-getInt = state $ \(ConstraintTbl n c v ft) -> (n, ConstraintTbl (n+1) c v ft)
+inferE :: Expression Name -> Typ -> InferM [Constraint]
+inferE (Literal (Constant _)) tv = do
+    mkCons tv typeInt
 
-getNInts :: Int -> State (ConstraintTbl) [Int]
-getNInts m = state $ \(ConstraintTbl n c v ft) -> ([n..(n+m-1)], ConstraintTbl (n+m) c v ft)
+inferE (Literal (StringLiteral s)) tv = do
+    mkCons tv typeStr
 
-genConstraints :: AST Name -> ConstraintTbl
-genConstraints a = snd (runState (genCons a) newTbl)
+inferE (Literal (ArrayLiteral (r:rs))) tv = do
+    nn <- fresh
+    c1 <- mkCons tv (typeArray (TyVar nn))
+    c2 <- inferE r (TyVar nn)
+    c3 <- inferE (Literal (ArrayLiteral (rs))) tv
+    return $ c1 <> c2 <> c3
 
-getFnType :: State (ConstraintTbl) Type
-getFnType = state $ \(ConstraintTbl n c v ft) -> (ft, ConstraintTbl n c v ft)
+inferE (Literal (ArrayLiteral [])) n = return []
 
-setFnType :: Type -> State (ConstraintTbl) ()
-setFnType ty = state $ \(ConstraintTbl n c v ft) -> ((), ConstraintTbl n c v ty)
-
--- error only poked if return not in func, which will never parse.
-newTbl = ConstraintTbl (0 :: Int) [] [] (error "poked error thunk #89432302984")
-
--- helper func
-bindVars (a:as) = do
-    na <- newVar a
-    nas <- bindVars as
-    return (na:nas)
-bindVars [] = return []
+inferE (Literal (TupleLiteral rs)) n = do
+    nn <- freshN (length rs)
+    c1 <- mkCons n (typeTuple (fmap TyVar nn))
+    c2 <- inferEL rs (fmap TyVar nn)
+    return $ c1 <> c2
 
 
-genCons :: AST Name -> State (ConstraintTbl) ()
-genCons (AST (d:ds)) = do
-    genConsDef d
-    genCons (AST (ds))
-    return ()
+inferE (Literal (FunctionLiteral f t)) n = do
+    (c, nf) <- case f of
+               (Plain s) -> do 
+                   nf0 <- newVar s
+                   return ([], nf0)
+               (TupleUnboxing ss) -> do
+                   ns <- forM ss newVar
+                   tc <- fresh
+                   c4 <- mkCons (TyVar tc) (typeTuple (ns))
+                   return (c4, TyVar tc)
+    nt <- fresh
+    c0 <- mkCons n (typeFunction (nf) (TyVar nt))
+    ot <- getFnType
+    setFnType (typeFunction (nf) (TyVar nt))
+    c1 <- inferE t (TyVar nt)
+    setFnType ot
+    return $ c <> c0 <> c1
 
-genCons (AST []) = return ()
+inferE (FunctionCall f x) n = do
+    nf <- fresh
+    nx <- fresh
+    c0 <- mkCons (TyVar nf) (typeFunction (TyVar nx) n)
+    c1 <- inferE f (TyVar nf)
+    c2 <- inferE x (TyVar nx)
+    return $ c0 <> c1 <> c2
 
+inferE (Variable u) n = do
+    n2 <- newVar u
+    c <- mkCons n n2
+    return c
 
-genConsDef :: Definition Name -> State (ConstraintTbl) ()
-genConsDef d = do
-    case (identifier d) of
-         (Plain s) -> do 
-             n <- newVar s
-             genConsExpr (value d) n
-             return ()
-         (TupleUnboxing ss) -> do
-             ns <- forM ss newVar
-             tc <- getInt
-             mkCons tc (Tuple (fmap General ns))
-             genConsExpr (value d) tc
-             return ()
+inferE (IfStmt i t e) n = do
+    ni <- fresh
+    c0 <- mkCons (TyVar ni) typeBool
+    nt <- fresh
+    ne <- fresh
+    c1 <- mkCons (TyVar nt) (TyVar ne)
+    c2 <- mkCons n (TyVar nt)
+    c3 <- inferE i (TyVar ni)
+    c4 <- inferE t (TyVar nt)
+    c5 <- inferE e (TyVar ne)
+    return $ c0 <> c1 <> c2 <> c3 <> c4 <> c5
 
-genConsStmt (Expr e) = do
-    n <- getInt
-    genConsExpr e n
-    return ()
+inferE (Block ((Yield e):ss)) n = do
+    c1 <- inferE e n
+    c2 <- inferE (Block ss) n
+    return $ c1 <> c2
+
+inferE (Block ((Return r):ss)) n = do
+    fn <- getFnType
+    rt <- fresh
+    c0 <- inferE r (TyVar rt)
+    fnt <- fresh
+    fa <- fresh
+    c1 <- mkCons (TyVar fnt) (typeFunction (TyVar fa) (TyVar rt))
+    c2 <- mkCons (TyVar fnt) fn
+    return $ c0 <> c1 <> c2
+    
+inferE (Block (s:ss)) n = do
+    c0 <- inferS s
+    c1 <- inferE (Block ss) n
+    return $ c0 <> c1
+
+inferE (Block []) n = return []
+
+genConsExpr (Block []) n = return ()
+-- could use zip & mapM here instead
+inferEL (e:es) (n:ns) = do 
+    c0 <- inferE e n
+    c1 <- inferEL es ns
+    return $ c0 <> c1
+
+inferEL [] [] = return []
+
+inferEL _ _ = undefined
+
+inferS (Expr e) = do
+    n <- fresh
+    inferE e (TyVar n)
     
 -- genconsdef d >> return () ?
-genConsStmt (Defn d) = do 
-    genConsDef d
-    return ()
+inferS (Defn d) = do 
+    inferD d
 
-genConsStmt (Assignment a e) = do
+inferS (Assignment a e) = do
     case a of
          (Plain s) -> do 
              n <- newVar s
-             genConsExpr e n
-             return ()
+             inferE e n
          (TupleUnboxing ss) -> do
              ns <- forM ss newVar
-             tc <- getInt
-             mkCons tc (Tuple (fmap General ns))
-             genConsExpr e tc
-             return ()
+             tc <- fresh
+             c1 <- mkCons (TyVar tc) (typeTuple ns)
+             c2 <- inferE e (TyVar tc)
+             return $ c1 <> c2
 
--- special semantics, easier to handle in block. 
-genConsStmt (Return r) = error "handled in blk #234235"
-genConsStmt (Yield y) = error "handled in blk #29588"
-    
-genConsExpr :: Expression Name -> Int -> State ConstraintTbl ()
-genConsExpr (Literal (Constant nt)) n = do
-    mkCons n (Bits 64)
-    return ()
-    
-genConsExpr (Literal (StringLiteral s)) n = do
-    mkCons n (StringT)
-    return ()
+inferS (Return r) = error "handled in blk #234235"
+inferS (Yield y) = error "handled in blk #29588"
 
-genConsExpr (Literal (ArrayLiteral (r:rs))) n = do
-    nn <- getInt
-    mkCons n (Array (General nn))
-    genConsExpr r nn
-    genConsExpr (Literal (ArrayLiteral (rs))) n
-    return ()
 
-genConsExpr (Literal (ArrayLiteral [])) n = return ()
+-- | Constraint solver monad
+type Solve a = ExceptT TypeError Identity a
 
-genConsExpr (Literal (TupleLiteral rs)) n = do
-    nn <- getNInts (length rs)
-    mkCons n (Tuple (fmap General nn))
-    genConsExprL rs nn
-    return ()
+-- | Compose substitutions
+compose :: Sub -> Sub -> Sub
+(Sub s1) `compose` (Sub s2) = Sub $ Map.map (apply (Sub s1)) s2 `Map.union` s1
 
-genConsExpr (Literal (FunctionLiteral f t)) n = do
-    nf <- case f of
-               (Plain s) -> do 
-                   nf0 <- newVar s
-                   return nf0
-               (TupleUnboxing ss) -> do
-                   ns <- forM ss newVar
-                   tc <- getInt
-                   mkCons tc (Tuple (fmap General ns))
-                   return tc
-    nt <- getInt
-    mkCons n (Function (General nf) (General nt))
-    ot <- getFnType
-    setFnType (Function (General nf) (General nt))
-    genConsExpr t nt
-    setFnType ot
-    return ()
-    
+runSolve :: [Constraint] -> Either TypeError Sub
+runSolve cs = runIdentity $ runExceptT $ solver st
+  where st = (mempty, cs)
 
--- note we do $3 = (f x) => \x -> $3 ~ f
-genConsExpr (FunctionCall f x) n = do
-    nf <- getInt
-    nx <- getInt
-    mkCons nf (Function (General nx) (General n))
-    genConsExpr f nf
-    genConsExpr x nx
-    return ()
+unifyMany :: [Typ] -> [Typ] -> Solve Sub
+unifyMany [] [] = return mempty
+unifyMany (t1 : ts1) (t2 : ts2) = do
+    su1 <- unifies t1 t2
+    su2 <- unifyMany (apply su1 ts1) (apply su1 ts2)
+    return (su2 `compose` su1)
+unifyMany t1 t2 = error "sz t1 != sz t2" 
 
-genConsExpr (Variable u) n = do
-    n2 <- newVar u
-    mkCons n (General n2)
-    return ()
+unifies :: Typ -> Typ -> Solve Sub
+unifies t1 t2 | t1 == t2 = return mempty
+unifies (TyVar v) t = v `bind` t
+unifies t (TyVar v) = v `bind` t
+unifies (TyCon p) (TyCon p2) | p == p2 = return mempty -- redundant, but here for clarity
+unifies (TyApp p t) (TyApp p2 t2) | p == p2 = unifyMany t t2
+unifies t1 t2 = throwError $ UnificationFail t1 t2
 
-genConsExpr (IfStmt i t e) n = do
-    ni <- getInt
-    mkCons ni (Bits 1)
-    nt <- getInt
-    ne <- getInt
-    mkCons nt (General ne)
-    mkCons n (General nt)
-    genConsExpr i ni
-    genConsExpr t nt
-    genConsExpr e ne
-    return ()
+solver :: (Sub, [Constraint]) -> Solve Sub
+solver (su, cs) =
+  case cs of
+    [] -> return su
+    (Constraint t1 t2: cs0) -> do
+      su1  <- unifies t1 t2
+      solver (su1 `compose` su, apply su1 cs0)
 
-genConsExpr (Block ((Yield e):ss)) n = do
-    genConsExpr e n
-    genConsExpr (Block ss) n
-    return ()
 
-genConsExpr (Block ((Return r):ss)) n = do
-    fn <- getFnType
-    rt <- getInt
-    genConsExpr r rt
-    fnt <- getInt
-    fa <- getInt
-    mkCons fnt (Function (General fa) (General rt))
-    mkCons fnt fn
-    return ()
+bind ::  TVar -> Typ -> Solve Sub
+bind a t | t == TyVar a     = return mempty
+         | occursCheck a t = throwError $ InfiniteType a t
+         | otherwise       = return (Sub $ Map.singleton a t)
+
+occursCheck ::  Substitutable a => TVar -> a -> Bool
+occursCheck a t = a `Set.member` ftv t
+
+data TypeError =
+    UnificationFail Typ Typ |
+    InfiniteType TVar Typ deriving Show
     
 
-genConsExpr (Block (s:ss)) n = do
-    genConsStmt s
-    genConsExpr (Block ss) n
-
-genConsExpr (Block []) n = return ()
-
--- PRECONDITION FOR WELL DEFINEDNESS = length e:es == length n:ns. error otherwise.
-genConsExprL (e:es) (n:ns) = do 
-    genConsExpr e n
-    genConsExprL es ns
-    return ()
-
-genConsExprL [] [] = return ()
-
-genConsExprL _ _ = undefined
-
-data Sub = Sub Int Type deriving (Show, Eq)
-
-instance Disp Sub where
-    disp (Sub nt t) = disp nt ++ " -> " ++  disp t
+instance Disp TypeError where
+    disp (UnificationFail t1 t2) = "Error solving " <> disp t1 <> " ~ " <> disp t2 
+    disp (InfiniteType tv ty) = "Occurs check when solving " <> disp tv <> " ~ " <> disp ty
     
--- unfication result
-data UnRes a = Ss a | Occ Int Type | Un Type Type
-
-instance Functor UnRes where
-    fmap f (Ss a) = Ss (f a)
-    fmap f (Occ n t) = (Occ n t)
-    fmap f (Un t1 t2) = (Un t1 t2)
-
-instance Applicative UnRes where
-    pure i = Ss i
-    (Ss a) <*> (Ss b) = Ss (a b)
-    (Occ a u) <*> _ = Occ a u
-    (Un a u) <*> _ = Un a u
-    _ <*> (Occ a u) = Occ a u
-    _ <*> (Un a u) = Un a u
-
-instance Monad UnRes where
-    (Ss a) >>= f = f a
-    (Un t1 t2) >>= f = Un t1 t2
-    (Occ t1 t2) >>= f = Occ t1 t2
-    return i = Ss i
-
--- occurs check.
--- special case $1 ~ $1 is valid, despite occuring in lhs
-occurschk var g@(General t) = if var == t then False else occursc var g
-occurschk var g = occursc var g
-
-occursc var (General t) = var == t
-occursc var (Array t) = occursc var t
-occursc var (Tuple (t:ts)) = occursc var t || occursc var (Tuple ts)
-occursc var (Tuple []) = False
-occursc var (Function a b) = occursc var a || occursc var b
-occursc var (Bits n) = False
-occursc var (StringT) = False
-
-unify (General a) t2 = if occurschk (a) t2 then Occ a t2 else Ss [Sub a t2]
-unify t1 (General b) = if occurschk (b) t1 then Occ b t1 else Ss [Sub b t1]
-
-unify (Function f1 t1) (Function f2 t2) = do -- liftM2 (++) (unify f1 f2) (unify t1 t2)
-    s <- unify f1 f2
-    u <- unify (subTypeS s t1) (subTypeS s t2)
-    return $ s ++ u
-
-unify (Array t1) (Array t2) = unify t1 t2
-
-unify (Tuple (t1:t1s)) (Tuple (t2:t2s)) = do -- liftM2 (++) (unify t1 t2) (unify (Tuple t1s) (Tuple t2s))
-    s <- unify t1 t2
-    u <- unify (subTypeS s (Tuple t1s)) (subTypeS s (Tuple t2s))
-    return $ s ++ u
-
-unify (Tuple []) (Tuple []) = Ss []
-
-unify a b = if a == b then Ss [] else Un a b
-
-unifyC (TyCons t1 t2) = unify t1 t2
-
-solve tbl = (solvec tbl 0)
-solvec tbl@(ConstraintTbl x cons vars _) i = if (i < length cons) then unifyC (cons !! i) >>= (\y -> solvec (performSubs tbl (y)) (i+1)) else Ss tbl
-
-performSubs tbl (s:ss) = performSubs (performSub tbl s) ss
-performSubs tbl [] = tbl
-
-performSub (ConstraintTbl x cons vars t04) sub = ConstraintTbl x (map (subTypeC sub) cons) (map (subVarC sub) vars) t04
-
-subTypeC sub (TyCons t1 t2) = TyCons (subType sub t1) (subType sub t2)
-subVarC sub (TyVar a t) = TyVar a (subType sub t)
-
-subType (Sub b ty) (General a) = if a == b then ty else General a
-subType sub (Function f t) = Function (subType sub f) (subType sub t)
-subType sub (Array t) = Array (subType sub t)
-subType sub (Tuple ts) = Tuple (map (subType sub) ts)
-subType (Sub b ty) t = t
-
-subTypeS (s:ss) t = subTypeS ss (subType s t)
-subTypeS [] t = t
-
-
 
 asttypeof Native_Exit = Function (Bits 64) (Tuple [])
 asttypeof Native_Addition = Function (Tuple [Bits 64, Bits 64]) (Bits 64)

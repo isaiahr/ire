@@ -46,7 +46,7 @@ data Name
     | NativeName Native -- "native", or built - in (magic) name
     | Symbol String Type FileInfo -- "symbol", an external name imported from another file (file: fileinfo)
     | NameError -- error placeholder.
-    deriving Eq
+    deriving (Ord, Eq)
 
 
 data TypedName = TypedName Type Name
