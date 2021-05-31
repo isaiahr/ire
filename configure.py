@@ -85,6 +85,7 @@ def run_config(debug):
     
     if hasfailed:
         print("There were error(s) determining configuration. edit \"build/config.h\" manually or rerun the script\n")
+        exit(1)
     
     with open("build/config.h", "w") as fd:
         fd.write("#ifndef __CONFIG_H__\n")
