@@ -1,0 +1,15 @@
+// Skip
+// Ok (1, "x")
+//
+// short example demonstrating parametric polymorphism
+// NOTE: swapping order of id and main does not work right now.
+// this will be fixed in the future.
+
+
+
+id := \x -> x
+
+main := \() -> {
+    __ire__print__(id "x")
+    __ire__exit__(id 1)
+}

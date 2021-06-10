@@ -14,18 +14,18 @@ passLLift = Pass {pName = ["LambdaLifting"], pFunc = runP }
     where runP ir = let r = llift ir in (messageNoLn "LambdaLifting" (disp r) Debug, Just r)
 
 --                      mains         add          nametypetbl  nextnameint
-data Context = Context [TLFunction] [TLFunction] [(Name, Type)] Int FileInfo
+data Context = Context [TLFunction] [TLFunction] Int FileInfo
 
 
 llift :: IR -> IR
-llift ir@(IR mains tbl d0) = evalState liftAll (Context mains [] tbl nextname d0)
+llift ir@(IR mains d0) = evalState liftAll (Context mains [] nextname d0)
     where nextname = nextIntName ir
 
 liftAll = do
-    (Context main _  _ _ _) <- get
+    (Context main _ _ _) <- get
     newMains <- forM main liftTLF
-    (Context _ add tbl nt inf) <- get
-    return $ IR (newMains ++ add) tbl inf
+    (Context _ add nt inf) <- get
+    return $ IR (newMains ++ add) inf
 
 liftTLF (TLFunction n cl p e) = do
     ne <- liftE e
@@ -33,17 +33,16 @@ liftTLF (TLFunction n cl p e) = do
 
 newTLF :: [Name] -> [Name] -> Expr -> State Context Name
 newTLF params clvars ex = do
-    (Context mains add tbl nt inf) <- get
-    let name = Name { nPk = nt, nSrcName = Nothing, nMangleName = True, nImportedName = False, nVisible = False, nSrcFileId = fiFileId inf}
+    (Context mains add nt inf) <- get
+    let retty = exprType ex
+    let ty = (EnvFunction (map (snd . nType) params) (map (snd . nType) clvars) (retty))
+    let name = Name { nPk = nt, nSrcName = Nothing, nMangleName = True, nImportedName = False, nVisible = False, nSrcFileId = fiFileId inf, nType = ([], ty)}
     let ntl = TLFunction name clvars params ex
-    let nf = getTypeFuncTbl tbl
-    let retty = exprType ex nf
-    let ty = (EnvFunction (map nf params) (map nf clvars) (retty))
-    put $ Context mains (ntl:add) ((name, ty):tbl) (nt + 1) inf
+    put $ Context mains (ntl:add) (nt + 1) inf
     return name
 
 getGlobals = do
-    (Context tlf tlf2 tbl nt inf) <- get
+    (Context tlf tlf2 nt inf) <- get
     return (map extractName (tlf++tlf2)) where
         extractName (TLFunction n _ _ _) = n
 

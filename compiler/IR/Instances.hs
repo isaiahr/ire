@@ -12,7 +12,7 @@ instance Eq Name where
 
 
 instance Disp IR where
-    disp (IR tls _ _) = intercalate "\n" (map disp tls)
+    disp (IR tls _) = intercalate "\n" (map disp tls)
     
 instance Disp TLFunction where
     disp (TLFunction name cl p ex) = disp name <> " cl: (" <>  intercalate ", " (map disp cl) <> ") p: (" <> intercalate ", " (map disp p)  <> ") ex: " <> disp ex

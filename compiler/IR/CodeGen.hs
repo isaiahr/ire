@@ -36,7 +36,6 @@ genE - generates ir for expression to resolve into LValue.
 data Ctx = Ctx {
     tytbl :: [(LValue, LType)], -- table of llvm values to types
     ntbl :: [(Name, LValue)], -- table of ir names to llvm values.
-    tyf :: Expr -> Type, -- function to convert expressions to types
     ftbl :: [(TLFunction, FunctionHeader)],
     externs :: [(Name, LFunction)],
     bodyc :: BodyCtx,
@@ -49,18 +48,16 @@ passGenLLVM = Pass {pName = ["LLVM Gen"], pFunc = runP }
 
 
 genLLVM :: IR -> LMod
-genLLVM (IR tl tbl fi) = evalState (genLLVM2 tl) (
+genLLVM (IR tl fi) = evalState (genLLVM2 tl) (
     Ctx {
         tytbl = [],
         ntbl = [],
-        tyf = tf, 
         ftbl = [], 
         externs = [], 
         bodyc = error "poked error thunk", 
         fileId = fi, 
         writRet = False
         }) 
-    where tf = \x -> exprType x (getTypeFuncTbl tbl)
 
 llvmntypeof Native_Exit = LLVMFunction LLVMVoid [LLVMInt 64]
 llvmntypeof Native_Print = LLVMFunction LLVMVoid [ir2llvmtype StringIRT]
@@ -76,13 +73,11 @@ genLLVM2 tlfs = do
 
 getIRType :: Expr -> State Ctx Type
 getIRType expr = do
-    ctx <- get
-    return $ (tyf ctx) expr
+    return $ exprType expr
 
 getRetty :: Name -> State Ctx Type
 getRetty name = do
-    ctx <- get
-    case (tyf ctx) (Var name) of
+    case exprType (Var name) of
          Function p out -> return out
          EnvFunction p cl out -> return out
     

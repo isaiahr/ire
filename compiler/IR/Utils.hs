@@ -9,53 +9,62 @@ import Data.List
 import Control.Monad
 import Control.Monad.Identity
     
-allNames (IR [] x _) = []
+allNames (IR [] u) = error "got deleted by accident; if needed see https://github.com/isaiahr/ire/commit/64998911d1ca3abd695ddbf93460b1348b745e02#diff-e06f5476614140b21ca844e88215a899b4978378859855db39069e336e74efcc"
 nextIntName ir = (foldl largest 0 (map nPk (allNames ir)))
     where largest a b = if a > b then a else b
-
--- determines the type of a expr given a function mapping names to types
-exprType :: Expr -> (Name -> Type) -> Type
-exprType (Var n) nf = nf n
-exprType (App e1 en) nf = case (exprType e1 nf) of
-                               (Function t1 t2) -> t2
-                               _ -> error ("bad#890589053")
-exprType (Call n en) nf = case (nf n) of 
-                               (Function t1 t2) -> t2
+          
+mapName f (IR ((TLFunction nm nms nms2 e):tlfs) fi) = IR ((TLFunction (f nm) (map f nms) (map f nms2) (go e)):(let (IR t _) =  (mapName f (IR tlfs fi)) in t)) fi
+    where 
+        go (Var n) = (Var (f n))
+        go (Call n exs) = (Call (f n) (map go exs))
+        go (Abs nn expr) = (Abs (map f nn) (go expr))
+        go (Close n nms) = (Close (f n) (map f nms))
+        go (Let n e1 e2) = Let (f n) (go e1) (go e2)
+        go (Assign n ex) = Assign (f n) (go ex)
+        go ex = traverseExprId go ex
+mapName f (IR [] fi) = IR [] fi
+          
+-- determines the type of a expr
+-- NOTE: quantified part is erased! this part shouldnt appear in exprs ever, except for fn defns.
+-- avoid calling exprtype on them.
+exprType :: Expr -> Type
+exprType (Var n) = let (a, b) = nType n in b
+exprType (App e1 en) = case (exprType e1) of
+                               Function t1 t2 -> t2
+                               _ -> error "typechecker should not leave poly"
+exprType (Call n en) = case (nType n) of 
+                               ([], Function t1 t2) -> t2
                                _ -> error ("bad#43978298374")
                                
-exprType (Abs names ex) nf = Function (map nf names) (exprType ex nf)
-exprType (Close fn nms) nf = case nf fn of 
-                                  (EnvFunction a _ b) -> (Function a b)
+exprType (Abs names ex) = Function (map (snd . nType) names) (exprType ex)
+exprType (Close fn nms) = case nType fn of 
+                                  ([], (EnvFunction a _ b)) -> (Function a b)
                                   _ -> error "closing a non-environment function"
-exprType (Let nm e1 e2) nf = exprType e2 nf
-exprType (Prim (MkTuple t)) nf = Function t (Tuple t)
-exprType (Prim (MkArray t)) nf = Function t (Array (t !! 0))
-exprType (Prim (GetPtr t)) nf = Function [Ptr t] t
-exprType (Prim (SetPtr t)) nf = Function [Ptr t, t] (Tuple [])
-exprType (Prim (CreatePtr t)) nf = Function [t] (Ptr t)
-exprType (Prim (GetTupleElem (Tuple tys) indx)) nf = Function [Tuple tys] (tys !! indx)
-exprType (Prim (IntAdd)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
-exprType (Prim (IntSub)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
-exprType (Prim (IntMul)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
-exprType (Prim (IntEq)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
-exprType (Prim (IntGET)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
-exprType (Prim (IntGT)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
-exprType (Prim (IntLET)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
-exprType (Prim (IntLT)) nf = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
-exprType (Prim (BoolOr)) nf = Function [Tuple [Bits 1, Bits 1]] (Bits 1)
-exprType (Prim (BoolAnd)) nf = Function [Tuple [Bits 1, Bits 1]] (Bits 1)
-exprType (Prim (LibPrim lb)) nf = libtypeof lb
-exprType (Assign n _) nf = (Tuple [])
-exprType (Seq e1 e2) nf = exprType e2 nf
-exprType (If e1 e2 e3) nf = exprType e2 nf -- if e2 == e3 then e2 else error "ifstmt bad ty"
-exprType (Ret e) nf = (Tuple [])
-exprType (Lit (IntL _)) nf = Bits 64
-exprType (Lit (BoolL _)) nf = Bits 1
-exprType (Lit (StringL _)) nf = StringIRT
-
-
-getTypeFunc (IR _ tbl _) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
-getTypeFuncTbl (tbl) = \name -> snd $ (filter (\(n, t) -> n == name) tbl) !! 0
+exprType (Let nm e1 e2) = exprType e2
+exprType (Prim (MkTuple t)) = Function t (Tuple t)
+exprType (Prim (MkArray t)) = Function t (Array (t !! 0))
+exprType (Prim (GetPtr t)) = Function [Ptr t] t
+exprType (Prim (SetPtr t)) = Function [Ptr t, t] (Tuple [])
+exprType (Prim (CreatePtr t)) = Function [t] (Ptr t)
+exprType (Prim (GetTupleElem (Tuple tys) indx)) = Function [Tuple tys] (tys !! indx)
+exprType (Prim (IntAdd)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
+exprType (Prim (IntSub)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
+exprType (Prim (IntMul)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
+exprType (Prim (IntEq)) = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
+exprType (Prim (IntGET)) = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
+exprType (Prim (IntGT)) = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
+exprType (Prim (IntLET)) = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
+exprType (Prim (IntLT)) = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
+exprType (Prim (BoolOr)) = Function [Tuple [Bits 1, Bits 1]] (Bits 1)
+exprType (Prim (BoolAnd)) = Function [Tuple [Bits 1, Bits 1]] (Bits 1)
+exprType (Prim (LibPrim lb)) = libtypeof lb
+exprType (Assign n _) = (Tuple [])
+exprType (Seq e1 e2) = exprType e2
+exprType (If e1 e2 e3) = exprType e2 -- if e2 == e3 then e2 else error "ifstmt bad ty"
+exprType (Ret e) = (Tuple [])
+exprType (Lit (IntL _)) = Bits 64
+exprType (Lit (BoolL _)) = Bits 1
+exprType (Lit (StringL _)) = StringIRT
 
 
 primName Native_Exit = LibPrim Native_Exit

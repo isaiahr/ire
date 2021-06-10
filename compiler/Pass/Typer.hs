@@ -138,15 +138,18 @@ ast2tyinfer (Bits 1) = typeBool
 ast2tyinfer (Record _) = error "not yet impl"
 ast2tyinfer (Union _) = error "not yet impl2"
 
+ast2tyscheme (Poly nt mt) = TyScheme (map (TVar . show) nt) (ast2tyinfer mt)
+
 tyinfer2ast (TyCon "string") = StringT
 tyinfer2ast (TyCon "boolean") = Bits 1
 tyinfer2ast (TyCon "int") = Bits 64
 tyinfer2ast (TyApp "func" [t1, t2]) = Function (tyinfer2ast t1) (tyinfer2ast t2)
 tyinfer2ast (TyApp "tuple" t) = Tuple (map tyinfer2ast t)
 tyinfer2ast (TyApp "array" [t]) = Array (tyinfer2ast t)
+tyinfer2ast (TyVar (TVar ii)) = General (read ii)
 tyinfer2ast p = error (disp p) 
 
-tyscheme2astty (TyScheme [] p) = tyinfer2ast p
+tyscheme2astty (TyScheme tvs p) = Poly (map (read . (\(TVar t) -> t)) tvs) (tyinfer2ast p)
 
 
 class Substitutable a where
@@ -269,11 +272,12 @@ newVar a@(Symbol str ty fi) = do
     case v of
          (Just tv) -> return tv
          Nothing -> do
-             let actualty = (ast2tyinfer ty)
+             let actualty = (ast2tyscheme ty)
              st <- get
              let (Env emap) = (env st)
-             put $ st {env = Env (Map.insert a (TyScheme [] actualty) emap) } 
-             return actualty
+             put $ st {env = Env (Map.insert a actualty emap) } 
+             mt <- instantiate actualty
+             return mt
 
 newVar a@(Name _ _) = do
     v <- getVar a

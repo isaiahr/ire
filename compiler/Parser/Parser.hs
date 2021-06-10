@@ -30,37 +30,40 @@ parseIdentifier = Parser (\x ->
          (AnnotatedToken (Identifier z) l str):zs -> ParseSuccess z zs
          _ -> ParseFailure)         
 
+parseMonoType :: Parser MonoType
+parseMonoType = parseBType <|> infbuild (parseRecord <|> parseUnion <|> parseIntType <|> parseBoolType <|> parseStringType <|> parseArrayType <|> parseTuple) parseFunctionType
+
 parseType :: Parser Type
-parseType = parseBType <|> infbuild (parseRecord <|> parseUnion <|> parseIntType <|> parseBoolType <|> parseStringType <|> parseArrayType <|> parseTuple) parseFunctionType
+parseType = fmap (Poly []) parseMonoType -- <|> todo this stuff parseToken (Forall) *> collect ()(parseToken Comma)
 
 -- bracketed type
-parseBType :: Parser Type
-parseBType = parseToken LParen *> parseType <* parseToken RParen
+parseBType :: Parser MonoType
+parseBType = parseToken LParen *> parseMonoType <* parseToken RParen
 
-parseIntType :: Parser Type
+parseIntType :: Parser MonoType
 parseIntType = parseToken (Identifier "Int") $> Bits 64
 
-parseBoolType :: Parser Type
+parseBoolType :: Parser MonoType
 parseBoolType = parseToken (Identifier "Boolean") $> Bits 1
 
-parseStringType :: Parser Type
+parseStringType :: Parser MonoType
 parseStringType = parseToken (Identifier "String") $> StringT
 
-parseArrayType :: Parser Type
-parseArrayType = parseToken LSqParen *> fmap Array parseType <* parseToken RSqParen
+parseArrayType :: Parser MonoType
+parseArrayType = parseToken LSqParen *> fmap Array parseMonoType <* parseToken RSqParen
 
-parseFunctionType :: Type -> Parser Type
-parseFunctionType t = liftA2 Function (pure t) (parseToken Arrow *> parseType)
+parseFunctionType :: MonoType -> Parser MonoType
+parseFunctionType t = liftA2 Function (pure t) (parseToken Arrow *> parseMonoType)
 
-parseTuple :: Parser Type
-parseTuple = fmap Tuple $ parseToken LParen *> collect parseType (parseToken Comma) <* parseToken RParen
+parseTuple :: Parser MonoType
+parseTuple = fmap Tuple $ parseToken LParen *> collect parseMonoType (parseToken Comma) <* parseToken RParen
 
-parseRecord :: Parser Type
-parseRecord = fmap Record $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseType)) (parseToken Comma) <* parseToken RCrParen
+parseRecord :: Parser MonoType
+parseRecord = fmap Record $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseMonoType)) (parseToken Comma) <* parseToken RCrParen
 
 -- future optimization: roll parseRecord and parseUnion into one func
-parseUnion :: Parser Type
-parseUnion = fmap Union $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseType)) (parseToken Pipe) <* parseToken RCrParen
+parseUnion :: Parser MonoType
+parseUnion = fmap Union $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseMonoType)) (parseToken Pipe) <* parseToken RCrParen
 
 parseDefinition :: Parser (Definition String)
 parseDefinition = liftA3 (\x y z -> Definition {identifier=x, typeof=y, value=z}) parsePatMatch ((parseToken Colon *> fmap Just parseType) <|> (parseToken Colon $> Nothing)) (parseToken Equals *> parseExpressionA)

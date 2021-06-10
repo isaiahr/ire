@@ -11,14 +11,16 @@ data Name = Name {
     nMangleName :: Bool,
     nImportedName :: Bool,
     nVisible :: Bool,
-    nSrcFileId :: Int -- unique id for file, used to essentially "namespace" each name to avoid name conflict
+    nSrcFileId :: Int, -- unique id for file, used to essentially "namespace" each name to avoid name conflict
+    nType :: ([Int], Type) -- type. [int] = quantified tvs. NOTE equality DOES NOT imply type equality! this is because
+    -- (for ex) id defn is poly, but uses of it should be monomorphic. 
 }
 
 
 -- top level function. name, clvars, params, expression.
 data TLFunction = TLFunction Name [Name] [Name] Expr 
 
-data IR = IR [TLFunction] [(Name, Type)] FileInfo
+data IR = IR [TLFunction] FileInfo
 
 data Expr 
     = Var Name -- variable
@@ -61,8 +63,10 @@ data LitE
     | StringL String -- string literal
 
 
+
 data Type
     = Tuple [Type] -- cartesion product of types
+    | TV Int -- type variable, for polymorphism. note: should not appear when codegen.
     | Function [Type] Type
     | EnvFunction [Type] [Type] Type -- top-level function with environment (second param) (closure)
     | Bits Int
