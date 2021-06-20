@@ -2,7 +2,7 @@
 Pass.hs: machinery to run a pass, including associated logging tools
 
 --}
-module Common.Pass (runPass, messageNoLn, messageLn, filterDbg, filterErrs, Messages, Pass(..), (>>>), Severity(..), arr) where
+module Common.Pass (runPass, messageNoLn, messageLn, filterDbg, filterErrs, Messages, Pass(..), byPassWith, (>>>), Severity(..), arr) where
 
 import Common.Common
 
@@ -81,3 +81,12 @@ instance Arrow Pass where
                                      (msg, Nothing) -> (msg, Nothing))
 
 
+
+-- a pass combinator. this can by used for parts of a previous pass to "bypass" a pass
+-- this takes output of a pass, a, with a combinator a -> i, feeds result into the pass, and the output 
+-- of the pass and the initial value into a final combinator.
+byPassWith :: (a -> i) -> ((o, a) -> c) -> Pass i o -> Pass a c
+byPassWith ic fc pass = Pass {pName = pName pass, pFunc = \a ->  case runPass (ic a) pass of
+                                                                  (msg0, Nothing) -> (msg0, Nothing)
+                                                                  (msg0, Just o) -> (msg0, Just (fc (o, a)))
+                                                                  }

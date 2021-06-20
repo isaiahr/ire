@@ -23,6 +23,17 @@ mapName f (IR ((TLFunction nm nms nms2 e):tlfs) fi) = IR ((TLFunction (f nm) (ma
         go (Assign n ex) = Assign (f n) (go ex)
         go ex = traverseExprId go ex
 mapName f (IR [] fi) = IR [] fi
+
+mapNameExpr f e = go e 
+    where 
+        go (Var n) = (Var (f n))
+        go (Call n exs) = (Call (f n) (map go exs))
+        go (Abs nn expr) = (Abs (map f nn) (go expr))
+        go (Close n nms) = (Close (f n) (map f nms))
+        go (Let n e1 e2) = Let (f n) (go e1) (go e2)
+        go (Assign n ex) = Assign (f n) (go ex)
+        go ex = traverseExprId go ex
+        
           
 -- determines the type of a expr
 -- NOTE: quantified part is erased! this part shouldnt appear in exprs ever, except for fn defns.

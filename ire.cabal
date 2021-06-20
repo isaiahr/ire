@@ -21,6 +21,7 @@ library
       IR.DirectCall
       IR.HeapConversion
       IR.LambdaLift
+      IR.Monomorphization
       IR.Lowering
       IR.Syntax
       LLVM.Builder
