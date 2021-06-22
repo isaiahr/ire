@@ -36,6 +36,8 @@ library
       Pass.TypeChecker
       Pass.Typer
       Pass.YieldInjection
+      Pass.UnSubScript
+      Pass.SubScript
       Pipeline.Target
       Pipeline.Relations
       Pipeline.Pipeline
