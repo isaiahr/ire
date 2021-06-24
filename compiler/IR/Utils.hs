@@ -24,6 +24,24 @@ mapName f (IR ((TLFunction nm nms nms2 e):tlfs) fi) = IR ((TLFunction (f nm) (ma
         go ex = traverseExprId go ex
 mapName f (IR [] fi) = IR [] fi
 
+mapNameCtx :: Monad m => (Name -> m Name) -> IR -> m IR
+mapNameCtx f (IR ((TLFunction nm nms nms2 ex):tlfs) fi) = do 
+    nm' <- f nm
+    nms' <- mapM f nms
+    nms2' <- mapM f nms2
+    (IR r _) <- mapNameCtx f (IR tlfs fi)
+    ex' <- go ex
+    return $ IR ((TLFunction nm' nms' nms2' ex'):r) fi
+    where 
+        go (Var n) = Var <$> f n
+        go (Call n exs) = liftM2 Call (f n) (mapM go exs)
+        go (Abs nn expr) = liftM2 Abs (mapM f nn) (go expr)
+        go (Close n nms) = liftM2 Close (f n) (mapM f nms)
+        go (Let n e1 e2) = liftM3 Let (f n) (go e1) (go e2)
+        go (Assign n e) = liftM2 Assign (f n) (go e)
+        go ex = traverseExpr go ex
+mapNameCtx f ir@(IR [] fi) = return ir
+        
 mapNameExpr f e = go e 
     where 
         go (Var n) = (Var (f n))

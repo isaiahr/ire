@@ -2,6 +2,10 @@
 IR/Monomorphization.hs
 This monomorphizes polymorphic functions into monomorphic functions.
 
+
+TODO: make written a tuple of names for replacing.
+check to make sure this works across files
+
 -}
 
 
@@ -15,7 +19,7 @@ import Data.List
 
 passMonoM :: [TLFunction] -> [Name] -> Pass IR (IR, [TLFunction], [Name])
 passMonoM tlfs names = Pass {pName = ["Monomorphization"], pFunc = runP }
-    where runP ir = let r = monoM (ir, tlfs, names) in (messageNoLn "Monomorphization" (disp $ fst3 r) Debug, Just r)
+    where runP ir =  let r = monoM (ir, tlfs, names) in (messageNoLn "Monomorphization" (disp $ fst3 r) Debug, Just r)
           fst3 (a, b, c) = a
 
 {-- 
@@ -29,7 +33,7 @@ data Ctx = Ctx {cDb :: [TLFunction], cMonoed :: [TLFunction], cWritten :: [Name]
     
 
 monoM :: (IR, [TLFunction], [Name]) -> (IR, [TLFunction], [Name])
-monoM ((IR tl fi), paras, done) = ((IR (cMonoed st) fi), cDb st, cWritten st)
+monoM ((IR tl fi), paras, done) = (fixir (IR (cMonoed st) fi), cDb st, cWritten st)
     where st = execState (forM tl monotlf) (Ctx { cWritten = done, cMonoed = [], cDb = paras, cFi = fi }) 
 
 monotlf :: TLFunction -> State Ctx ()
@@ -53,13 +57,16 @@ monoN nm = do
          Nothing -> return nm
          Just tlf -> do
              ctx0 <- get
-             if nm `elem` cWritten ctx0 then do
+             if nm `cWelem` cWritten ctx0 then do
                  return nm
                                         else do
                  doMono nm tlf
                  ctx <- get
                  put $ ctx {cWritten = nm:(cWritten ctx)}
                  return nm
+
+cWelem :: Name -> [Name] -> Bool
+cWelem n = any (\y -> y==n && nType y == nType n)
 
 mono :: Expr -> State Ctx Expr
 mono (Var nm) = (monoN nm) >>= (return . Var)
@@ -73,7 +80,7 @@ mono ex = traverseExpr mono ex
 doMono :: Name -> TLFunction -> State Ctx ()
 doMono inst poly@(TLFunction nm clv pr ex) = do
     let sub = nub $ getSub (fst $ nType nm) (snd $ nType nm) (snd $ nType inst)
-    let nf = \nm1 -> nm1 {nType = ([], applySubs sub ((snd $ nType nm)))}
+    let nf = \nm1 -> nm1 {nType = ([], applySubs sub ((snd $ nType nm1)))}
     let ex' = mapNameExpr nf ex
     let nm' = nm {nType = ([], applySubs sub (snd $ nType nm))}
     -- TODO: maybe change this? clv might need different semantics
@@ -86,6 +93,24 @@ doMono inst poly@(TLFunction nm clv pr ex) = do
     monotlf tlf'
     return () -- tlf''
 
+-- "fixes" the ir. kind of a hack.
+-- this distinguishes names with same pk / namespace but different type by changing all their names.
+-- with the way the ir is designed, their isnt really a better way to do this, unfortunantly. 
+    
+fixir :: IR -> IR
+fixir ir = evalState (mapNameCtx f ir) ([], 0)
+    where
+        f :: Name -> State ([(Name, Name)], Int) Name 
+        f nm = do 
+                (ctx, nt) <- get
+                let res = find (\(a, b) -> a == nm && nType a == nType nm) ctx
+                case res of
+                    Nothing -> do
+                        put ((nm, nm{nPk = nt}):ctx, nt+1)
+                        return nm{nPk = nt}
+                    Just (a', b') -> do
+                        return b'
+        
 
 applySubs :: [(Int, Type)] -> Type -> Type
 applySubs tbl (TV i) = case lookup i tbl of

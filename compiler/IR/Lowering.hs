@@ -104,10 +104,13 @@ registerTLName x tn@(TypedName ty (Pass.Namer.Name s i)) = do
 
 -- register "existing" name
 registerEName :: Pass.NameTyper.TypedName -> State Context IR.Syntax.Name
-registerEName tn = do
+registerEName tn@(TypedName ty0 _) = do
     ctx <- get
-    return $ findin tn (nameTbl ctx)
-    where findin tn ((t, n):r) = if tn == t then n else (findin tn r)
+    return $ (findin tn (nameTbl ctx))
+    -- ugly hack, we substitute our own type instead of the one from the table.
+    -- THIS IS VERY IMPORTANT.
+    -- this is due to polyfuncs like id that need to not get type overwritted with mgu
+    where findin tn ((t, n):r) = if tn == t then (n{nType = convTyScheme ty0}) else (findin tn r)
           findin tn [] = error $ "registerEName non-existing name: " <> (disp tn)
 
 -- register symbol

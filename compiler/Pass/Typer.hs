@@ -78,8 +78,9 @@ newtype Env = Env (Map.Map Name TyScheme) deriving (Show, Eq)
 instance Disp Env where
     disp (Env e) = Map.foldrWithKey (\k v acc -> acc <> "\n" <>  (disp k <> " : " <> disp v)) "" e
     
--- auxillerarily environment. 
-newtype AuxEnv = AuxEnv (Map.Map (Maybe Int, Name) TyScheme) deriving (Show, Eq)
+-- auxillerarily environment. this holds 
+-- specific inst of polymorphic functions.
+newtype AuxEnv = AuxEnv (Map.Map (Maybe Int, Name) Typ) deriving (Show, Eq)
 
 instance Disp AuxEnv where
     disp (AuxEnv e) = Map.foldrWithKey (\(k1, k2) v acc -> acc <> "\n" <>  ("(" <> show k1 <> ", " <> disp k2 <> ")" <> " : " <> disp v)) "" e
@@ -91,6 +92,7 @@ type InferM a = State InferCtx a
 
 data InferCtx = InferCtx {
     env :: Env, -- gamma
+    auxenv :: AuxEnv,
     cons :: [Constraint],
     errors :: [String],
     numName :: Int,
@@ -99,7 +101,7 @@ data InferCtx = InferCtx {
 } deriving Show
 
 instance Disp InferCtx where
-    disp i = show (env i) ++ "\n" ++ (show (errors i))
+    disp i = disp (env i) ++ "\n" ++ disp (auxenv i) ++ "\n" ++ (show (errors i)) 
 
 data Constraint = Constraint Typ Typ deriving (Show, Eq)
 
@@ -188,6 +190,11 @@ instance Substitutable Env where
     apply s (Env env) =  Env $ Map.map (apply s) env
     ftv (Env env) = ftv $ Map.elems env
     
+instance Substitutable AuxEnv where
+    apply s (AuxEnv env) = AuxEnv $ Map.map (apply s) env
+    ftv (AuxEnv env) = error "ftv not supported here. use env instead"
+    
+
 writeMsgs :: String -> InferM ()
 writeMsgs str = do
     ctx <- get
@@ -226,7 +233,9 @@ applyCtx sub = do
     st <- get
     let e = (env st)
     let newenv =  apply sub e
-    put $ st {env = newenv } 
+    let ae = (auxenv st)
+    let newae = apply sub ae
+    put $ st {env = newenv, auxenv = newae } 
     return ()
     
 
@@ -251,20 +260,23 @@ mkCons tv ty = do
     --put $ st {cons = c <> [Constraint tv ty]}
     return [Constraint tv ty]
     
-getVar :: Name -> InferM (Maybe Typ)
-getVar n = do
+getVar :: (Maybe Int, Name) -> InferM (Maybe Typ)
+getVar (mi, n) = do
     st <- get
     let (Env e) = (env st)
     case Map.lookup n e of 
          Just t -> do
              monotype <- instantiate t
+             let (AuxEnv ae) = (auxenv st)
+             let ae' = AuxEnv $ Map.insert (mi, n) monotype ae
+             modify $ \st0 -> st0{auxenv = ae'}
              return (Just monotype)
          Nothing -> return Nothing
 
-newVar :: Name -> InferM Typ
-newVar a@(NativeName n) = do
+newVar :: (Maybe Int, Name) -> InferM Typ
+newVar (mi, a@(NativeName n)) = do
     let actualty = ast2tyinfer (asttypeof n)
-    v <- getVar a
+    v <- getVar (mi, a)
     case v of
          (Just tv) -> return tv
          Nothing -> do
@@ -273,8 +285,8 @@ newVar a@(NativeName n) = do
              put $ st {env = Env (Map.insert a (TyScheme [] (actualty)) emap) } 
              return actualty
 
-newVar a@(Symbol str ty fi) = do
-    v <- getVar a
+newVar (mi, a@(Symbol str ty fi)) = do
+    v <- getVar (mi, a)
     case v of
          (Just tv) -> return tv
          Nothing -> do
@@ -285,8 +297,8 @@ newVar a@(Symbol str ty fi) = do
              mt <- instantiate actualty
              return mt
 
-newVar a@(Name _ _) = do
-    v <- getVar a
+newVar (mi, a@(Name _ _)) = do
+    v <- getVar (mi, a)
     case v of
          (Just tv) -> return tv
          Nothing -> do
@@ -296,7 +308,7 @@ newVar a@(Name _ _) = do
              put $ st {env = Env (Map.insert a (TyScheme [] (TyVar tv)) emap) }
              return (TyVar tv)
 
-newVar a@(NameError) = error "NAME ERROR"
+newVar (mi, a@(NameError)) = error "NAME ERROR"
 
 infer (AST (d:ds)) = do
     c1 <- inferD d
@@ -310,7 +322,7 @@ inferD d = do
                 (Plain s) -> do 
                     st2 <- get
                     let oldenv = (env st2)
-                    n <- newVar $ snd s
+                    n <- newVar s
                     c <- inferE (value d) n
                     case (value d) of 
                          (Literal (FunctionLiteral args value)) -> do
@@ -322,7 +334,7 @@ inferD d = do
                                       return mempty
                                   Right sub -> do
                                       applyCtx sub
-                                      nm <- newVar $ snd s
+                                      nm <- newVar s
                                       st <- get
                                       -- NOTE: debug with trace doesnt work here for some reason. not sure why.
                                       -- oldenv nessecary to make sure body of func is not considered part of env
@@ -334,7 +346,7 @@ inferD d = do
                                       return mempty
                          expr -> return c
                 (TupleUnboxing ss) -> do
-                    ns <- forM ss (newVar . snd)
+                    ns <- forM ss (newVar)
                     tc <- fresh
                     c1 <- mkCons (TyVar tc) (typeTuple ns)
                     c2 <- inferE (value d) (TyVar tc)
@@ -368,10 +380,10 @@ inferE (Literal (TupleLiteral rs)) n = do
 inferE (Literal (FunctionLiteral f t)) n = do
     (c, nf) <- case f of
                (Plain s) -> do 
-                   nf0 <- newVar $ snd s
+                   nf0 <- newVar s
                    return ([], nf0)
                (TupleUnboxing ss) -> do
-                   ns <- forM ss (newVar . snd)
+                   ns <- forM ss newVar
                    tc <- fresh
                    c4 <- mkCons (TyVar tc) (typeTuple (ns))
                    return (c4, TyVar tc)
@@ -392,7 +404,7 @@ inferE (FunctionCall f x) n = do
     return $ c0 <> c1 <> c2
 
 inferE (Variable u) n = do
-    n2 <- newVar $ snd u
+    n2 <- newVar u
     c <- mkCons n n2
     return c
 
@@ -452,10 +464,10 @@ inferS (Defn d) = do
 inferS (Assignment a e) = do
     case a of
          (Plain s) -> do 
-             n <- newVar $ snd s
+             n <- newVar s
              inferE e n
          (TupleUnboxing ss) -> do
-             ns <- forM ss (newVar . snd)
+             ns <- forM ss newVar 
              tc <- fresh
              c1 <- mkCons (TyVar tc) (typeTuple ns)
              c2 <- inferE e (TyVar tc)

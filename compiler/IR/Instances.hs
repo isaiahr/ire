@@ -25,9 +25,13 @@ instance Disp Type where
     disp (Array ty) = "[" <> disp ty <> "]"
     disp (Ptr ty) = disp ty <> "*"
     disp (StringIRT) = "str"
+    disp (TV i) = "$" <> disp i
+    
     
 instance Disp Name where
-    disp (name) = "#" <> show (nPk name) <> "!" <> show (nSrcName name)
+    disp (name) = "#" <> show (nPk name) <> "!" <> show (nSrcName name) <> ":" <> dispqty (nType name)
+        where dispqty ([], ty) = disp ty
+              dispqty (a, ty) = "∀" <> intercalate ", " (map disp a) <> "." <> (disp ty)
     
 instance Disp Expr where
     disp (Var n) = "V[" <> disp n <> "]"
