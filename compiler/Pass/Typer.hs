@@ -77,6 +77,12 @@ newtype Env = Env (Map.Map Name TyScheme) deriving (Show, Eq)
 
 instance Disp Env where
     disp (Env e) = Map.foldrWithKey (\k v acc -> acc <> "\n" <>  (disp k <> " : " <> disp v)) "" e
+    
+-- auxillerarily environment. 
+newtype AuxEnv = AuxEnv (Map.Map (Maybe Int, Name) TyScheme) deriving (Show, Eq)
+
+instance Disp AuxEnv where
+    disp (AuxEnv e) = Map.foldrWithKey (\(k1, k2) v acc -> acc <> "\n" <>  ("(" <> show k1 <> ", " <> disp k2 <> ")" <> " : " <> disp v)) "" e
 
 instance Show Name where
     show n = disp n
@@ -304,7 +310,7 @@ inferD d = do
                 (Plain s) -> do 
                     st2 <- get
                     let oldenv = (env st2)
-                    n <- newVar s
+                    n <- newVar $ snd s
                     c <- inferE (value d) n
                     case (value d) of 
                          (Literal (FunctionLiteral args value)) -> do
@@ -316,19 +322,19 @@ inferD d = do
                                       return mempty
                                   Right sub -> do
                                       applyCtx sub
-                                      nm <- newVar s
+                                      nm <- newVar $ snd s
                                       st <- get
                                       -- NOTE: debug with trace doesnt work here for some reason. not sure why.
                                       -- oldenv nessecary to make sure body of func is not considered part of env
                                       let gen = generalize oldenv nm
                                       let (Env th) = (env st)
-                                      let tr3 = Map.insert s gen th
+                                      let tr3 = Map.insert (snd s) gen th
                                     --  put st {env = trace ("GEN\n" <> (disp gen) <> (show (env st)) <> (disp nm) <> "END")(Env tr3)}
                                       put st {env = (Env tr3)}
                                       return mempty
                          expr -> return c
                 (TupleUnboxing ss) -> do
-                    ns <- forM ss newVar
+                    ns <- forM ss (newVar . snd)
                     tc <- fresh
                     c1 <- mkCons (TyVar tc) (typeTuple ns)
                     c2 <- inferE (value d) (TyVar tc)
@@ -336,7 +342,7 @@ inferD d = do
 
     return csc
 
-inferE :: Expression Name -> Typ -> InferM [Constraint]
+inferE :: Expression (Maybe Int, Name) -> Typ -> InferM [Constraint]
 inferE (Literal (Constant _)) tv = do
     mkCons tv typeInt
 
@@ -362,10 +368,10 @@ inferE (Literal (TupleLiteral rs)) n = do
 inferE (Literal (FunctionLiteral f t)) n = do
     (c, nf) <- case f of
                (Plain s) -> do 
-                   nf0 <- newVar s
+                   nf0 <- newVar $ snd s
                    return ([], nf0)
                (TupleUnboxing ss) -> do
-                   ns <- forM ss newVar
+                   ns <- forM ss (newVar . snd)
                    tc <- fresh
                    c4 <- mkCons (TyVar tc) (typeTuple (ns))
                    return (c4, TyVar tc)
@@ -386,7 +392,7 @@ inferE (FunctionCall f x) n = do
     return $ c0 <> c1 <> c2
 
 inferE (Variable u) n = do
-    n2 <- newVar u
+    n2 <- newVar $ snd u
     c <- mkCons n n2
     return c
 
@@ -446,10 +452,10 @@ inferS (Defn d) = do
 inferS (Assignment a e) = do
     case a of
          (Plain s) -> do 
-             n <- newVar s
+             n <- newVar $ snd s
              inferE e n
          (TupleUnboxing ss) -> do
-             ns <- forM ss newVar
+             ns <- forM ss (newVar . snd)
              tc <- fresh
              c1 <- mkCons (TyVar tc) (typeTuple ns)
              c2 <- inferE e (TyVar tc)

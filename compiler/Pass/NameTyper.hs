@@ -27,4 +27,4 @@ passType = Pass {pName = ["TypeInfer"], pFunc = doType}
                               
     
 
-typeast (Env e) ast = fmap (\x -> TypedName (tyscheme2astty (e Map.! x)) x) ast
+typeast (Env e) ast = fmap (\(_, x) -> TypedName (tyscheme2astty (e Map.! x)) x) ast

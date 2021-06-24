@@ -20,6 +20,8 @@ import Parser.Parser
 import AST.AST
 import Pass.YieldInjection
 import Pass.Typer
+import Pass.SubScript
+import Pass.UnSubScript
 import Pass.Namer
 import Pass.NameTyper
 import Pass.TypeChecker
@@ -43,22 +45,6 @@ data PFile = PFile {
 } 
 instance Show PFile where
     show pf = show (pLocation pf) <> show (pExports pf) <> show (pImports pf)
-
-
-{-- the "pure" pipeline for compiling one target
-pipeline y x fi =  passLexer >>> -- plaintext -> tokens
-              passParse >>> -- tokens -> ast<string>
-              passYieldInj >>> -- ast<string> -> ast<string>
-              passName y >>> -- ast<string> -> ast<name>
-              passType >>> -- ast<name> -> ast<typedname>
-              passTypeCheck >>> -- ast<typedname> -> ast<typedname>, ensures type annotation correctness
-              passLower x fi >>>  -- ast<typedname> -> IR
-              passDCall >>> -- IR -> IR, direct call conversion
-              passHConv >>> -- IR -> IR, promote freevars to heap 
-              passLLift >>> -- IR -> IR, lift nested functions to top level
-              passMonoM [] [] >>> -- 
-              passGenLLVM -- IR -> LLVM
-              -}
  
 pipelineIO target filename S_BIN outfile = do
     -- todo target etc etc etc
@@ -176,7 +162,9 @@ pipeline1 x = passLexer >>>
               passParse >>>
               passYieldInj >>>
               passName x >>>
-              passType
+              passSubScript >>>
+              passType -- >>>
+              -- passUnSubScript
 
 -- x = exported syms
 pipeline2 x fi tlfs names = passTypeCheck >>> 
