@@ -11,6 +11,7 @@ data Name = Name {
     nMangleName :: Bool,
     nImportedName :: Bool,
     nVisible :: Bool,
+    nSubscr :: Int, -- "subscript" used for when we want the same "name" but different types. (ie polymorphic functions, id (int) gets id1 id(str) id2 for consistent code gen)
     nSrcFileId :: Int, -- unique id for file, used to essentially "namespace" each name to avoid name conflict
     nType :: ([Int], Type) -- type. [int] = quantified tvs. NOTE equality DOES NOT imply type equality! this is because
     -- (for ex) id defn is poly, but uses of it should be monomorphic. 
@@ -39,7 +40,7 @@ data Expr
 -- primitive "built in" expressions
 data PrimE
     = MkTuple [Type] -- primitive function, int -> arity. so (1,2,3) would be App (MkTuple 3, 1, 2, 3)
-    | MkArray [Type] -- primitive function, create array with n > 0 elems
+    | MkArray Type -- primitive function, create array with n > 0 elems
     | GetTupleElem Type Int -- prim to get nth elem from tuple of type
     | GetPtr Type -- primitive function to derefence pointers
     | SetPtr Type -- primitive function to update pointed-to data

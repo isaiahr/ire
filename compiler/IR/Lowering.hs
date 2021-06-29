@@ -74,6 +74,7 @@ registerName tn@(TypedName ty (Pass.Namer.Name s i)) = do
         nSrcName = Just s,
         nMangleName = (s /= "main"),
         nImportedName = False,
+        nSubscr = 0,
         nVisible = (s == "main"),
         nSrcFileId = fiFileId (fileId ctx),
         nType = convTyScheme ty
@@ -93,6 +94,7 @@ registerTLName x tn@(TypedName ty (Pass.Namer.Name s i)) = do
             nSrcName = Just s,
             nMangleName = False,
             nImportedName = False,
+            nSubscr = 0,
             nVisible = True,
             nSrcFileId = fiFileId (fileId ctx),
             nType = convTyScheme ty
@@ -124,6 +126,7 @@ registerSymbol s t fi = do
         nMangleName = False,
         nImportedName = True,
         nVisible = False,
+        nSubscr = 0,
         nSrcFileId = fiFileId fi,
         nType = convTyScheme t
     }
@@ -140,6 +143,7 @@ newName typ = do
         nSrcName = Nothing,
         nMangleName = True, 
         nImportedName = False,
+        nSubscr = 0,
         nVisible = False,
         nSrcFileId = fiFileId (fileId ctx),
         nType = convTyScheme typ
@@ -229,7 +233,7 @@ lexp (FunctionCall e1 e2) = do
 lexp (Variable (TypedName t (NativeName n))) = return $ Prim $ primName n
     
 lexp (Variable (TypedName t (Symbol s t2 fi))) = do
-    na <- registerSymbol s t2 fi
+    na <- registerSymbol s t fi
     return $ Var na
 
 lexp (Variable a) = do
@@ -248,7 +252,7 @@ llit (TupleLiteral ea) = do
 
 llit (ArrayLiteral ea) = do
     nm <- mapM lexp ea
-    return $ App (Prim (MkArray (map (\x -> exprType x) nm))) nm
+    return $ App (Prim (MkArray ((error "TODO: typing the empty array") nm))) nm
 
 {--
 N.B. (FunctionLiteral lowering): 

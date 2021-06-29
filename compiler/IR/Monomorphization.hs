@@ -2,9 +2,14 @@
 IR/Monomorphization.hs
 This monomorphizes polymorphic functions into monomorphic functions.
 
+note: this (and as a result stuff like llvmgen) is very hacky (for now)
+as a result of somewhat poor design decisions like IR names (in particularly equality)
 
-TODO: make written a tuple of names for replacing.
-check to make sure this works across files
+(for the future:
+names are considered equal if they have same file origin (nSrcFileId) and subscr (proxy for type equality)
+and (nPk OR one imports the other)
+
+note: nPk and nSrcFileId doesnt guarentee uniqueness, since scope exists. but in practice hopefully this shouldnt matter.
 
 -}
 
@@ -19,7 +24,7 @@ import Data.List
 
 passMonoM :: [TLFunction] -> [Name] -> Pass IR (IR, [TLFunction], [Name])
 passMonoM tlfs names = Pass {pName = ["Monomorphization"], pFunc = runP }
-    where runP ir =  let r = monoM (ir, tlfs, names) in (messageNoLn "Monomorphization" (disp $ fst3 r) Debug, Just r)
+    where runP ir = let r = monoM (ir, tlfs, names) in (messageNoLn "Monomorphization" (disp $ fst3 r) Debug, Just r)
           fst3 (a, b, c) = a
 
 {-- 
@@ -31,9 +36,14 @@ cWritten: functions that have already been monomorphized, but is here to avoid d
 --}
 data Ctx = Ctx {cDb :: [TLFunction], cMonoed :: [TLFunction], cWritten :: [Name], cFi :: FileInfo}
     
+    
+instance Disp Ctx where
+    disp t = "--------\nDB: \n" <> (intercalate "\n" (map disp (cDb t))) <> "\nMonoed:\n" <> (intercalate "\n" (map disp (cMonoed t))) <> "\nwritten:\n" <> (intercalate "\n" (map (disp) (cWritten t)))
 
+    
+{-- more hacks: nImportedname set to true for future passes, when we use a name in written, we import it --}
 monoM :: (IR, [TLFunction], [Name]) -> (IR, [TLFunction], [Name])
-monoM ((IR tl fi), paras, done) = (fixir (IR (cMonoed st) fi), cDb st, cWritten st)
+monoM ((IR tl fi), paras, done) = (fixir (IR (cMonoed st) fi), cDb st, map (\y01 -> y01 {nImportedName = True}) (cWritten st))
     where st = execState (forM tl monotlf) (Ctx { cWritten = done, cMonoed = [], cDb = paras, cFi = fi }) 
 
 monotlf :: TLFunction -> State Ctx ()
@@ -57,17 +67,28 @@ monoN nm = do
          Nothing -> return nm
          Just tlf -> do
              ctx0 <- get
-             if nm `cWelem` cWritten ctx0 then do
-                 return nm
-                                        else do
-                 doMono nm tlf
-                 ctx <- get
-                 put $ ctx {cWritten = nm:(cWritten ctx)}
-                 return nm
+             case nm `cWelem` (cWritten ctx0)  of
+                  Just nm2 -> return nm2
+                  Nothing -> do
+                      let nm' = nm {nImportedName = False, nSubscr = length (cWritten ctx0) + 1}
+                      -- not sure if it makes difference here, nm vs nm'
+                      let (TLFunction nm10 a1 a2 a3) = tlf
+                      modify $ \ctx -> ctx{cWritten = nm':(cWritten ctx)}
+                      doMono nm' (TLFunction (nm10{nSubscr = nSubscr nm'}) a1 a2 a3)
+                      -- since we arent importing it anymore, set this to false
+                      return $ nm'
 
-cWelem :: Name -> [Name] -> Bool
-cWelem n = any (\y -> y==n && nType y == nType n)
-
+cWelem :: Name -> [Name] -> Maybe Name
+cWelem n w = case filter (\y -> nType y == nType n) (filter (refers2TLFN n) w) of
+                  [x] -> Just x
+                  [] -> Nothing
+                  xs -> error "Filtered 2 duplicates in monolist#5380938938903489"
+                  
+-- refers 2 top-level function name.
+-- does the first param refer to the second, a top-level function name?
+refers2TLFN :: Name -> Name -> Bool
+refers2TLFN n nm0 = (nSrcFileId n == nSrcFileId nm0 && (nImportedName n || nPk n == nPk nm0) && nSrcName n == nSrcName nm0)
+                  
 mono :: Expr -> State Ctx Expr
 mono (Var nm) = (monoN nm) >>= (return . Var)
 mono (Call nm exs) = do
@@ -77,16 +98,26 @@ mono (Call nm exs) = do
 -- NOTE: maybe other names also need monomorphizing??? 
 mono ex = traverseExpr mono ex    
 
+changePrim sub ex = go ex
+    where go (Prim (MkTuple tys)) = Prim (MkTuple (map (applySubs sub) tys))
+          go (Prim (MkArray ty)) = Prim (MkArray (applySubs sub ty))
+          go (Prim (GetTupleElem ty lnt)) = Prim (GetTupleElem (applySubs sub ty) lnt)
+          go (Prim (GetPtr ty)) = Prim (GetPtr (applySubs sub ty))
+          go (Prim (SetPtr ty)) = Prim (SetPtr (applySubs sub ty))
+          go (Prim (CreatePtr ty)) = Prim (CreatePtr (applySubs sub ty))
+          go ex0 = traverseExprId go ex0
+
 doMono :: Name -> TLFunction -> State Ctx ()
 doMono inst poly@(TLFunction nm clv pr ex) = do
     let sub = nub $ getSub (fst $ nType nm) (snd $ nType nm) (snd $ nType inst)
     let nf = \nm1 -> nm1 {nType = ([], applySubs sub ((snd $ nType nm1)))}
     let ex' = mapNameExpr nf ex
+    let ex'' = changePrim sub ex'
     let nm' = nm {nType = ([], applySubs sub (snd $ nType nm))}
     -- TODO: maybe change this? clv might need different semantics
     let clv' = map nf clv
     let pr' = map nf pr
-    let tlf' = TLFunction nm' clv' pr' ex'
+    let tlf' = TLFunction nm' clv' pr' ex''
     -- ok, now run mono again on the result.
     -- this gets poly funcs that use other poly funcs.
     -- note: this will eventually terminate since it shouldnt recurse on itself
@@ -145,9 +176,8 @@ find''' :: Name -> State Ctx (Maybe TLFunction)
 find''' n = do
     ctx <- get
     let t = cDb ctx
-    let r = filter (\(TLFunction nm0 _ _ _) -> n==nm0) t 
+    let r = filter (\(TLFunction nm0 _ _ _) -> refers2TLFN n nm0) t 
     case r of
          [] -> return Nothing
          (a:[]) -> return $ Just a
-         _ -> error "Somehow, two nondistinct tlfs are in monoM pass#4808903458054380945"
-    
+         _ -> error "Somehow, two nondistinct tlfs are in dB monoM pass#4808903458054380945"

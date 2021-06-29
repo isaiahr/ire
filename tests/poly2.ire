@@ -1,0 +1,12 @@
+// Ok (1, "")
+//
+// short example demonstrating parametric polymorphism
+// NOTE: swapping order of id and main does not work right now.
+// this will be fixed in the future.
+
+import "poly2dep.ire"
+
+main := \() -> {
+   __ire__exit__(id(id 1))
+}
+

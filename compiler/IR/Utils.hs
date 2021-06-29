@@ -71,7 +71,7 @@ exprType (Close fn nms) = case nType fn of
                                   _ -> error "closing a non-environment function"
 exprType (Let nm e1 e2) = exprType e2
 exprType (Prim (MkTuple t)) = Function t (Tuple t)
-exprType (Prim (MkArray t)) = Function t (Array (t !! 0))
+exprType (Prim (MkArray t)) = Function [t] (Array t)
 exprType (Prim (GetPtr t)) = Function [Ptr t] t
 exprType (Prim (SetPtr t)) = Function [Ptr t, t] (Tuple [])
 exprType (Prim (CreatePtr t)) = Function [t] (Ptr t)

@@ -1,0 +1,13 @@
+// Ok (5, "y")
+
+import typical
+import functional
+
+
+main := \() -> {
+    a := ("y", 5)
+    (number, text) := swap a
+    print(identity text)
+    //note: this should re-use the same monomorphized fn.
+    exit(identity(identity(identity(identity(number)))))
+}

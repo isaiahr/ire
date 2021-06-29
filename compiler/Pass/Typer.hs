@@ -66,8 +66,6 @@ import Data.List
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-import Debug.Trace
-
 newtype TVar = TVar String deriving (Show, Eq, Ord)
 
 instance Disp TVar where 
@@ -93,6 +91,7 @@ type InferM a = State InferCtx a
 data InferCtx = InferCtx {
     env :: Env, -- gamma
     auxenv :: AuxEnv,
+    gmMap :: Map.Map Int TVar,
     cons :: [Constraint],
     errors :: [String],
     numName :: Int,
@@ -137,16 +136,41 @@ typeFunction a b = TyApp "func" [a, b]
 typeTuple ty = TyApp "tuple" ty
 
 -- bijection ast types tyinfer types
+-- NOTE:  poly types need fresh tvs, so they dont conflict with generated tvs.
+-- (poly types appear when importing symbols / natives etc) 
 
-ast2tyinfer (StringT) = typeStr
-ast2tyinfer (Function t1 t2) = typeFunction (ast2tyinfer t1) (ast2tyinfer t2)
-ast2tyinfer (Tuple tys) = typeTuple (map ast2tyinfer tys)
-ast2tyinfer (Bits 64) = typeInt
-ast2tyinfer (Bits 1) = typeBool
+ast2tyinfer (StringT) = return typeStr
+ast2tyinfer (Function t1 t2) = liftM2 typeFunction (ast2tyinfer t1) (ast2tyinfer t2)
+ast2tyinfer (Tuple tys) = typeTuple <$> (mapM ast2tyinfer tys)
+ast2tyinfer (Bits 64) = return typeInt
+ast2tyinfer (Bits 1) = return typeBool
 ast2tyinfer (Record _) = error "not yet impl"
 ast2tyinfer (Union _) = error "not yet impl2"
+ast2tyinfer (General ig) = do
+    st <- get 
+    let g2 = gmMap st
+    case Map.lookup ig g2 of
+         (Just tv) -> return $ TyVar tv
+         Nothing -> do
+             tv <- fresh
+             let g2' = Map.insert ig tv g2
+             modify $ \y -> y{gmMap = g2'}
+             return $ TyVar tv
+             
 
-ast2tyscheme (Poly nt mt) = TyScheme (map (TVar . show) nt) (ast2tyinfer mt)
+ast2tyscheme (Poly nt mt) = do
+    thing <- forM nt $ \n -> do
+        st <- get 
+        let g2 = gmMap st
+        case Map.lookup n g2 of
+            (Just tv) -> return tv
+            Nothing -> do
+                tv <- fresh
+                let g2' = Map.insert n tv g2
+                modify $ \y -> y{gmMap = g2'}
+                return tv
+    ty0 <- ast2tyinfer mt
+    return $ TyScheme thing ty0
 
 tyinfer2ast (TyCon "string") = StringT
 tyinfer2ast (TyCon "boolean") = Bits 1
@@ -275,7 +299,7 @@ getVar (mi, n) = do
 
 newVar :: (Maybe Int, Name) -> InferM Typ
 newVar (mi, a@(NativeName n)) = do
-    let actualty = ast2tyinfer (asttypeof n)
+    actualty <- ast2tyinfer (asttypeof n)
     v <- getVar (mi, a)
     case v of
          (Just tv) -> return tv
@@ -290,11 +314,15 @@ newVar (mi, a@(Symbol str ty fi)) = do
     case v of
          (Just tv) -> return tv
          Nothing -> do
-             let actualty = (ast2tyscheme ty)
+             actualty <- (ast2tyscheme ty)
              st <- get
              let (Env emap) = (env st)
              put $ st {env = Env (Map.insert a actualty emap) } 
              mt <- instantiate actualty
+             st0 <- get
+             let (AuxEnv ae) = (auxenv st0)
+             let ae' = AuxEnv $ Map.insert (mi, a) mt ae
+             modify $ \st01 -> st01{auxenv = ae'}
              return mt
 
 newVar (mi, a@(Name _ _)) = do

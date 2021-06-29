@@ -1,0 +1,13 @@
+// Skip 
+export id
+
+id := \x -> x
+
+// force mono of id early in this file, see if poly2.ire picks it up
+// NOTE: forcer must NOT be polymorphic for this to work!!
+forcer := \y -> {
+    // hack to force param as int
+    z := y
+    z = 0
+    (id 0, id "abc")
+    }

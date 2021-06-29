@@ -86,7 +86,7 @@ genTLF tlf@(TLFunction name clvars params expr) = do
     pty <- forM (map Var params) getIRType
     exprty <- getRetty name
     -- do not mangle entry
-    let text_name = if nSrcName name == Just "main" then "main" else if nMangleName name then ("function_" ++ show (nSrcFileId name) ++ "_" ++ disp (nPk name)) else "function_" ++ show (nSrcFileId name) ++ "_" ++ fromJust (nSrcName name)
+    let text_name = if nSrcName name == Just "main" then "main" else if nMangleName name then ("fn_" ++ show (nSrcFileId name) ++ "_" ++ disp (nPk name) ++ "_" ++ disp (nSubscr name)) else "fn_" ++ show (nSrcFileId name) ++ "_" ++ fromJust (nSrcName name) ++ "_" ++ disp (nSubscr name)
     let fh = createFunction text_name (LLVMFunction (ir2llvmtype exprty) ((if null clvars then [] else [LLVMPtr (LLVMPtr (LLVMInt 8))]) ++ map ir2llvmtype (pty))) (if nVisible name then Linkage_External else Linkage_Private)
     modify $ \ctx -> ctx {ftbl=(tlf, fh):(ftbl ctx), ntbl = (name, LGlob text_name):(ntbl ctx)}
     return fh
@@ -394,19 +394,23 @@ lookupName name = do
         Just s -> if nImportedName name then do
             st <- get
             if (name `elem` (map fst (externs st))) then
-                return $ LGlob s
+                return $ LGlob ("fn_" ++ show (nSrcFileId name) ++ "_" ++ s ++ "_" ++ show (nSubscr name)) -- just s ???
                                                     else do
                                                         
                 irty <- getIRType (Var name)
-                let fs = createFunctionStub ("function_" ++ show (nSrcFileId name) ++ "_" ++ s) (ir2llvmtype irty) Linkage_External
+                let fs = createFunctionStub ("fn_" ++ show (nSrcFileId name) ++ "_" ++ s ++ "_" ++ show (nSubscr name)) (ir2llvmtype irty) Linkage_External
                 put st { externs = (name, fs):externs st }
-                return $ LGlob ("function_" ++ show (nSrcFileId name) ++ "_" ++ s)
+                return $ LGlob ("fn_" ++ show (nSrcFileId name) ++ "_" ++ s ++ "_" ++ show (nSubscr name))
                                         else do
             st <- get
-            return $ snd $ (filter (\(n, t) -> n == name) (ntbl st)) !! 0
+            return $ snd $ case (filter (\(n, t) -> n == name) (ntbl st)) of 
+                                n0:xssss -> n0 
+                                [] -> error $ "no match lookupname codegen #43903495" <> disp name
         Nothing -> do
             st <- get
-            return $ snd $ (filter (\(n, t) -> n == name) (ntbl st)) !! 0
+            return $ snd $ case (filter (\(n, t) -> n == name) (ntbl st)) of 
+                                n0:xssss -> n0 
+                                [] -> error $ "no match lookupname codegen #12315" <> disp name
 
 createName :: Name -> LValue -> State Ctx ()
 createName name lv = do

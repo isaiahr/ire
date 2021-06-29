@@ -36,7 +36,16 @@ newTLF params clvars ex = do
     (Context mains add nt inf) <- get
     let retty = exprType ex
     let ty = (EnvFunction (map (snd . nType) params) (map (snd . nType) clvars) (retty))
-    let name = Name { nPk = nt, nSrcName = Nothing, nMangleName = True, nImportedName = False, nVisible = False, nSrcFileId = fiFileId inf, nType = ([], ty)}
+    let name = Name {
+        nPk = nt,
+        nSrcName = Nothing,
+        nMangleName = True,
+        nImportedName = False,
+        nSubscr = 0,
+        nVisible = False,
+        nSrcFileId = fiFileId inf,
+        nType = ([], ty)
+    }
     let ntl = TLFunction name clvars params ex
     put $ Context mains (ntl:add) (nt + 1) inf
     return name

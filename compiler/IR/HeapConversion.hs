@@ -34,7 +34,7 @@ conv fvs [] = []
     
 -- parloc = params / locals
 findFVs :: Expr -> [Name] -> [Name] -> [Name]
-findFVs (Var n) parloc globals = if n `elem` (parloc ++ globals) then [] else [n]
+findFVs (Var n) parloc globals = if n `elem` (parloc ++ globals) || (nImportedName n) then [] else [n]
 findFVs (Assign n ex) parloc globals = (if n `elem` (parloc ++ globals) then [] else [n]) ++ findFVs ex parloc globals
 findFVs (Abs names ex) parloc globals = findFVs ex names globals
 findFVs (Let n ex ex2) p g = findFVs ex p g ++ findFVs ex2 (n:p) g

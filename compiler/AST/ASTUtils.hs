@@ -122,5 +122,5 @@ instance Disp TypedName where
 instance Disp Name where
     disp (Name s i) = disp s ++ "#" ++ disp i
     disp (NativeName n) = "n<" <> disp n <> ">"
-    disp (Symbol s t fi) = "sym<" <> disp s <> ":" <> disp t <> ">"
+    disp (Symbol s t fi) = "sym<" <> disp s <> ":" <> disp t <> "|" <> disp fi <> ">"
     disp (NameError) = "NameError 143016"

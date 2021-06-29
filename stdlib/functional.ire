@@ -1,0 +1,11 @@
+/*
+* Ire Stdlib - functional.ire
+* This contains common higher-order functions, general generic functions, etc.
+* 
+*
+*/
+export identity, swap
+
+identity := \x -> x
+
+swap := \(x, y) -> (y, x)

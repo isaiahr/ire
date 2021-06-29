@@ -22,7 +22,7 @@ getGlobals (IR tlf _) = map extractName tlf
     where extractName (TLFunction name cl params ex) = name
 
 expr globals orig@(App (Var n) e)
-    | nImportedName n = (Call n e) 
-    | n `elem` globals = (Call n e)
+    | nImportedName n = (Call n (map (expr globals) e))
+    | n `elem` globals = (Call n (map (expr globals) e))
     | otherwise = orig
 expr globals otherwis3 = traverseExprId (expr globals) otherwis3

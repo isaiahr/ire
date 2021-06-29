@@ -8,7 +8,7 @@ import Data.List
 
 
 instance Eq Name where
-    n == n2 = (nPk n == nPk n2) && (nSrcFileId n == nSrcFileId n2)
+    n == n2 = (nSubscr n == nSubscr n2) && (((nPk n == nPk n2) && (nSrcFileId n == nSrcFileId n2)) || ((nSrcFileId n == nSrcFileId n2) && nSrcName n == nSrcName n2 && nSrcName n /= Nothing))
 
 
 instance Disp IR where
@@ -29,7 +29,7 @@ instance Disp Type where
     
     
 instance Disp Name where
-    disp (name) = "#" <> show (nPk name) <> "!" <> show (nSrcName name) <> ":" <> dispqty (nType name)
+    disp (name) = "#" <> show(nSrcFileId name) <> "." <> show (nPk name) <> "!" <> show (nSrcName name) <> ":" <> dispqty (nType name)
         where dispqty ([], ty) = disp ty
               dispqty (a, ty) = "∀" <> intercalate ", " (map disp a) <> "." <> (disp ty)
     
@@ -55,7 +55,7 @@ instance Disp LitE where
     
 instance Disp PrimE where
     disp (MkTuple ty) = "@MkTuple!(" <> (intercalate ", " (map disp ty)) <> ")"
-    disp (MkArray ty) = "@MkArray!(" <> (intercalate ", " (map disp ty)) <> ")"
+    disp (MkArray ty) = "@MkArray!(" <> disp ty <> ")"
     disp (GetTupleElem ty indx) = "@GetTupleElem!(" <> disp ty <> ", " <> disp indx <> ")"
     disp (GetPtr ty) = "@GetPtr!" <> disp ty
     disp (SetPtr ty) = "@SetPtr!" <> disp ty

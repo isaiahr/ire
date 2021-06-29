@@ -15,7 +15,7 @@ data SymbolTable = SymbolTable [Name] [NError] (Maybe SymbolTable)
 data NError = NError String
 
 instance Disp NError where
-    disp (NError s) = disp s
+    disp (NError s) = "Symbol used but not defined: " <> disp s
     
 fmtErrs nes = intercalate "\n" (map disp nes)
 
@@ -64,8 +64,8 @@ passName withSyms = Pass {pName = ["Namer"], pFunc = doName}
     where doName s = name s (map (\(x, y, fi) -> Symbol x y fi) withSyms)
 
 name a syms = case (runState (nameAST a) ((SymbolTable syms [] Nothing, 0))) of
-                   (result, (SymbolTable syms [] Nothing, _)) -> (messageNoLn "Namer" (disp result) Debug, Just result)
-                   (result, (SymbolTable syms errs Nothing, _)) -> (messageNoLn "Namer" (fmtErrs errs) Error, Nothing)
+                   (result, (SymbolTable syms0 [] Nothing, _)) -> (messageNoLn "Namer" (disp result) Debug, Just result)
+                   (result, (SymbolTable syms0 errs Nothing, _)) -> (messageNoLn "Namer" (fmtErrs errs) Error, Nothing)
                    _ -> error "symtbl stack didn't pop namer#237"
 
 nameAST :: AST String -> State (SymbolTable, Int) (AST Name)
