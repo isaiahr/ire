@@ -1,0 +1,16 @@
+// Ok (8, "")
+//
+// higher-order function example, with generic apply fn
+
+
+
+apply := \(fn, val) -> {
+    return fn(val)
+}
+
+plus3 := \y -> (y + 3)
+
+main := \() -> {
+    __ire__exit__(apply (plus3, 5))
+}
+

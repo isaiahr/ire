@@ -10,7 +10,7 @@ import AST.AST hiding (nextName)
 import IR.IR as IR.Syntax
 
 import Control.Monad.State
-
+import Debug.Trace
 
 data Context = Context {
     nameTbl :: [(TypedName, IR.Syntax.Name)],

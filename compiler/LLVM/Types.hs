@@ -43,4 +43,4 @@ instance Disp LType where
     disp LLVMMetadata = "metadata"
     disp LLVMOpaque = "opaque"
     disp LLVMVoid = "void"
-    disp (LLVMFunction ty tys) = disp ty <> " (" <> intercalate ", " (map disp tys) <> ")"
+    disp (LLVMFunction ty tys) = disp ty <> " (" <> intercalate ", " (map disp tys) <> ")*"

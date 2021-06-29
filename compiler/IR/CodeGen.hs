@@ -159,12 +159,15 @@ genE (Var n) = do
     -- if the variable is a parameter of the function, don't create a load for it. 
     -- (so if the list of functions that have var in the list of parameters is empty, the var isnt param,
     --  and we can create load. otherwise, it isn't 
-    if null (filter (\(TLFunction _ cl p e, _) ->  n `elem` p ) (ftbl ctx)) then do
-        ty <- getIRType (Var n)
-        resultlv <- promote $ createLoad (ir2llvmtype ty) (lvn)
-        return resultlv
-                                                                            else do
-        return lvn
+    case lvn of 
+         LGlob _ -> return lvn
+         otherwise -> do
+            if null (filter (\(TLFunction _ cl p e, _) ->  n `elem` p ) (ftbl ctx))  then do
+                ty <- getIRType (Var n)
+                resultlv <- promote $ createLoad (ir2llvmtype ty) (lvn)
+                return resultlv
+                                                                                    else do
+                return lvn
 
 genE (Call name exprs) = do
     function_lvalue <- lookupName name
@@ -323,9 +326,9 @@ genE (App ef eargs) = do
                       otherwise -> error "calling non function type")
     paramsty94 <- forM eargs getIRType
     let paramsty = map ir2llvmtype paramsty94
-    funcptr <- promote $ createExtractValue (LLVMStruct False [LLVMPtr (LLVMFunction retty (LLVMPtr (LLVMPtr (LLVMInt 8)):paramsty)), LLVMPtr (LLVMPtr (LLVMInt 8))]) ef' 0
-    env <- promote $ createExtractValue (LLVMStruct False [LLVMPtr (LLVMFunction retty (LLVMPtr (LLVMPtr (LLVMInt 8)):paramsty)), LLVMPtr (LLVMPtr (LLVMInt 8))]) ef' 1
-    result <- promote $ createCall retty funcptr ((LLVMPtr (LLVMPtr (LLVMInt 8)), env):(zip paramsty eargs'))
+    -- funcptr <- promote $ createExtractValue (LLVMStruct False [LLVMPtr (LLVMFunction retty (LLVMPtr (LLVMPtr (LLVMInt 8)):paramsty)), LLVMPtr (LLVMPtr (LLVMInt 8))]) ef' 0
+    -- env <- promote $ createExtractValue (LLVMStruct False [LLVMPtr (LLVMFunction retty (LLVMPtr (LLVMPtr (LLVMInt 8)):paramsty)), LLVMPtr (LLVMPtr (LLVMInt 8))]) ef' 1
+    result <- promote $ createCall retty ef' (zip paramsty eargs')
     return result
 
 genE (Close function names) = do
