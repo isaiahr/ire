@@ -5,13 +5,19 @@ This is the type inference code.
 
 This is based off of the HM rules for type inference https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system
 
+significant change: to support "bidirectional let-polymorphism" (basically, use-before defn), 
+ - first assign top-level names (the ones that can be used before defn) a type of forall 1 . $1 
+   this ensures they create fresh tvs when used. then, after actually processing the defn, we instantiate the
+   new type, and create constraints with all uses. this ensures the correct type is inferred.
+
+
 Originally, this code was written without support for parametric polymorphism. 
 (original: https://github.com/isaiahr/ire/blob/e1f632fa9fa5d717d5ff105366f97eacde323d31/compiler/Pass/Typer.hs)
 
 The code for constraint generation is the same, but the representation of types is different now. 
 (this is to make type inference support new types easier). to handle this a isomorphism between AST types and Typer types is established.
 
-there is still some more work to be done by supporting mutual recursion, poly funcs decl after use, etc.
+there is still some more work to be done by supporting mutual recursion (untested)
 
 note some of the code is from this link: http://dev.stephendiehl.com/fun/ (
 This is mostly the Substitutable typeclass, which I copied because I thought it was a good idea,
@@ -296,6 +302,13 @@ getVar (mi, n) = do
              modify $ \st0 -> st0{auxenv = ae'}
              return (Just monotype)
          Nothing -> return Nothing
+         
+
+clearVar :: (Maybe Int, Name) -> InferM ()
+clearVar (mi, n) = do
+    st <- get
+    let (Env e) = (env st)
+    put $ st {env = (Env (Map.delete n e))}
 
 newVar :: (Maybe Int, Name) -> InferM Typ
 newVar (mi, a@(NativeName n)) = do
@@ -338,18 +351,57 @@ newVar (mi, a@(Name _ _)) = do
 
 newVar (mi, a@(NameError)) = error "NAME ERROR"
 
-infer (AST (d:ds)) = do
+infer ast = do
+    infer1 ast 
+    infer2 ast
+    
+-- gen \/ 1 . $1  for tlfs
+infer1 (AST (d:ds)) = do
+    case identifier d of
+         (TupleUnboxing _) -> error "todo: prohibit tuple top-level defns"
+         (Plain (_, ident)) -> do
+             tv <- fresh
+             let tys = TyScheme [tv] (TyVar tv)
+             st <- get
+             let (Env emap) = env st
+             put $ st {env = Env (Map.insert ident tys emap)}
+    infer1 (AST ds)
+
+infer1 (AST []) = return ()
+
+infer2 (AST (d:ds)) = do
     c1 <- inferD d
     c2 <- infer (AST (ds))
     return $ c1 <> c2
 
-infer (AST []) = return []
+infer2 (AST []) = return []
+
+updateGen :: Name -> InferM ()
+updateGen nam = do
+    st <- get
+    let (Env e) = env st
+    let tyscheme = (e Map.! nam)
+    let (AuxEnv ae) = auxenv st
+    forM (Map.keys ae) (\(mlnt, nam2) -> do
+        if nam2 == nam then do
+            f <- instantiate tyscheme
+            con <- mkCons f (ae Map.! (mlnt, nam2))
+            case (runSolve con) of
+                 Left e -> do
+                     modify $ \st0 -> st0 {errors = errors st0 <> [disp e]}
+                     return ()
+                 Right sub -> do
+                     applyCtx sub
+                     return ()
+        else return ())
+    return ()
     
 inferD d = do
     csc <- case (identifier d) of
                 (Plain s) -> do 
                     st2 <- get
                     let oldenv = (env st2)
+                    clearVar s
                     n <- newVar s
                     c <- inferE (value d) n
                     case (value d) of 
@@ -362,6 +414,7 @@ inferD d = do
                                       return mempty
                                   Right sub -> do
                                       applyCtx sub
+                                      -- clearVar s
                                       nm <- newVar s
                                       st <- get
                                       -- NOTE: debug with trace doesnt work here for some reason. not sure why.
@@ -369,8 +422,8 @@ inferD d = do
                                       let gen = generalize oldenv nm
                                       let (Env th) = (env st)
                                       let tr3 = Map.insert (snd s) gen th
-                                    --  put st {env = trace ("GEN\n" <> (disp gen) <> (show (env st)) <> (disp nm) <> "END")(Env tr3)}
                                       put st {env = (Env tr3)}
+                                      updateGen (snd s)
                                       return mempty
                          expr -> return c
                 (TupleUnboxing ss) -> do

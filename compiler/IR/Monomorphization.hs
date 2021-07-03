@@ -44,7 +44,16 @@ instance Disp Ctx where
 {-- more hacks: nImportedname set to true for future passes, when we use a name in written, we import it --}
 monoM :: (IR, [TLFunction], [Name]) -> (IR, [TLFunction], [Name])
 monoM ((IR tl fi), paras, done) = (fixir (IR (cMonoed st) fi), cDb st, map (\y01 -> y01 {nImportedName = True}) (cWritten st))
-    where st = execState (forM tl monotlf) (Ctx { cWritten = done, cMonoed = [], cDb = paras, cFi = fi }) 
+    where st = execState (monotlfs tl) (Ctx { cWritten = done, cMonoed = [], cDb = paras, cFi = fi }) 
+
+
+monotlfs :: [TLFunction] -> State Ctx ()
+monotlfs tlfs = do
+    -- do this first, to catch use-before decl
+    let isPolyTLF = \(TLFunction n _ _ _) -> (isPoly n)
+    forM (filter isPolyTLF tlfs) monotlf
+    forM (filter (\y -> not $ isPolyTLF y) tlfs) monotlf
+    return ()
 
 monotlf :: TLFunction -> State Ctx ()
 monotlf tlf@(TLFunction nm clv pr ex) = do
