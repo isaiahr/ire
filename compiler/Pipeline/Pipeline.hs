@@ -46,7 +46,7 @@ data PFile = PFile {
 instance Show PFile where
     show pf = show (pLocation pf) <> show (pExports pf) <> show (pImports pf)
  
-pipelineIO target filename S_BIN outfile = do
+pipelineIO target filename stage outfile = do
     -- todo target etc etc etc
     files <- importDag filename
     (errs, processed_files, (mtff, mnamef)) <- execStateT (forM (zip [1 .. (length files)] files) $ (\(idx, x) -> do 
@@ -54,7 +54,17 @@ pipelineIO target filename S_BIN outfile = do
         mpfiles <- get
         case mpfiles of
             ([], pfiles, (mtlf, mname)) -> do
-                epfile <- liftIO $ tryIOError (compile mtlf mname False target x pfiles idx)
+                -- this selects what to do with output after running the compiler.
+                let (tstage, out) = (case (idx == (length files), stage) of
+                                            -- if we are compiling to executable, always produce an object (and link after all files compiled)
+                                            (_, S_BIN) -> (Just $ S_OBJ, Nothing)
+                                            -- if this is the last file to be processed, compile to what the cli option says.
+                                            -- (for example, if we want llvm output, produce .ll, want obj produce .o)
+                                            (True, _) -> (Just $ stage, Just outfile)
+                                            -- otherwise, since this is not the last file, and we wont need output for linking, 
+                                            -- just run a "dummy" pass and discard the result.
+                                            (False, _) -> (Nothing, Nothing))
+                epfile <- liftIO $ tryIOError (compile mtlf mname tstage target x pfiles idx out)
                 case epfile of 
                     Left err -> do
                         put ([err], pfiles, (mtlf, mname))
@@ -80,82 +90,14 @@ pipelineIO target filename S_BIN outfile = do
                 
         )) ([], [], ([], []))
     if null errs then do
-        libs <- getLinkedLibs target
-        runLinker target (libs <> (map pObjLocation processed_files)) outfile
+        if stage == S_BIN then do 
+            libs <- getLinkedLibs target
+            runLinker target (libs <> (map pObjLocation processed_files)) outfile
+                          else return ()
     else do 
         forM errs $ \y -> hPutStrLn stderr (ioeGetErrorString y)
         exitFailure
     return $ foldl (<>) mempty (map pMsgs processed_files)
-    
-pipelineIO target filename stage outfile = do
-    files <- importDag filename
-    (errs, processed, (mtlff, mnamef)) <- execStateT (forM (zip [1 .. (length files)] files) $ (\(idx, x) -> do 
-        liftIO $ putStr $ "[" <> show idx <> " of " <> show (length files) <> "] Compiling " <> (uPath x)
-        mpfiles <- get
-        case mpfiles of
-            ([], pfiles, (mtlf, mname)) -> do
-                epfile <- liftIO $ tryIOError (compile mtlf mname True target x pfiles idx)
-                case epfile of 
-                    Left err -> do
-                        put ([err], pfiles, (mtlf, mname))
-                        liftIO $ putStr $ " ["
-                        liftIO $ setSGR [SetColor Foreground Dull Red]
-                        liftIO $ putStr "Failed" 
-                        liftIO $ setSGR [Reset]
-                        liftIO $ putStrLn "]" 
-                        
-                    Right (mtlf', mname', pfile) -> do
-                        put ([], (pfile:pfiles), (mtlf', mname'))
-                        liftIO $ putStr $ " ["
-                        liftIO $ setSGR [SetColor Foreground Dull Green]
-                        liftIO $ putStr "OK" 
-                        liftIO $ setSGR [Reset]
-                        liftIO $ putStrLn "]" 
-            (errs, pfiles, _) -> do
-                liftIO $ putStr $ " ["
-                liftIO $ setSGR [SetColor Foreground Dull Yellow]
-                liftIO $ putStr "Skipped" 
-                liftIO $ setSGR [Reset]
-                liftIO $ putStrLn "]" 
-            
-        )) ([], [], ([], []))
-    if null errs then do
-        let me = last files
-        inhandle <- openFile (uPath me) ReadMode
-        hSetEncoding inhandle utf8
-        contents <- hGetContents inhandle
-        contents_sz <- evaluate (length contents)
-        hClose inhandle 
-        importedsyms <- case importedSyms me processed of
-            Left p -> ioError (userError p)
-            Right t -> return t
-        let (msg, result) = runPass contents (pipeline1 importedsyms)
-        case result of
-            Nothing -> ioError (userError $ disp msg)
-            Just (AST ds) -> do
-                
-                let astsyms = map (\(TypedName t (Name s _)) -> (s, t)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds))
-                
-                let allsyms = (astsyms ++ (map (\(x, y, t) -> (x, y)) importedsyms))
-                if allsyms /= nub allsyms then
-                    ioError (userError "Conflicting symbols")
-                                        else 
-                    return ()
-                if (filter (\s -> s `elem` (map (\(s2, t2) -> s2) allsyms)) (uExports me)) == (uExports me) then
-                    return () -- ok, all exports are imported
-                                                                                            else 
-                    ioError (userError "Exporting symbol not in file")
-                let exportedsyms = map (\s -> (filter (\(s2, t) -> s == s2) allsyms) !! 0) (uExports me)
-                let astexports = filter (\(s, i) -> s `elem` uExports me) (map (\(TypedName t (Name s i)) -> (s, i)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds)))
-                let (msg2, result2) = runPass (AST ds) (pipeline2 astexports FileInfo { fiSrcFileName = (uPath me), fiFileId = (length files)} mtlff mnamef)
-                case result2 of
-                    Nothing -> ioError (userError $ disp (msg <> msg2))
-                    Just (y, _, _) -> do 
-                        writeOutput (disp y) outfile target stage
-                        return (msg <> msg2)
-    else do 
-        forM errs $ \y -> hPutStrLn stderr (ioeGetErrorString y)
-        exitFailure
 
 
 pipeline1 x = passLexer >>> 
@@ -175,9 +117,21 @@ pipeline2 x fi tlfs names = passTypeCheck >>>
               passMonoM tlfs names >>>
               byPassWith (\(a, b, c) -> a) (\(newir,(a, b, c)) -> (newir, b, c)) passGenLLVM
 
+{-
+Generalized compilation function.
+parameters: 
+monoTLF: top-level functions that are candidates to monomorphization (havent been monomorphized, but may in the future when needed)
+monoN: monomorphized versions of monoTLF, for re-use
+stage: stage to which to compile to. Nothing -> no post-processing
+target: target os-arch pair
+ufile: unproccesed file to read from
+processed: list of processed files.
+idx: compilation index. used for file uniqueness.
+mout: maybe output. will place output here. nothing -> temp file.
+--}
 
-compile :: [IR.Syntax.TLFunction] -> [IR.Syntax.Name] -> Bool -> Target -> UFile -> [PFile] -> Int -> IO ([IR.Syntax.TLFunction], [IR.Syntax.Name], PFile)
-compile monoTLF monoN dry target file processed idx = do
+compile :: [IR.Syntax.TLFunction] -> [IR.Syntax.Name] -> Maybe Stage -> Target -> UFile -> [PFile] -> Int -> Maybe String -> IO ([IR.Syntax.TLFunction], [IR.Syntax.Name], PFile)
+compile monoTLF monoN stage target file processed idx mout = do
     inhandle <- openFile (uPath file) ReadMode
     hSetEncoding inhandle utf8
     contents <- hGetContents inhandle
@@ -205,30 +159,29 @@ compile monoTLF monoN dry target file processed idx = do
                  ioError (userError "Exporting symbol not in file")
              let exportedsyms = map (\s -> (filter (\(s2, t) -> s == s2) allsyms) !! 0) (uExports file)
              let astexports = filter (\(s, i) -> s `elem` uExports file) (map (\(TypedName t (Name s i)) -> (s, i)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds)))
-             if dry then
-                 return $ ([], [], PFile {
-                     pLocation = (uPath file),
-                     pObjLocation = "", 
-                     pExports = exportedsyms, 
-                     pImports = (uImports file), 
-                     pMsgs = msg,
-                     pFileInfo = FileInfo { fiSrcFileName = (uPath file), fiFileId = idx}
-                 })
-             else do
-                 let (msg2, result2) = runPass (AST ds) (pipeline2 astexports FileInfo { fiSrcFileName = (uPath file), fiFileId = idx} monoTLF monoN)
-                 case result2 of
-                     Nothing -> ioError (userError $ disp (filterErrs (msg <> msg2)))
-                     Just (y, tlf0, name0) -> do 
-                         outfile <- getTempFile
-                         writeOutput (disp y) outfile target S_OBJ
-                         return $ (tlf0, name0, PFile {
-                             pLocation = (uPath file),
-                             pObjLocation = outfile, 
-                             pExports = exportedsyms, 
-                             pImports = (uImports file), 
-                             pMsgs = (msg <> msg2),
-                             pFileInfo = FileInfo { fiSrcFileName = (uPath file), fiFileId = idx}
-                         })
+             let (msg2, result2) = runPass (AST ds) (pipeline2 astexports FileInfo { fiSrcFileName = (uPath file), fiFileId = idx} monoTLF monoN)
+             case result2 of
+                 Nothing -> ioError (userError $ disp (filterErrs (msg <> msg2)))
+                 Just (y, tlf0, name0) -> do 
+                     tout <- case stage of 
+                            Nothing -> return "" -- no outfile. 
+                            (Just tar) -> do
+                                case mout of
+                                    (Just outfile) -> do 
+                                        writeOutput (disp y) outfile target tar
+                                        return outfile
+                                    Nothing -> do
+                                        outfile <- getTempFile
+                                        writeOutput (disp y) outfile target tar
+                                        return outfile
+                     return $ (tlf0, name0, PFile {
+                         pLocation = (uPath file),
+                         pObjLocation = tout, 
+                         pExports = exportedsyms, 
+                         pImports = (uImports file), 
+                         pMsgs = (msg <> msg2),
+                         pFileInfo = FileInfo { fiSrcFileName = (uPath file), fiFileId = idx}
+                     })
 
 importedSyms :: UFile -> [PFile] -> Either String [(String, Type, FileInfo)]
 importedSyms uf apf = case nub eof1 == eof1 of
