@@ -31,14 +31,26 @@ parseIdentifier = Parser (\x ->
          _ -> ParseFailure)         
 
 parseMonoType :: Parser MonoType
-parseMonoType = parseBType <|> infbuild (parseRecord <|> parseUnion <|> parseIntType <|> parseBoolType <|> parseStringType <|> parseArrayType <|> parseTuple) parseFunctionType
+parseMonoType = parseBType <|> infbuild (parseRecord <|> parseUnion <|> parseIntType <|> parseBoolType <|> parseStringType <|> parseArrayType <|> parseTuple <|> parseTV) parseFunctionType
 
 parseType :: Parser Type
-parseType = fmap (Poly []) parseMonoType -- <|> todo this stuff parseToken (Forall) *> collect ()(parseToken Comma)
+parseType = liftA2 Poly parseQuant parseMonoType <|> fmap (Poly []) parseMonoType -- <|> todo this stuff parseToken (Forall) *> collect ()(parseToken Comma)
+
+parseQuant :: Parser [Int]
+parseQuant = parseToken Forall *> collect pint (parseToken Comma) <* parseToken Dot
+    where pint = Parser (\x -> case x of
+                    (AnnotatedToken (Integer z) l str):zs -> ParseSuccess z zs
+                    _ -> ParseFailure)
 
 -- bracketed type
 parseBType :: Parser MonoType
 parseBType = parseToken LParen *> parseMonoType <* parseToken RParen
+
+parseTV :: Parser MonoType
+parseTV = parseToken Dollar *> (General <$> Parser (\x -> 
+    case x of
+         (AnnotatedToken (Integer z) l str):zs -> ParseSuccess z zs
+         _ -> ParseFailure))
 
 parseIntType :: Parser MonoType
 parseIntType = parseToken (Identifier "Int") $> Bits 64

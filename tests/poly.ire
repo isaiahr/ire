@@ -9,4 +9,4 @@ main := \() -> {
     __ire__exit__(id 1)
 }
 
-id := \x -> x
+id :forall 1. $1 -> $1= \x -> x
