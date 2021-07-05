@@ -6,46 +6,46 @@
 module Pass.TypeChecker (passTypeCheck) where
 
 import AST.AST
+import AST.Traversal
 import Common.Pass
 import Pass.NameTyper
 import Common.Common
 
+import Control.Monad.State
+
 passTypeCheck = Pass {pName = ["TypeCheck"], pFunc = checkType}
-    where checkType x = case checkAST x of
-                             [] -> (mempty, Just x)
-                             xs -> (foldr (<>) mempty (map errStr xs), Nothing)
+    where checkType x = let msgs = typechk x in if msgs == mempty then (mempty, Just x) else (msgs, Nothing)
+          
+          -- note: DO NOT pattern match on mempty, it will bind the val to mempty instead of pattern matching. 
 
-errStr (TypedName t tn, ti) = messageNoLn "TypeCheck" (disp tn <> " declared type " <> disp t <> ", but inferred type is " <> disp ti) Common.Pass.Error
+errStr (TypedName t tn, ti) = messageNoLn "TypeCheck" (disp tn <> " declared type " <> disp ti <> ", but inferred type is " <> disp t) Common.Pass.Error
 
+typechk ast = execState (checkAST ast) mempty
 
-checkAST :: AST TypedName -> [(TypedName, Type)]
-checkAST (AST (d:ds)) = (checkDefn d) ++ checkExpr (value d) ++ checkAST (AST ds)
-checkAST (AST []) = []
+checkAST :: AST TypedName -> State Messages (AST TypedName)
+checkAST (AST ds) = do
+    _ <- mapM (checkDefn traversal) ds
+    return $ AST ds
 
-
-checkExpr (Variable a) = []
-checkExpr (FunctionCall a b) = checkExpr a ++ checkExpr b
-checkExpr (Literal l) = checkLit l
-checkExpr (IfStmt i t e) = checkExpr i ++ checkExpr t ++ checkExpr e
-checkExpr (Block ss) = foldr (++) [] (map checkStmt ss)
-
-checkStmt (Defn d) = checkDefn d
-checkStmt (Expr e) = checkExpr e
-checkStmt (Assignment a e) = checkExpr e
-checkStmt (Yield y) = checkExpr y
-checkStmt (Return r) = checkExpr r
-
-checkLit (Constant c) = []
-checkLit (StringLiteral s) = []
-checkLit (ArrayLiteral l) = foldr (++) [] (map checkExpr l)
-checkLit (TupleLiteral l) = foldr (++) [] (map checkExpr l)
-checkLit (FunctionLiteral a b) = checkExpr b
+traversal = Travlers { travExpr = (traverseExpr traversal), travLit = (traverseLit traversal), travStmt = (checkStmt traversal) }
 
 
-checkDefn d = case typeof d of
-                   Just t -> case (identifier d) of
-                                  (Plain v) -> if (ty v) == t then [] else [(v, t)]
-                                  (TupleUnboxing vars) -> error "No support for annotating tuples yet"
-                   Nothing -> []
+checkStmt :: (Travlers (State Messages) (TypedName)) -> (Statement TypedName) -> State Messages (Statement TypedName)
+checkStmt t (Defn d) = do
+    _ <- checkDefn t d
+    return $ Defn d
+    
+checkStmt t others = (traverseStmt t) others
 
-ty (TypedName t nm) = t
+checkDefn t d = do 
+    case typeof d of
+        Just t -> case (identifier d) of
+                        (Plain (a@(TypedName ty nm))) -> if ty /= t then do
+                            modify $ \y -> y <> errStr (a, t)
+                            return ()
+                                                                  else do
+                                                                      return ()
+                        (TupleUnboxing vars) -> error "No support for annotating tuples yet"
+        Nothing -> return ()
+    _ <- (traverseExpr traversal) (value d)
+    return d

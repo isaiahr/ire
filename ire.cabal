@@ -11,6 +11,7 @@ library
       AST.ASTUtils
       AST.Syntax
       AST.TypeSystem
+      AST.Traversal
       Common.Common
       Common.Natives
       Common.Pass

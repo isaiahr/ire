@@ -210,23 +210,3 @@ exportsOf s pf = execState (forM s $ \x -> do
             else 
                 put $ (str, ty, (pFileInfo t)):st
     ) []
-
-    {-
-
-if any (\xsq -> 1 < length xsq) (map nub ogex) then Left "Duplicate Symbols" else Right (nub isq)
-    where isq = importedSymsQ uf apf
-          ogex = map (\(s, t, fi) -> findOrigExporter (uPath uf) (uImports uf) s apf) isq
-        
-importedSymsQ :: UFile -> [PFile] -> [(String, Type, FileInfo)]
-importedSymsQ ufile allpfiles = y
-    where y = foldl (++) [] $ map (\f -> mgc (pExports f) (pFileInfo f) ) (filter (\p -> (pLocation p) `elem` (uImports ufile)) allpfiles)
-          mgc ((a, b):ds) c = (a, b, c): (mgc ds c)
-          mgc [] c = []
-
-findOrigExporter me imports string allpfiles = case expstring of
-                                                    [] -> [me]
-                                                    xs -> foldl (++) [] (map (\x -> findOrigExporter (pLocation x) (pImports x) string allpfiles) xs)
-    where pfim = filter (\p -> (pLocation p) `elem` imports) allpfiles
-          -- pfiles that export the sym
-          expstring = filter (\p -> any (\(s, t) -> s == string) (pExports p)) pfim
-          -}

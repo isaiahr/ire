@@ -30,7 +30,7 @@ data Message = Message {
     mPassName :: String,
     mStr :: String,
     mSeverity :: Severity
-}
+} deriving Eq
 
 instance Disp Message where
     disp message = header message <> (concat $ map (\x -> case x of
@@ -44,7 +44,7 @@ header message = "[" <> (longS (mSeverity message)) <> "] [" <> mPassName messag
 filterDbg (Messages msg) = Messages (filter (\x -> mSeverity x /= Debug) msg)
 filterErrs (Messages msg) = Messages (filter (\x -> mSeverity x == Error) msg)
 
-newtype Messages = Messages [Message]
+newtype Messages = Messages [Message] deriving Eq
 
 instance Disp Messages where
     disp (Messages m) = intercalate "\n" (map (disp) m)
