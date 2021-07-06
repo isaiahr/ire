@@ -1,0 +1,9 @@
+// Ok (10, "")
+
+main := \() -> {
+    a := [1, 2, 3, 0]
+    b := __ire__arrayget__(a, 0) + __ire__arrayget__(a, 1) + __ire__arrayget__(a, 2) + __ire__arrayget__(a, 3)
+    __ire__arrayset__(a, 3, 4)
+    c := b + __ire__arrayget__(a, 3)
+    __ire__exit__(c)
+}

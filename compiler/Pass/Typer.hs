@@ -637,3 +637,17 @@ typeofn Native_Print = (TyScheme []) <$> ast2tyinfer (Function (StringT) (Tuple 
 typeofn Native_ArraySize = do
     tv <- fresh
     return $ TyScheme [tv] (typeFunction (typeArray (TyVar tv)) typeInt)
+    
+typeofn Native_ArrayGet = do
+    tv <- fresh
+    return $ TyScheme [tv] (typeFunction (typeTuple [typeArray (TyVar tv), typeInt]) (TyVar tv))
+    
+typeofn Native_ArraySet = do
+    tv <- fresh
+    return $ TyScheme [tv] (typeFunction (typeTuple [typeArray (TyVar tv), typeInt, (TyVar tv)]) (typeTuple []))
+    
+typeofn Native_ArrayAppend = do
+    tv <- fresh
+    return $ TyScheme [tv] (typeFunction (typeTuple [typeArray (TyVar tv), typeArray (TyVar tv)]) (typeArray (TyVar tv)))
+    
+    

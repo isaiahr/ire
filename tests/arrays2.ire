@@ -1,0 +1,11 @@
+// Ok (7, "")
+
+main := \() -> {
+    
+    a := [1]
+    b := a ++ [2, 3, 0]
+    __ire__arrayset__(a, 3, 4)
+    // below: 4 + 2 + 1
+    c := __ire__arraysize__(b) + __ire__arrayget__(b, 1) + __ire__arrayget__(b, 0)
+    __ire__exit__(c)
+}

@@ -203,7 +203,8 @@ parseOp = (parseToken Plus $> Operation 4 Plus "+") <|>
           (parseToken Greater $> Operation 3 Greater ">") <|>
           (parseToken Less $> Operation 3 Less "<") <|>
           (parseToken GreaterEqual $> Operation 3 GreaterEqual ">=") <|>
-          (parseToken LesserEqual $> Operation 3 LesserEqual "<=") 
+          (parseToken LesserEqual $> Operation 3 LesserEqual "<=") <|>
+          (parseToken DoublePlus $> Operation 4 DoublePlus "++")
 
 orderOps iexpr = case (lower 0 (lower 1 (lower 2 (lower 3 (lower 4 (lower 5 iexpr)))))) of
                       (InfixExpr e Null) -> e

@@ -23,7 +23,10 @@ data Native =
     Native_LesserEqual | 
     Native_Or | 
     Native_And |
-    Native_ArraySize
+    Native_ArraySize | 
+    Native_ArrayGet |
+    Native_ArraySet |
+    Native_ArrayAppend
       deriving (Ord, Eq)
 
 instance Disp Native where
@@ -41,6 +44,9 @@ instance Disp Native where
     disp Native_Or = "|"
     disp Native_And = "&"
     disp Native_ArraySize = "__ire__arraysize__"
+    disp Native_ArrayGet = "__ire__arrayget__"
+    disp Native_ArraySet = "__ire__arrayset__"
+    disp Native_ArrayAppend = "++"
     
 allNatives = [
     Native_Exit,
@@ -56,7 +62,10 @@ allNatives = [
     Native_LesserEqual, 
     Native_Or,
     Native_And,
-    Native_ArraySize
+    Native_ArraySize,
+    Native_ArrayGet,
+    Native_ArraySet,
+    Native_ArrayAppend
     ]
 
 llvmLibNatives = [Native_Exit, Native_Print, Native_Alloc]
@@ -74,9 +83,10 @@ fromString ">=" = Just Native_GreaterEqual
 fromString "<=" = Just Native_LesserEqual
 fromString "|" = Just Native_Or
 fromString "&" = Just Native_And
+fromString "++" = Just Native_ArrayAppend
+fromString "__ire__arrayget__" = Just Native_ArrayGet
+fromString "__ire__arrayset__" = Just Native_ArraySet
 fromString _ = Nothing
-
-
 
 prim2llvmname Native_Exit = "__irert__exit__"
 prim2llvmname Native_Print = "__irert__print__"

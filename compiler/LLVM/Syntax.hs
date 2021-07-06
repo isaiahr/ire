@@ -25,7 +25,7 @@ data LFunction = LFunction {
     fLinkage :: LLinkType
 }
 
-data LLinkType = Linkage_Private | Linkage_Internal | Linkage_External
+data LLinkType = Linkage_Private | Linkage_Internal | Linkage_External | Linkage_None
 
 type LLabel = String
 
@@ -56,6 +56,7 @@ instance Disp LLinkType where
     disp Linkage_External = "external"
     disp Linkage_Internal = "internal"
     disp Linkage_Private = "private"
+    disp Linkage_None = ""
 
 instance Disp LBasicBlock where
     disp lb = "  " <> (bbLabel lb) <> ":\n  " <> (intercalate "\n  " (map disp (bbInsts lb)))
@@ -65,7 +66,7 @@ data LInst
     | LAdd LValue LType LValue LValue Bool Bool -- val = add ty v1 v2 nuw nsw
     | LSub LValue LType LValue LValue Bool Bool -- val = sub ty v1 v2 nuw nsw
     | LMul LValue LType LValue LValue Bool Bool -- val = mul ty v1 v2 nuw nsw
-    | LGEP LValue Bool LType LType LValue [Int] -- val = getelementptr inbounds ty ty* v [i64 i[0], i64 i[1] etc]
+    | LGEP LValue Bool LType LType LValue [LValue] -- val = getelementptr inbounds ty ty* v [i64 i[0], i64 i[1] etc]
     | LLoad LValue LType LType LValue -- val = load ty ty* v
     | LStore Bool LType LValue LType LValue -- store volatile ty v ty* ptr
     | LCall LValue LType LValue [(LType, LValue)]

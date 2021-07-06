@@ -14,7 +14,7 @@ import Control.Applicative
 data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integer Int | Character Char | String String | Identifier String
            | Term | Comma | Equals | Return | Yield | PlusEquals | Pipe | New | Void | Type | Colon | Dot | Arrow | If | Then
            | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals | FSlash | BSlash
-           | Exclamation | Else | GreaterEqual | LesserEqual | Import | Export | Error | Forall | Dollar deriving (Show, Eq)
+           | Exclamation | Else | GreaterEqual | LesserEqual | Import | Export | Error | Forall | Dollar | DoublePlus deriving (Show, Eq)
 
 {- an token annotated with other data such as line number, characters held -}
 data AnnotatedToken = AnnotatedToken Token Int String deriving Eq
@@ -82,6 +82,7 @@ lexSym ('>' : '=' : str) = Just (GreaterEqual, str)
 lexSym ('<' : '=' : str) = Just (LesserEqual, str)
 lexSym ('+' : '=' : str) = Just (PlusEquals, str)
 lexSym ('-' : '>' : str) = Just (Arrow, str)
+lexSym ('+' : '+' : str) = Just (DoublePlus, str)
 lexSym ('(' : str) = Just (LParen, str)
 lexSym (')' : str) = Just (RParen, str)
 lexSym ('[' : str) = Just (LSqParen, str)

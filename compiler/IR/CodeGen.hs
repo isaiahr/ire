@@ -66,7 +66,8 @@ llvmntypeof Native_Print = LLVMFunction LLVMVoid [ir2llvmtype StringIRT]
 llvmntypeof Native_Alloc = LLVMFunction (LLVMPtr (LLVMInt 8)) [LLVMInt 64]
 
 genLLVM2 tlfs = do
-    let lfs2 = map (\n -> createFunctionStub (prim2llvmname n) (llvmntypeof n) Linkage_External) llvmLibNatives
+    let lfs2 = map (\n -> createFunctionStub (prim2llvmname n) (llvmntypeof n) Linkage_External) llvmLibNatives ++
+                [createFunctionStub "llvm.memcpy.p0i8.p0i8.i64" (LLVMFunction LLVMVoid [LLVMPtr (LLVMInt 8), LLVMPtr (LLVMInt 8), LLVMInt 64, LLVMInt 1]) Linkage_None]
     fhs <- forM tlfs genTLF
     lfs <- forM (zip tlfs fhs) genTLFe
     ctx <- get
@@ -140,7 +141,7 @@ genE (Lit (StringL str)) = do
     str1 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr (LLVMInt 8)]) LUndef (LLVMInt 64) (LIntLit (length bytes)) 0)
     str2 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr (LLVMInt 8)]) str1 (LLVMPtr (LLVMInt 8)) ptr 1)
     forM (zip bytes [0..((length bytes) -1)]) (\(byte, idx) -> do
-        gep <- promote (createGEP (LLVMInt 8) ptr [idx])
+        gep <- promote (createGEP (LLVMInt 8) ptr [LIntLit idx])
         promote $ createStore (LLVMInt 8) (LIntLit (fromIntegral byte)) gep)
     return str2
 
@@ -221,13 +222,13 @@ genE (App (Prim (MkArray ty)) eargs) = do
     val1 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr lty]) LUndef (LLVMInt 64) (LIntLit (length eargs)) 0)
     val2 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr lty]) val1 (LLVMPtr lty) ptrty 1)
     forM (zip eargs' [0..((length eargs') -1)]) (\(lv, idx) -> do
-        gep <- promote (createGEP lty ptrty [idx])
+        gep <- promote (createGEP lty ptrty [LIntLit idx])
         promote $ createStore lty lv gep)
     return val2
 
 genE (App (Prim (GetPtr ty)) [earg]) = do
     elv <- genE earg
-    gep <- promote $ createGEP (ir2llvmtype ty) elv [0]
+    gep <- promote $ createGEP (ir2llvmtype ty) elv [LIntLit 0]
     result <- promote $ createLoad (ir2llvmtype ty) gep
     return result
 
@@ -235,7 +236,7 @@ genE (App (Prim (GetPtr ty)) [earg]) = do
 genE (App (Prim (SetPtr ty)) [ptr, dat] ) = do
     ptrlv <- genE ptr
     datlv <- genE dat
-    gep <- promote $ createGEP (ir2llvmtype ty) ptrlv [0]
+    gep <- promote $ createGEP (ir2llvmtype ty) ptrlv [LIntLit 0]
     result <- promote $ createStore (ir2llvmtype ty) datlv ptrlv
     return (error "no lvalue for prim setptr app")
 
@@ -326,6 +327,65 @@ genE (App (Prim (ArraySize ty)) [arg]) = do
     r1 <- promote $ createExtractValue (LLVMStruct False [LLVMInt 64, LLVMPtr ty']) arg' 0
     return r1
     
+genE (App (Prim (ArrayGet y)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    let y' = ir2llvmtype y
+    let aty' = ir2llvmtype (Array y)
+    r1 <- promote $ createExtractValue (LLVMStruct False [aty', (LLVMInt 64)]) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [aty', (LLVMInt 64)]) argtuple' 1
+    aptr <- promote $ createExtractValue aty' r1 1 -- array pointer
+    ptr2 <- promote $ createGEP y' aptr [r2]
+    ret <- promote $ createLoad y' ptr2
+    return ret
+
+genE (App (Prim (ArraySet y)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    let y' = ir2llvmtype y
+    let aty' = ir2llvmtype (Array y)
+    r1 <- promote $ createExtractValue (LLVMStruct False [aty', (LLVMInt 64), y']) argtuple' 0
+    r2 <- promote $ createExtractValue (LLVMStruct False [aty', (LLVMInt 64), y']) argtuple' 1
+    r3 <- promote $ createExtractValue (LLVMStruct False [aty', (LLVMInt 64), y']) argtuple' 2
+    aptr <- promote $ createExtractValue aty' r1 1
+    ptr2 <- promote $ createGEP y' aptr [r2]
+    promote $ createStore y' r3 ptr2
+    return $ LZeroInit -- NOTE: maybe write LVoid here instead???
+    
+genE (App (Prim (ArrayAppend y)) [argtuple]) = do
+    argtuple' <- genE argtuple
+    let y' = ir2llvmtype y
+    let aty' = ir2llvmtype (Array y)
+    arr1 <- promote $ createExtractValue (LLVMStruct False [aty', aty']) argtuple' 0
+    arr2 <- promote $ createExtractValue (LLVMStruct False [aty', aty']) argtuple' 1
+    arr1sz <- promote $ createExtractValue aty' arr1 0
+    arr2sz <- promote $ createExtractValue aty' arr2 0
+    arr1szbytes <- promote $ createMul (LLVMInt 64) arr1sz (LIntLit 8)
+    arr2szbytes <- promote $ createMul (LLVMInt 64) arr2sz (LIntLit 8)
+    arr1ptr <- promote $ createExtractValue aty' arr1 1
+    arr1ptri8 <- promote $ createBitcast (LLVMPtr y') arr1ptr (LLVMPtr (LLVMInt 8))
+    arr2ptr <- promote $ createExtractValue aty' arr2 1
+    arr2ptri8 <- promote $ createBitcast (LLVMPtr y') arr2ptr (LLVMPtr (LLVMInt 8))
+    combinedsz <- promote $ createAdd (LLVMInt 64) arr1sz arr2sz
+    --TODO : again, assumption that array elements = 64bits (8 bytes) long
+    bytesneeded <- promote $ createMul (LLVMInt 64) combinedsz (LIntLit 8)
+    arralloc <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, bytesneeded)])
+    arrdata <- promote (createBitcast (LLVMPtr (LLVMInt 8)) arralloc (LLVMPtr y'))
+    v1 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr y']) LUndef (LLVMInt 64) (combinedsz) 0)
+    v2 <- promote $ createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr y']) v1 (LLVMPtr y') arrdata 1
+    -- TODO: memcpy here.
+    promote $ createCall (LLVMVoid) (LGlob "llvm.memcpy.p0i8.p0i8.i64") [
+                (LLVMPtr (LLVMInt 8), arralloc),
+                (LLVMPtr (LLVMInt 8), arr1ptri8),
+                (LLVMInt 64, arr1szbytes),
+                (LLVMInt 1, LIntLit 0)]
+    arrallocsnd <- promote $ createGEP (LLVMInt 8) arralloc [arr1szbytes] -- (the ptr to the 2nd part of array)
+    promote $ createCall (LLVMVoid) (LGlob "llvm.memcpy.p0i8.p0i8.i64") [
+                (LLVMPtr (LLVMInt 8), arrallocsnd),
+                (LLVMPtr (LLVMInt 8), arr2ptri8),
+                (LLVMInt 64, arr2szbytes),
+                (LLVMInt 1, LIntLit 0)]
+    return v2
+    
+    
 genE (App (Prim (LibPrim lb)) eargs) = do
     eargs' <- forM eargs genE
     -- efty <- getIRType (Prim (LibPrim lb)) 
@@ -399,13 +459,13 @@ genE (If cond e1 e2) = do
 helper0 :: LValue -> (LValue, LType, Int) -> State Ctx ()
 helper0 bigptr (name, ty, idx) = do
     lv0 <- promote $ createBitcast ty name (LLVMPtr (LLVMInt 8))
-    lv1 <- promote $ createGEP (LLVMPtr (LLVMInt 8)) bigptr [idx]
+    lv1 <- promote $ createGEP (LLVMPtr (LLVMInt 8)) bigptr [LIntLit idx]
     promote $ createStore ty lv0 lv1
 
 -- opposite of helper0
 helper1 :: LValue -> (LType, Int) -> State Ctx LValue
 helper1 bigptr (ty, idx) = do
-    lv0 <- promote $ createGEP (LLVMPtr (LLVMPtr (LLVMInt 8))) bigptr [idx]
+    lv0 <- promote $ createGEP (LLVMPtr (LLVMPtr (LLVMInt 8))) bigptr [LIntLit idx]
     lv1 <- promote $ createLoad (LLVMPtr (LLVMInt 8)) lv0
     result <- promote $ createBitcast (LLVMPtr (LLVMInt 8)) lv1 ty
     return result
