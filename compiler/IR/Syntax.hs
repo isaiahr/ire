@@ -45,6 +45,7 @@ data PrimE
     | GetPtr Type -- primitive function to derefence pointers
     | SetPtr Type -- primitive function to update pointed-to data
     | CreatePtr Type -- primitive function to create pointers 
+    | ArraySize Type -- array size
     | IntAdd -- prim add int
     | IntSub -- prim sub int
     | IntMul -- prim multiply int

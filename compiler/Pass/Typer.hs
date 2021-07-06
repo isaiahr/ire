@@ -164,6 +164,10 @@ ast2tyinfer (General ig) = do
              return $ TyVar tv
              
 
+{-
+N.B: this could cause issues in future, with distinct uses of $1 etc
+getting mapped to same tv, when they should be different.
+--}
 ast2tyscheme (Poly nt mt) = do
     thing <- forM nt $ \n -> do
         st <- get 
@@ -312,15 +316,20 @@ clearVar (mi, n) = do
 
 newVar :: (Maybe Int, Name) -> InferM Typ
 newVar (mi, a@(NativeName n)) = do
-    actualty <- ast2tyinfer (asttypeof n)
     v <- getVar (mi, a)
     case v of
          (Just tv) -> return tv
          Nothing -> do
+             actualty <- typeofn n
              st <- get
              let (Env emap) = (env st)
-             put $ st {env = Env (Map.insert a (TyScheme [] (actualty)) emap) } 
-             return actualty
+             put $ st {env = Env (Map.insert a actualty emap) } 
+             mt <- instantiate actualty
+             st0 <- get
+             let (AuxEnv ae) = (auxenv st0)
+             let ae' = AuxEnv $ Map.insert (mi, a) mt ae
+             modify $ \st01 -> st01 {auxenv = ae'}
+             return mt
 
 newVar (mi, a@(Symbol str ty fi)) = do
     v <- getVar (mi, a)
@@ -612,16 +621,19 @@ instance Disp TypeError where
     disp (InfiniteType tv ty) = "Occurs check when solving " <> disp tv <> " ~ " <> disp ty
     
 
-asttypeof Native_Exit = Function (Bits 64) (Tuple [])
-asttypeof Native_Addition = Function (Tuple [Bits 64, Bits 64]) (Bits 64)
-asttypeof Native_Subtraction = Function (Tuple [Bits 64, Bits 64]) (Bits 64)
-asttypeof Native_Multiplication = Function (Tuple [Bits 64, Bits 64]) (Bits 64)
+typeofn Native_Exit = (TyScheme []) <$> ast2tyinfer (Function (Bits 64) (Tuple []))
+typeofn Native_Addition = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 64))
+typeofn Native_Subtraction = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 64))
+typeofn Native_Multiplication = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 64))
 -- for now. this will change in the future (after polymorphism is added)
-asttypeof Native_Equal = Function (Tuple [Bits 64, Bits 64]) (Bits 1)
-asttypeof Native_Greater = Function (Tuple [Bits 64, Bits 64]) (Bits 1)
-asttypeof Native_Less = Function (Tuple [Bits 64, Bits 64]) (Bits 1)
-asttypeof Native_GreaterEqual = Function (Tuple [Bits 64, Bits 64]) (Bits 1)
-asttypeof Native_LesserEqual = Function (Tuple [Bits 64, Bits 64]) (Bits 1)
-asttypeof Native_Or = Function (Tuple [Bits 1, Bits 1]) (Bits 1)
-asttypeof Native_And = Function (Tuple [Bits 1, Bits 1]) (Bits 1)
-asttypeof Native_Print = Function (StringT) (Tuple [])
+typeofn Native_Equal = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
+typeofn Native_Greater = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
+typeofn Native_Less = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
+typeofn Native_GreaterEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
+typeofn Native_LesserEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
+typeofn Native_Or = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 1, Bits 1]) (Bits 1))
+typeofn Native_And = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 1, Bits 1]) (Bits 1))
+typeofn Native_Print = (TyScheme []) <$> ast2tyinfer (Function (StringT) (Tuple []))
+typeofn Native_ArraySize = do
+    tv <- fresh
+    return $ TyScheme [tv] (typeFunction (typeArray (TyVar tv)) typeInt)

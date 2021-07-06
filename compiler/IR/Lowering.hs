@@ -230,7 +230,7 @@ lexp (FunctionCall e1 e2) = do
     return $ App ne1 [ne2]
 
 
-lexp (Variable (TypedName t (NativeName n))) = return $ Prim $ primName n
+lexp (Variable (TypedName t (NativeName n))) =  return $ Prim $ primName (convTyScheme t) n
     
 lexp (Variable (TypedName t (Symbol s t2 fi))) = do
     na <- registerSymbol s t fi
@@ -250,9 +250,14 @@ llit (TupleLiteral ea) = do
     nm <- mapM lexp ea
     return $ App (Prim (MkTuple (map (\x -> exprType x) nm))) nm
 
+llit (ArrayLiteral []) = do
+    -- not an easy problem to solve
+    return (error "TODO: typing the empty array")
+    
+-- nonempty, all elements have same type. 
 llit (ArrayLiteral ea) = do
     nm <- mapM lexp ea
-    return $ App (Prim (MkArray ((error "TODO: typing the empty array") nm))) nm
+    return $ App (Prim (MkArray (exprType (nm!!0)))) nm
 
 {--
 N.B. (FunctionLiteral lowering): 

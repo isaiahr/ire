@@ -22,7 +22,8 @@ data Native =
     Native_GreaterEqual |
     Native_LesserEqual | 
     Native_Or | 
-    Native_And
+    Native_And |
+    Native_ArraySize
       deriving (Ord, Eq)
 
 instance Disp Native where
@@ -39,6 +40,7 @@ instance Disp Native where
     disp Native_LesserEqual = "<="
     disp Native_Or = "|"
     disp Native_And = "&"
+    disp Native_ArraySize = "__ire__arraysize__"
     
 allNatives = [
     Native_Exit,
@@ -53,13 +55,15 @@ allNatives = [
     Native_GreaterEqual,
     Native_LesserEqual, 
     Native_Or,
-    Native_And
+    Native_And,
+    Native_ArraySize
     ]
 
 llvmLibNatives = [Native_Exit, Native_Print, Native_Alloc]
 
 fromString "__ire__exit__" = Just Native_Exit
 fromString "__ire__print__" = Just Native_Print
+fromString "__ire__arraysize__" = Just Native_ArraySize
 fromString "+" = Just Native_Addition
 fromString "-" = Just Native_Subtraction
 fromString "*" = Just Native_Multiplication
@@ -78,3 +82,13 @@ prim2llvmname Native_Exit = "__irert__exit__"
 prim2llvmname Native_Print = "__irert__print__"
 prim2llvmname Native_Alloc = "__irert__gc_alloc__"
 prim2llvmname a = error "this shouldn't be called. bug in program #5508345089480"
+
+{---
+when adding native:
+update: Pass/Typer.hs (native type inference)
+update: IR/Utils.hs (primName / libTypeOf)
+update: IR/Codegen.hs (if needed: special codegen)
+
+--}
+
+--}

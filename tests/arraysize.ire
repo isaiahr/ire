@@ -1,0 +1,8 @@
+// Ok (5, "")
+
+// short test of integer array size 
+
+main := \() -> {
+    a := [1, 2, 3, 4, 5]
+    __ire__exit__(__ire__arraysize__(a))
+}

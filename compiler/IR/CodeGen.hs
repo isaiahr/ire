@@ -27,6 +27,8 @@ import Common.Natives
         -- run llift to get rid of abs nodes.
     2) parameters cannot be assigned.
         -- this should already be done when lowering to IR.
+    3) absolutely no type variables should appear anywhere
+        -- run monomorphization to get rid of type variables
 -} 
 
 {-
@@ -209,7 +211,19 @@ genE (App (Prim (MkTuple ty)) eargs) = (do
 
     
 genE (App (Prim (MkArray ty)) eargs) = do
-    return $ error "not yet impl"
+    eargs' <- forM eargs genE
+    -- TODO: BIG ASSSUMPTION HERE: each element will take 64 bits (or 8 bytes) of space
+    -- this is not true depending on the members of array
+    -- ALSO: some platforms have 32bit integers!!!
+    let lty = ir2llvmtype ty
+    ptr <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, LIntLit ((length eargs)*8))])
+    ptrty <- promote (createBitcast (LLVMPtr (LLVMInt 8)) ptr (LLVMPtr lty))
+    val1 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr lty]) LUndef (LLVMInt 64) (LIntLit (length eargs)) 0)
+    val2 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr lty]) val1 (LLVMPtr lty) ptrty 1)
+    forM (zip eargs' [0..((length eargs') -1)]) (\(lv, idx) -> do
+        gep <- promote (createGEP lty ptrty [idx])
+        promote $ createStore lty lv gep)
+    return val2
 
 genE (App (Prim (GetPtr ty)) [earg]) = do
     elv <- genE earg
@@ -305,6 +319,13 @@ genE (App (Prim (BoolAnd)) [argtuple]) = do
     result <- promote $ createAnd (LLVMInt 1) r1 r2
     return $ result
 
+-- we store array length at index -1 of array
+genE (App (Prim (ArraySize ty)) [arg]) = do
+    let ty' = ir2llvmtype ty
+    arg' <- genE arg
+    r1 <- promote $ createExtractValue (LLVMStruct False [LLVMInt 64, LLVMPtr ty']) arg' 0
+    return r1
+    
 genE (App (Prim (LibPrim lb)) eargs) = do
     eargs' <- forM eargs genE
     -- efty <- getIRType (Prim (LibPrim lb)) 
@@ -437,6 +458,6 @@ ir2llvmtype (Tuple tys) = LLVMStruct False (map ir2llvmtype tys) -- cartesion pr
 ir2llvmtype (Function params ret) = LLVMFunction (ir2llvmtype ret) (map ir2llvmtype params)
 ir2llvmtype (EnvFunction params cl ret) = LLVMFunction (ir2llvmtype ret) (([LLVMPtr (LLVMPtr (LLVMInt 8))]  ++ map ir2llvmtype  params)) -- IMPORTANT: CL FIRST
 ir2llvmtype (Bits nt) = (LLVMInt nt)
-ir2llvmtype (Array t) = LLVMPtr (ir2llvmtype t)
+ir2llvmtype (Array t) = LLVMStruct False [(LLVMInt 64), LLVMPtr (ir2llvmtype t)]
 ir2llvmtype (Ptr t) = LLVMPtr (ir2llvmtype t)
 ir2llvmtype (StringIRT) = LLVMStruct False [(LLVMInt 64), LLVMPtr (LLVMInt 8)]

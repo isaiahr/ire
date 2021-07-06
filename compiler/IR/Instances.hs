@@ -60,6 +60,7 @@ instance Disp PrimE where
     disp (GetPtr ty) = "@GetPtr!" <> disp ty
     disp (SetPtr ty) = "@SetPtr!" <> disp ty
     disp (CreatePtr ty) = "@CreatePtr!" <> disp ty
+    disp (ArraySize ty) = "@ArraySize!" <> disp ty
     disp (IntAdd) = "@IntAdd!"
     disp (IntSub) = "@IntSub!"
     disp (IntMul) = "@IntMul!"
