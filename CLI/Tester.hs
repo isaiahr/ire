@@ -39,7 +39,7 @@ data TestResult = TestPass | TestFail String | TestSkip deriving Eq
 
 main = do
     files <- listTestsIn "tests"
-    results <- forM (map ("tests/" <> ) files) (runTestCase)
+    results <- forM (files) (runTestCase)
     forM (zip files results) $ \(file, err) -> case err of 
                                                     TestPass -> putStr "."
                                                     TestFail _ -> putStr "E"
@@ -57,12 +57,12 @@ listTestsIn :: String -> IO [String]
 listTestsIn dir = do
     cur <- listDirectory dir
     rec <- forM cur $ \ dr -> do
-        eq <- doesDirectoryExist dr
-        if eq then
+        eq <- doesDirectoryExist (dir </> dr)
+        if eq then do
             listTestsIn (dir </> dr)
         else 
             if takeExtension dr == ".ire" then
-                return [dr]
+                return [dir </> dr]
             else 
                 return []
     return $ foldl (++) [] rec

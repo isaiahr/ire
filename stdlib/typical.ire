@@ -8,5 +8,6 @@
 import "system.ire"
 import "io.ire"
 import "functional.ire"
+import "base.ire"
 
-export exit, print, identity
+export exit, print, identity, as_string

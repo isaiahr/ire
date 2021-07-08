@@ -102,6 +102,8 @@ exprType (Lit (StringL _)) = StringIRT
 
 primName t Native_Exit = LibPrim Native_Exit
 primName t Native_Print = LibPrim Native_Print
+primName t Native_Panic = LibPrim Native_Panic
+primName t Native_IntToString = LibPrim Native_IntToString
 primName t Native_Addition = IntAdd
 primName t Native_Subtraction = IntSub
 primName t Native_Multiplication = IntMul
@@ -158,3 +160,5 @@ traverseExpr f (Ret e) = liftM Ret (f e)
 
 libtypeof Native_Exit = Function [Bits 64] (Tuple [])
 libtypeof Native_Print = Function [StringIRT] (Tuple [])
+libtypeof Native_Panic = Function [Tuple []] (Tuple [])
+libtypeof Native_IntToString = Function [Bits 64] (StringIRT)

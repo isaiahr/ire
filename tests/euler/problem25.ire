@@ -1,0 +1,19 @@
+// Ok (0, "17")
+// problem 25 of project euler
+// see https://projecteuler.net/problem=25
+
+import io
+import base
+
+// fib - returns n where fibn >= 1000. a is current fib value, b is previous, idx is n.
+fib := \(a, b, idx) -> {
+    if a + b >= 1000 then {
+        return idx + 1
+    } else ()
+    return (fib((a+b), a, (idx+1)))
+}
+
+main := \() -> {
+    result := fib(1, 1, 2)
+    print(as_string(result))
+}

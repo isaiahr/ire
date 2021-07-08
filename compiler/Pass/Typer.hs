@@ -397,7 +397,7 @@ updateGen nam = do
             con <- mkCons f (ae Map.! (mlnt, nam2))
             case (runSolve con) of
                  Left e -> do
-                     modify $ \st0 -> st0 {errors = errors st0 <> [disp e]}
+                     modify $ \st0 -> st0 {errors = errors st0 <> [disp e, "Constraints:\n"] <> (map disp con)}
                      return ()
                  Right sub -> do
                      applyCtx sub
@@ -419,7 +419,7 @@ inferD d = do
                              case runSolve c of 
                                   Left e -> do
                                       st <- get
-                                      put st {errors = errors st <> [disp e] }
+                                      put st {errors = errors st <> [disp e, "Constraints:\n"] <> (map disp c) }
                                       return mempty
                                   Right sub -> do
                                       applyCtx sub
@@ -622,6 +622,10 @@ instance Disp TypeError where
     
 
 typeofn Native_Exit = (TyScheme []) <$> ast2tyinfer (Function (Bits 64) (Tuple []))
+typeofn Native_Print = (TyScheme []) <$> ast2tyinfer (Function (StringT) (Tuple []))
+typeofn Native_Panic = (TyScheme []) <$> ast2tyinfer (Function (Tuple []) (Tuple []))
+typeofn Native_IntToString = (TyScheme []) <$> ast2tyinfer (Function (Bits 64) (StringT))
+
 typeofn Native_Addition = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 64))
 typeofn Native_Subtraction = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 64))
 typeofn Native_Multiplication = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 64))
@@ -633,7 +637,6 @@ typeofn Native_GreaterEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bi
 typeofn Native_LesserEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
 typeofn Native_Or = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 1, Bits 1]) (Bits 1))
 typeofn Native_And = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 1, Bits 1]) (Bits 1))
-typeofn Native_Print = (TyScheme []) <$> ast2tyinfer (Function (StringT) (Tuple []))
 typeofn Native_ArraySize = do
     tv <- fresh
     return $ TyScheme [tv] (typeFunction (typeArray (TyVar tv)) typeInt)

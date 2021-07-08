@@ -1,0 +1,10 @@
+/*
+base.ire - base of standard library. essential things go here, like conversions.
+
+*/
+
+
+export as_string
+
+
+as_string := \x -> __ire__inttostring__(x)

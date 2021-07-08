@@ -177,3 +177,7 @@ createPhi ty vals = do
     ret <- newValue
     addInst (LPhi ret ty (map (\(x, bb) -> (x, bbLabel bb)) vals))
     return ret
+
+createUnreachable = do
+    addInst LUnreachable
+    return ()

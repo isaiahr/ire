@@ -26,7 +26,9 @@ data Native =
     Native_ArraySize | 
     Native_ArrayGet |
     Native_ArraySet |
-    Native_ArrayAppend
+    Native_ArrayAppend |
+    Native_IntToString |
+    Native_Panic 
       deriving (Ord, Eq)
 
 instance Disp Native where
@@ -47,6 +49,8 @@ instance Disp Native where
     disp Native_ArrayGet = "__ire__arrayget__"
     disp Native_ArraySet = "__ire__arrayset__"
     disp Native_ArrayAppend = "++"
+    disp Native_IntToString = "__ire__inttostring__"
+    disp Native_Panic = "__ire__panic__"
     
 allNatives = [
     Native_Exit,
@@ -65,10 +69,12 @@ allNatives = [
     Native_ArraySize,
     Native_ArrayGet,
     Native_ArraySet,
-    Native_ArrayAppend
+    Native_ArrayAppend,
+    Native_IntToString,
+    Native_Panic
     ]
 
-llvmLibNatives = [Native_Exit, Native_Print, Native_Alloc]
+llvmLibNatives = [Native_Exit, Native_Print, Native_Alloc, Native_IntToString, Native_Panic]
 
 fromString "__ire__exit__" = Just Native_Exit
 fromString "__ire__print__" = Just Native_Print
@@ -86,11 +92,15 @@ fromString "&" = Just Native_And
 fromString "++" = Just Native_ArrayAppend
 fromString "__ire__arrayget__" = Just Native_ArrayGet
 fromString "__ire__arrayset__" = Just Native_ArraySet
+fromString "__ire__inttostring__" = Just Native_IntToString
+fromString "__ire__panic__" = Just Native_Panic
 fromString _ = Nothing
 
 prim2llvmname Native_Exit = "__irert__exit__"
 prim2llvmname Native_Print = "__irert__print__"
 prim2llvmname Native_Alloc = "__irert__gc_alloc__"
+prim2llvmname Native_IntToString = "__irert__inttostring__"
+prim2llvmname Native_Panic = "__irert__panic__"
 prim2llvmname a = error "this shouldn't be called. bug in program #5508345089480"
 
 {---

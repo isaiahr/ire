@@ -64,6 +64,8 @@ genLLVM (IR tl fi) = evalState (genLLVM2 tl) (
 llvmntypeof Native_Exit = LLVMFunction LLVMVoid [LLVMInt 64]
 llvmntypeof Native_Print = LLVMFunction LLVMVoid [ir2llvmtype StringIRT]
 llvmntypeof Native_Alloc = LLVMFunction (LLVMPtr (LLVMInt 8)) [LLVMInt 64]
+llvmntypeof Native_Panic = LLVMFunction (LLVMVoid) []
+llvmntypeof Native_IntToString = LLVMFunction (ir2llvmtype StringIRT) [LLVMInt 64]
 
 genLLVM2 tlfs = do
     let lfs2 = map (\n -> createFunctionStub (prim2llvmname n) (llvmntypeof n) Linkage_External) llvmLibNatives ++
@@ -442,13 +444,21 @@ genE (If cond e1 e2) = do
     promote $ useBB bbe1
     modify $ \ctx -> ctx {writRet = False}
     e1' <- genE e1
-    promote $ createStore llvmty e1' ptrresult 
-    promote $ createUnconditionalBr bbend
+    ctx0 <- get
+    if writRet ctx0 then 
+        return ()
+    else do
+        promote $ createStore llvmty e1' ptrresult 
+        promote $ createUnconditionalBr bbend
     promote $ useBB bbe2
     modify $ \ctx -> ctx {writRet = False}
     e2' <- genE e2
-    promote $ createStore llvmty e2' ptrresult 
-    promote $ createUnconditionalBr bbend
+    ctx1 <- get
+    if writRet ctx1 then
+        return ()
+    else do
+        promote $ createStore llvmty e2' ptrresult 
+        promote $ createUnconditionalBr bbend
     promote $ useBB bbend
     modify $ \ctx -> ctx {writRet = False}
     result <- promote $ createLoad llvmty ptrresult
