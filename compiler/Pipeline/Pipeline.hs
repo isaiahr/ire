@@ -8,13 +8,13 @@ Pipeline.hs - functions for whole-program compilation
 import System.IO
 import System.Exit
 import System.IO.Error
-import System.Console.ANSI
 import Control.Monad.State
 import Control.Exception (evaluate)
 import Data.List
 
 import Common.Common
 import Common.Pass
+import Common.Terminal
 import Parser.Lexer
 import Parser.Parser
 import AST.AST
@@ -69,23 +69,17 @@ pipelineIO target filename stage outfile = do
                     Left err -> do
                         put ([err], pfiles, (mtlf, mname))
                         liftIO $ putStr $ " ["
-                        liftIO $ setSGR [SetColor Foreground Dull Red]
-                        liftIO $ putStr "Failed" 
-                        liftIO $ setSGR [Reset]
+                        liftIO $ printColour Red "Failed" 
                         liftIO $ putStrLn "]" 
                         
                     Right (mtlf', mname', pfile) -> do
                         put ([], (pfile:pfiles), (mtlf', mname'))
                         liftIO $ putStr $ " ["
-                        liftIO $ setSGR [SetColor Foreground Dull Green]
-                        liftIO $ putStr "OK" 
-                        liftIO $ setSGR [Reset]
+                        liftIO $ printColour Green "OK"
                         liftIO $ putStrLn "]" 
             (errs, pfiles, _) -> do
                 liftIO $ putStr $ " ["
-                liftIO $ setSGR [SetColor Foreground Dull Yellow]
-                liftIO $ putStr "Skipped" 
-                liftIO $ setSGR [Reset]
+                liftIO $ printColour Yellow "Skipped"
                 liftIO $ putStrLn "]" 
                 
         )) ([], [], ([], []))
