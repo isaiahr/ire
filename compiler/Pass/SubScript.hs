@@ -19,6 +19,7 @@
 module Pass.SubScript (passSubScript) where
 
 import AST.AST
+import AST.Traversal
 import Common.Pass
 import Pass.NameTyper
 import Common.Common
@@ -26,51 +27,28 @@ import Common.Common
 import Control.Monad
 import Control.Monad.State
 
-passSubScript = Pass {pName = ["Name Subscripting"], pFunc = subscript}
-    where subscript (AST ds) = (mempty, Just $ AST $ evalState (mapM subd ds) 0)
+passSubScript = Pass {pName = "Name Subscripting", pFunc = subscript}
+    where subscript (AST ds) = (mempty, Just $ AST $ evalState (mapM (travDefn traversal) ds) 0)
           
           
 -- Note; this would be a lot easier with a traversable inst for ast.
+traversal :: (Traveller (State Int) (Name) (Maybe Int, Name))
+traversal = Traveller {
+    travExpr = (sube traversal),
+    travLit = traverseLit traversal,
+    travStmt = traverseStmt traversal,
+    travDefn = traverseDefn traversal,
+    travMapper = empty 
+}
 
-subd defn = do
-    i' <- case (identifier defn) of
-               Plain ident -> return $ Plain (Nothing, ident)
-               TupleUnboxing idents -> return $ TupleUnboxing $ map (\x -> (Nothing, x)) idents
-    e' <- sube (value defn)
-    return $ defn {value = e', identifier=i'}
-    
-sube :: Expression Name -> State Int (Expression (Maybe Int, Name))
-sube (Literal e) = Literal <$> subl e
-sube (Block s) = Block <$> (mapM subs s)
-sube (FunctionCall e e1) = liftM2 FunctionCall (sube e) (sube e1)
-sube (Variable a) = do
+empty a = do
+    return $ (Nothing, a)
+
+
+sube :: (Traveller (State Int) (Name) (Maybe Int, Name)) -> (Expression Name) -> State Int (Expression (Maybe Int, Name))
+sube t (Variable a) = do
     st <- get
-    modify (+1) 
+    modify (+1)
     return $ Variable (Just st, a)
-    
-sube (IfStmt e1 e2 e3) = liftM3 IfStmt (sube e1) (sube e2) (sube e3)
 
-subl :: Literal Name -> State Int (Literal (Maybe Int, Name))
-subl (Constant c) = return (Constant c)
-subl (StringLiteral c) = return (StringLiteral c)
-
-subl (ArrayLiteral as) = ArrayLiteral <$> (mapM sube as)
-subl (TupleLiteral as) = TupleLiteral <$> (mapM sube as)
-subl (FunctionLiteral pm ex) = do
-    i' <- case pm of
-               Plain ident -> return $ Plain (Nothing, ident)
-               TupleUnboxing idents -> return $ TupleUnboxing $ map (\x -> (Nothing, x)) idents
-    ex' <- sube ex
-    return (FunctionLiteral i' ex')
-
-subs :: Statement Name -> State Int (Statement (Maybe Int, Name))
-subs (Defn d) = Defn <$> (subd d)
-subs (Expr e) = Expr <$> (sube e)
-subs (Assignment pm ex) = do
-    i' <- case pm of
-               Plain ident -> return $ Plain (Nothing, ident)
-               TupleUnboxing idents -> return $ TupleUnboxing $ map (\x -> (Nothing, x)) idents
-    ex' <- sube ex
-    return (Assignment i' ex')
-subs (Return r) = Return <$> (sube r)
-subs (Yield y) = Yield <$> (sube y)
+sube t expr = (traverseExpr t) expr

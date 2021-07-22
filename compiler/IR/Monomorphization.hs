@@ -23,7 +23,7 @@ import Common.Pass
 import Data.List
 
 passMonoM :: [TLFunction] -> [Name] -> Pass IR (IR, [TLFunction], [Name])
-passMonoM tlfs names = Pass {pName = ["Monomorphization"], pFunc = runP }
+passMonoM tlfs names = Pass {pName = "Monomorphization", pFunc = runP }
     where runP ir = let r = monoM (ir, tlfs, names) in (messageNoLn "Monomorphization" (disp $ fst3 r) Debug, Just r)
           fst3 (a, b, c) = a
 

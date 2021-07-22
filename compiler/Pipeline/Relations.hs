@@ -1,4 +1,5 @@
 {-# LANGUAGE BangPatterns #-}
+{-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE CPP #-}
 
 #include "../../build/config.h"
@@ -8,6 +9,7 @@ module Pipeline.Relations (importDag, UFile(..)) where
 {--
 Relations.hs: this handles the relationships between files.
 -} 
+
 
 import Parser.ParserRels
 import Parser.Lexer
@@ -19,6 +21,7 @@ import System.IO
 import System.FilePath
 import Data.List
 
+import Common.Common
 import Common.Pass
 
 
@@ -40,7 +43,12 @@ importDag filename = do
     ctx <- execStateT (loadFiles [] filename) (Ctx { files = []})
     return (files ctx)
 
-
+instance Disp [(Bool, String)] where
+    disp a = error "TODO 584589455485498"
+    
+instance Disp [String] where
+    disp a = error "TODO 9238489348934"
+    
 loadFiles :: [String] -> String -> StateT Ctx IO ()
 loadFiles preds pth = do 
     -- canonicalizePath needed for seeing if two files are the same
@@ -51,10 +59,10 @@ loadFiles preds pth = do
     inhandle <- liftIO $ openFile path ReadMode
     liftIO $ hSetEncoding inhandle utf8
     contents <- liftIO $ hGetContents inhandle
-    let (msg, u) = runPass contents (passLexer >>> passParseRels)
+    let u = (mkPassResult contents) >>>> passLexer >>>> passParseRels
     !ufile <- case u of 
-                   Nothing -> liftIO $ ioError $ userError ("Error parsing imports / exports in file " <> path)
-                   Just (im, ex) -> do
+                   (PassFail _ _) -> liftIO $ ioError $ userError ("Error parsing imports / exports in file " <> path)
+                   (PassOk _ msg (im, ex)) -> do
                        curdir <- liftIO $ getCurrentDirectory
                        liftIO $ setCurrentDirectory (takeDirectory path)
                        impaths <- forM im $ \(b, t0) -> liftIO $ canonicalizePath $ if b then STDLIB_PATH </> t0 <> ".ire" else t0

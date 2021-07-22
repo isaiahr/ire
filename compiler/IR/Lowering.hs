@@ -18,7 +18,7 @@ data Context = Context {
     fileId :: FileInfo
 }
 
-passLower x fi = Pass {pName = ["AST to IR lowering"], pFunc = runP }
+passLower x fi = Pass {pName = "AST to IR lowering", pFunc = runP }
     where runP ast = let r = lower fi x ast in (messageNoLn "AST to IR lowering" (disp r) Debug, Just r)
           
 lower :: FileInfo -> [(String, Int)] -> AST TypedName -> IR

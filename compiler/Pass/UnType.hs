@@ -13,5 +13,5 @@ import AST.AST
 
 
 passUnType :: Pass (AST TypedName) (AST Name)
-passUnType = Pass {pName = ["UnType"], pFunc = \ast -> (mempty, Just $ fmap fn ast)}
+passUnType = Pass {pName = "UnType", pFunc = \ast -> (mempty, Just $ fmap fn ast)}
     where fn (TypedName t n) = n

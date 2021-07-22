@@ -15,7 +15,7 @@ parser for import / exports
 --}
 
 passParseRels :: Pass [AnnotatedToken] ([(Bool, String)], [String])
-passParseRels = Pass {pName = ["Parser"], pFunc = doPs}
+passParseRels = Pass {pName = "ParserRels", pFunc = doPs}
     where doPs x = case run parseFile x of
                         ParseSuccess n t -> (mempty, Just n)
                         otherwise -> (messageNoLn "ParserRels" "Error parsing" Common.Pass.Error, Nothing)

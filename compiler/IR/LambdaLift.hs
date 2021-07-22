@@ -10,7 +10,7 @@ LambdaLift.hs: lifts nested functions to top-level
 heap conv should be performed first (they are sort of part of lambda lifting, but
 seperated into different files)
 -} 
-passLLift = Pass {pName = ["LambdaLifting"], pFunc = runP }
+passLLift = Pass {pName = "LambdaLifting", pFunc = runP }
     where runP ir = let r = llift ir in (messageNoLn "LambdaLifting" (disp r) Debug, Just r)
 
 --                      mains         add          nametypetbl  nextnameint

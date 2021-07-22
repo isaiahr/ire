@@ -13,6 +13,6 @@ import AST.AST
 
 
 passUnSubScript :: Pass (AST (Int, TypedName)) (AST TypedName)
-passUnSubScript = Pass {pName = ["Name Subscript Removal"], pFunc = \ast -> (mempty, Just $ fmap fn ast)}
+passUnSubScript = Pass {pName = "Name Subscript Removal", pFunc = \ast -> (mempty, Just $ fmap fn ast)}
     where fn (subst, n) = n
  

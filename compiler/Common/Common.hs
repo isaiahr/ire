@@ -13,6 +13,8 @@ instance Disp Char where
 instance Disp ([Char]) where
     disp x = x
 
+instance (Disp a, Disp b) => Disp (a, b) where
+    disp (a, b) = "(" <> disp a <> ", " <> disp b <> ")"
     
 data FileInfo = FileInfo {
     fiSrcFileName :: String,
@@ -21,3 +23,7 @@ data FileInfo = FileInfo {
     
 instance Disp FileInfo where
     disp fi = fiSrcFileName fi <> "#" <> disp (fiFileId fi)
+    
+instance (Disp a) => Disp (Maybe a) where
+    disp Nothing = ""
+    disp (Just t) = disp t

@@ -27,7 +27,7 @@ instance Disp AnnotatedToken where
 instance Disp ([] AnnotatedToken) where
     disp r = intercalate "\n" (map disp r)
 
-passLexer = Pass {pName = ["Lexing"], pFunc = doLx}
+passLexer = Pass {pName = "Lexing", pFunc = doLx}
     where doLx s = let result = lexFile s in case filterE result of
                                                   [] -> (messageNoLn "Lexer" (disp result) Debug, Just (result))
                                                   es -> (foldr (<>) mempty (map e2Msg es), Nothing)

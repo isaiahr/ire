@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleInstances #-} -- for hack, see below
 module Pipeline.Pipeline (pipelineIO) where
 
 {-
@@ -34,6 +35,7 @@ import IR.LambdaLift
 import IR.CodeGen
 import Pipeline.Relations
 import Pipeline.Target
+import LLVM.Syntax
 
 data PFile = PFile {
     pLocation :: String,
@@ -94,22 +96,29 @@ pipelineIO target filename stage outfile = do
     return $ foldl (<>) mempty (map pMsgs processed_files)
 
 
-pipeline1 x = passLexer >>> 
-              passParse >>>
-              passYieldInj >>>
-              passName x >>>
-              passSubScript >>>
-              passType -- >>>
-              -- passUnSubScript
+pipeline1 x = \pr -> (pr >>>>
+              passLexer >>>>
+              passParse >>>>
+              passYieldInj >>>>
+              passName x >>>>
+              passSubScript >>>>
+              passType) -- >>>
 
+-- hack kind of 
+instance Disp (IR.Syntax.IR, [IR.Syntax.TLFunction], [IR.Syntax.Name]) where
+    disp (a, b, c) = disp a
+    
+instance Disp (LLVM.Syntax.LMod, [IR.Syntax.TLFunction], [IR.Syntax.Name]) where
+    disp (a, b, c) = disp a
 -- x = exported syms
-pipeline2 x fi tlfs names = passTypeCheck >>> 
-              passLower x fi >>>  
-              passDCall >>> 
-              passHConv >>>
-              passLLift >>>
-              passMonoM tlfs names >>>
-              byPassWith (\(a, b, c) -> a) (\(newir,(a, b, c)) -> (newir, b, c)) passGenLLVM
+pipeline2 x fi tlfs names = \pr -> (pr >>>>
+              passTypeCheck >>>>
+              passLower x fi >>>>  
+              passDCall >>>> 
+              passHConv >>>>
+              passLLift >>>>
+              passMonoM tlfs names >>>>
+              byPassWith (\(a, b, c) -> a) (\(newir,(a, b, c)) -> (newir, b, c)) passGenLLVM)
 
 {-
 Generalized compilation function.
@@ -135,10 +144,10 @@ compile monoTLF monoN stage target file processed idx mout = do
     importedsyms <- case importedSyms file processed of
         Left p -> ioError (userError p)
         Right t -> return t
-    let (msg, result) = runPass contents (pipeline1 importedsyms)
+    let result = (pipeline1 importedsyms) (mkPassResult contents)
     case result of
-         Nothing -> ioError (userError $ disp (filterErrs msg))
-         Just (AST ds) -> do
+         (PassFail passf msg) -> ioError (userError $ disp (filterErrs msg))
+         pr@(PassOk _ msg (AST ds)) -> do
              
              let astsyms = map (\(TypedName t (Name s _)) -> (s, t)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds))
              
@@ -153,10 +162,10 @@ compile monoTLF monoN stage target file processed idx mout = do
                  ioError (userError "Exporting symbol not in file")
              let exportedsyms = map (\s -> (filter (\(s2, t) -> s == s2) allsyms) !! 0) (uExports file)
              let astexports = filter (\(s, i) -> s `elem` uExports file) (map (\(TypedName t (Name s i)) -> (s, i)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds)))
-             let (msg2, result2) = runPass (AST ds) (pipeline2 astexports FileInfo { fiSrcFileName = (uPath file), fiFileId = idx} monoTLF monoN)
+             let result2 = (pipeline2 astexports FileInfo { fiSrcFileName = (uPath file), fiFileId = idx} monoTLF monoN) pr
              case result2 of
-                 Nothing -> ioError (userError $ disp (filterErrs (msg <> msg2)))
-                 Just (y, tlf0, name0) -> do 
+                 (PassFail passf2 msg2) -> ioError (userError $ disp (filterErrs (msg <> msg2)))
+                 (PassOk _ msg2 (y, tlf0, name0)) -> do 
                      tout <- case stage of 
                             Nothing -> return "" -- no outfile. 
                             (Just tar) -> do

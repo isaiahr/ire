@@ -20,7 +20,7 @@ data Ctx = Ctx {
     messages :: Messages
 }
 
-passTypeCheck = Pass {pName = ["TypeCheck"], pFunc = checkType}
+passTypeCheck = Pass {pName = "TypeCheck", pFunc = checkType}
     where checkType x = let msgs = typechk x in if msgs == mempty then (mempty, Just x) else (msgs, Nothing)
           
           -- note: DO NOT pattern match on mempty, it will bind the val to mempty instead of pattern matching. 
@@ -34,10 +34,16 @@ checkAST (AST ds) = do
     _ <- mapM (checkDefn traversal) ds
     return $ AST ds
 
-traversal = Travlers { travExpr = (traverseExpr traversal), travLit = (traverseLit traversal), travStmt = (checkStmt traversal) }
+traversal = Traveller {
+    travExpr = (traverseExpr traversal),
+    travLit = (traverseLit traversal),
+    travStmt = (checkStmt traversal),
+    travMapper = return,
+    travDefn = (checkDefn traversal)
+}
 
 
-checkStmt :: (Travlers (State Ctx) (TypedName)) -> (Statement TypedName) -> State Ctx (Statement TypedName)
+checkStmt :: (Traveller (State Ctx) (TypedName) (TypedName)) -> (Statement TypedName) -> State Ctx (Statement TypedName)
 checkStmt t (Defn d) = do
     _ <- checkDefn t d
     return $ Defn d

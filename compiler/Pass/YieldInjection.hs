@@ -16,7 +16,7 @@ import Common.Pass
 
 import AST.AST
 
-passYieldInj = Pass {pName = ["YieldInjection"], pFunc = yieldInj}
+passYieldInj = Pass {pName = "YieldInjection", pFunc = yieldInj}
     where yieldInj x = let j = yAST x in (mempty, Just j)
 
 yAST :: AST a -> AST a

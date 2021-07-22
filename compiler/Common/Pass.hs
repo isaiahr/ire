@@ -2,7 +2,7 @@
 Pass.hs: machinery to run a pass, including associated logging tools
 
 --}
-module Common.Pass (runPass, messageNoLn, messageLn, filterDbg, filterErrs, Messages, Pass(..), byPassWith, (>>>), Severity(..), arr) where
+module Common.Pass (runPass, messageNoLn, messageLn, filterDbg, filterErrs, Messages, Pass(..), byPassWith, (>>>>), Severity(..), PassResult(..), mkPassResult) where
 
 import Common.Common
 
@@ -59,26 +59,19 @@ instance Monoid Messages where
 -- a pass on an ast / lexstream / ir / etc
 data Pass i o = Pass {
     pFunc  :: i -> (Messages, Maybe o),
-    pName  :: [String]
+    pName  :: String
 }
 
-instance Category Pass where
-    id = Pass { pFunc = (\x -> (mempty, Just x)), pName = [] }
-    f . g = Pass { pFunc = func, pName = pName f <> pName g }
-        where func x = case (pFunc g) x of
-                            (msg, Just o) -> case (pFunc f) o of
-                                                  (msg2, oo) -> (msg <> msg2, oo)
-                            (msg, Nothing) -> (msg, Nothing)
+data PassResult o = PassOk String Messages o | PassFail String Messages
 
+mkPassResult o = PassOk "-" mempty o
 
+(>>>>) :: Disp o => PassResult i -> Pass i o -> PassResult o
+a@(PassFail a1 a2) >>>> b = PassFail a1 a2
 
--- probably useless. 
-instance Arrow Pass where
-    arr f = Pass { pFunc = (\x -> (mempty, Just x)) Control.Category.. f, pName = [] }
-    first pass = Pass { pFunc = fnc, pName = [] }
-        where fnc = (\(a, c) -> case (pFunc pass) a of
-                                     (msg, Just b) -> (msg, Just (b, c))
-                                     (msg, Nothing) -> (msg, Nothing))
+a@(PassOk str msg o) >>>> b = case ((pFunc b) o) of
+    (msgs, Nothing) -> PassFail (pName b) (msg <> msgs)
+    (msgs, Just dat) -> PassOk (pName b) (msg <> messageNoLn str (disp dat) Debug <> msgs) dat
 
 
 

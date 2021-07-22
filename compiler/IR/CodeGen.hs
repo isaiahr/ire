@@ -45,7 +45,7 @@ data Ctx = Ctx {
     writRet :: Bool -- hack (sortof) to not write a 2nd return after writing a (nested) return
 }
 
-passGenLLVM = Pass {pName = ["LLVM Gen"], pFunc = runP }
+passGenLLVM = Pass {pName = "LLVM Gen", pFunc = runP }
     where runP ir = let r = genLLVM ir in (messageNoLn "LLVM Gen" (disp r) Debug, Just r)
 
 

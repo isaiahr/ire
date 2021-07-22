@@ -17,7 +17,7 @@ takes a named AST and assigns types to it
 --}
 
 
-passType = Pass {pName = ["TypeInfer"], pFunc = doType}
+passType = Pass {pName = "TypeInfer", pFunc = doType}
     where
         doType s = if null (errors c) then (messageNoLn "TypeInfer" dbgmsgs Debug, Just (typeast (env c) (auxenv c) s) ) else (messageNoLn "TypeInfer" dbgmsgs Debug <> messageNoLn "TypeInfer" (intercalate "\n" (errors c)) Error,  Nothing)  
             where c = execState (infer s) InferCtx { env = Env (Map.empty) , gmMap = Map.empty, auxenv = AuxEnv (Map.empty), cons = [], errors = [], iMsgs = "", numName = 0, fnTy = (typeFunction (error "thunk") (error "thunk2"))}

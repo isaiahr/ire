@@ -3,21 +3,28 @@ AST/Traversal.hs : tools for reducing boilerplate for ast traversals (walks)
 
 --}
 
-module AST.Traversal (Travlers(..), traverseExpr, traverseLit, traverseStmt) where
+module AST.Traversal (Traveller(..), traverseExpr, traverseLit, traverseStmt, traverseDefn) where
 
 import AST.Syntax
 import Control.Monad
 
 
--- the travlers, who are functions, traverse the ast.
+-- the travellers, who are functions, traverse the ast.
 -- should place monad constraint on m, not sure how though (or even if haskell supports it)
-data Travlers m a = Travlers {
-    travExpr :: Expression a -> m (Expression a),
-    travLit  :: Literal a -> m (Literal a),
-    travStmt :: Statement a -> m (Statement a)
+data Traveller m a b = Traveller {
+    travExpr :: Expression a -> m (Expression b),
+    travLit  :: Literal a -> m (Literal b),
+    travStmt :: Statement a -> m (Statement b),
+    travDefn :: Definition a -> m (Definition b),
+    travMapper :: a -> m b
 }
+-- for empty map, use: return.
 
-traverseExpr t (Variable a) = return (Variable a)
+traverseExpr :: Monad m => (Traveller m a b) -> Expression a -> m (Expression b)
+traverseExpr t (Variable a) = do
+    b <- (travMapper t) a
+    return (Variable b)
+
 traverseExpr t (FunctionCall a b) = do
     a' <- (travExpr t) a
     b' <- (travExpr t) b
@@ -37,6 +44,7 @@ traverseExpr t (Block ss) = do
     ss' <- forM ss (travStmt t)
     return $ Block ss'
     
+traverseLit :: Monad m => (Traveller m a b) -> Literal a -> m (Literal b)
 traverseLit t (Constant c) = return $ Constant c
 
 traverseLit t (StringLiteral s) = return $ StringLiteral s
@@ -51,11 +59,13 @@ traverseLit t (TupleLiteral ls) = do
 
 traverseLit t (FunctionLiteral a b) = do
     b' <- (travExpr t) b
-    return $ FunctionLiteral a b'
+    a' <- helper t a
+    return $ FunctionLiteral a' b'
     
+traverseStmt :: Monad m => (Traveller m a b) -> Statement a -> m (Statement b)
 traverseStmt t (Defn d) = do
-    ne <- (travExpr t) (value d)
-    return $ Defn (d {value = ne})
+    d' <- (travDefn t) d
+    return $ Defn d'
 
 traverseStmt t (Expr e) = do
     e' <- (travExpr t) e
@@ -63,7 +73,8 @@ traverseStmt t (Expr e) = do
     
 traverseStmt t (Assignment a e) = do
     e' <- (travExpr t) e
-    return $ Assignment a e'
+    a' <- helper t a
+    return $ Assignment a' e'
     
 traverseStmt t (Yield e) = do
     e' <- (travExpr t) e
@@ -72,3 +83,16 @@ traverseStmt t (Yield e) = do
 traverseStmt t (Return e) = do
     e' <- (travExpr t) e
     return $ Return e'
+    
+traverseDefn t d = do
+    ne <- (travExpr t) (value d)
+    ident <- helper t (identifier d)
+    return $ d {value = ne, identifier=ident}
+
+helper t (Plain a) = do
+    a' <- (travMapper t) a
+    return $ Plain a'
+    
+helper t (TupleUnboxing as) = do
+    as' <- mapM (travMapper t) as
+    return $ TupleUnboxing as'
