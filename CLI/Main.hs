@@ -20,6 +20,7 @@ import Pipeline.Target
 
 data Options = Options {
     oDumptrees :: Bool,
+    oDebug     :: Bool,
     oInput     :: String,
     oOutput    :: String,
     oStage     :: Stage,
@@ -34,6 +35,7 @@ defaults = Options {
     oOutput = "",
     oVersion = False,
     oStage = S_BIN,
+    oDebug = False,
     oHelp = False,
     oTarget = thisSystem
 }
@@ -42,6 +44,7 @@ defaults = Options {
 options = [
     Option ['v'] ["version"] (NoArg (\x -> x{oVersion = True})) "print version",
     Option ['h'] ["help"] (NoArg (\x -> x{oHelp = True})) "print this message",
+    Option ['b'] ["debug"] (NoArg (\x -> x{oDebug = True})) "print debug messages during compilation",
     Option ['s'] ["stage"] (OptArg (\p x -> x{oStage = maybe S_BIN stageFromStr p}) "llvm/asm/obj/bin") "stop after stage, default binary",
     Option ['o'] ["output"] (ReqArg (\p x -> x{oOutput = p}) "file") "write output to file",
     Option ['t'] ["target"] (OptArg (\p x ->  x{oTarget = case (p >>= targetFromStr) of
@@ -74,7 +77,11 @@ main = do
     op <- process a pn
     let filename = oInput op
     msgs <- pipelineIO (oTarget op) filename (oStage op) (oOutput op)
-    let fmsg = if oDumptrees op then msgs else filterDbg msgs
+    let fmsg = blacklistSev msgs (case (oDebug op, oDumptrees op) of
+                    (True, True) -> []
+                    (False, True) -> [Debug]
+                    (False, False) -> [Debug, Trees]
+                    (True, False) -> [Trees])
     putStrLn $ disp fmsg
     return exitSuccess
 

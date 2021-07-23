@@ -2,7 +2,7 @@
 Pass.hs: machinery to run a pass, including associated logging tools
 
 --}
-module Common.Pass (runPass, messageNoLn, messageLn, filterDbg, filterErrs, Messages, Pass(..), byPassWith, (>>>>), Severity(..), PassResult(..), mkPassResult) where
+module Common.Pass (runPass, messageNoLn, messageLn, whitelistSev, blacklistSev, Messages, Pass(..), byPassWith, (>>>>), Severity(..), PassResult(..), mkPassResult) where
 
 import Common.Common
 
@@ -10,15 +10,17 @@ import Control.Arrow
 import Control.Category
 import Data.List
 
-data Severity = Error | Warning | Debug deriving Eq
+data Severity = Error | Warning | Debug | Trees deriving Eq
 
 shortS Error = "E"
 shortS Warning = "W"
 shortS Debug = "D"
+shortS Trees = "T"
 
 longS Error = "Error"
 longS Warning = "Warning"
 longS Debug = "Debug"
+longS Trees = "Trees"
 
 messageNoLn pn s lvl = Messages [Message {mLine = Nothing, mPassName = pn, mStr = s, mSeverity = lvl}]
 messageLn pn s lvl ln = Messages [Message {mLine = Just ln, mPassName = pn, mStr = s, mSeverity = lvl}]
@@ -41,8 +43,8 @@ header message = "[" <> (longS (mSeverity message)) <> "] [" <> mPassName messag
                     (Just ln) -> "<line " <> disp ln <> "> "
                     Nothing -> ""
           
-filterDbg (Messages msg) = Messages (filter (\x -> mSeverity x /= Debug) msg)
-filterErrs (Messages msg) = Messages (filter (\x -> mSeverity x == Error) msg)
+blacklistSev (Messages msg) sevs = Messages (filter (\x -> not (mSeverity x `elem` sevs)) msg)
+whitelistSev (Messages msg) sevs = Messages (filter (\x ->     (mSeverity x `elem` sevs)) msg)
 
 newtype Messages = Messages [Message] deriving Eq
 
@@ -71,7 +73,7 @@ a@(PassFail a1 a2) >>>> b = PassFail a1 a2
 
 a@(PassOk str msg o) >>>> b = case ((pFunc b) o) of
     (msgs, Nothing) -> PassFail (pName b) (msg <> msgs)
-    (msgs, Just dat) -> PassOk (pName b) (msg <> messageNoLn str (disp dat) Debug <> msgs) dat
+    (msgs, Just dat) -> PassOk (pName b) (msg <> messageNoLn (pName b) (disp dat) Trees <> msgs) dat
 
 
 

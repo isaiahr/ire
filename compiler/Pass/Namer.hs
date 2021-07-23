@@ -64,7 +64,7 @@ passName withSyms = Pass {pName = "Namer", pFunc = doName}
     where doName s = name s (map (\(x, y, fi) -> Symbol x y fi) withSyms)
 
 name a syms = case (runState (nameAST a) ((SymbolTable syms [] Nothing, 0))) of
-                   (result, (SymbolTable syms0 [] Nothing, _)) -> (messageNoLn "Namer" (disp result) Debug, Just result)
+                   (result, (SymbolTable syms0 [] Nothing, _)) -> (mempty, Just result)
                    (result, (SymbolTable syms0 errs Nothing, _)) -> (messageNoLn "Namer" (fmtErrs errs) Error, Nothing)
                    _ -> error "symtbl stack didn't pop namer#237"
 

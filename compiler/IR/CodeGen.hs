@@ -46,7 +46,7 @@ data Ctx = Ctx {
 }
 
 passGenLLVM = Pass {pName = "LLVM Gen", pFunc = runP }
-    where runP ir = let r = genLLVM ir in (messageNoLn "LLVM Gen" (disp r) Debug, Just r)
+    where runP ir = let r = genLLVM ir in (mempty, Just r)
 
 
 genLLVM :: IR -> LMod

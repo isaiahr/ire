@@ -13,7 +13,7 @@ import IR.IR
 
 
 passHConv = Pass {pName = "HeapConversion", pFunc = runP }
-    where runP ir = let r = doHconv ir in (messageNoLn "HeapConversion" (disp r) Debug, Just r)
+    where runP ir = let r = doHconv ir in (mempty, Just r)
 
 doHconv ir@(IR tlf d0) = mapName (\n -> if n `elem` fvs then n {nType = (fst (nType n), (Ptr (snd (nType n))))} else n) (IR (conv fvs tlf) d0)
     where fvs = ffvs tlf globs

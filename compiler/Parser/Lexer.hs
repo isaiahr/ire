@@ -29,7 +29,7 @@ instance Disp ([] AnnotatedToken) where
 
 passLexer = Pass {pName = "Lexing", pFunc = doLx}
     where doLx s = let result = lexFile s in case filterE result of
-                                                  [] -> (messageNoLn "Lexer" (disp result) Debug, Just (result))
+                                                  [] -> (mempty, Just (result))
                                                   es -> (foldr (<>) mempty (map e2Msg es), Nothing)
 
 e2Msg (AnnotatedToken t ln str) = messageLn "Lexer" ("Encountered unknown symbol near " <> show (take 5 str)) Common.Pass.Error ln

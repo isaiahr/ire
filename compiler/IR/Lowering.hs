@@ -19,7 +19,7 @@ data Context = Context {
 }
 
 passLower x fi = Pass {pName = "AST to IR lowering", pFunc = runP }
-    where runP ast = let r = lower fi x ast in (messageNoLn "AST to IR lowering" (disp r) Debug, Just r)
+    where runP ast = let r = lower fi x ast in (mempty, Just r)
           
 lower :: FileInfo -> [(String, Int)] -> AST TypedName -> IR
 lower fi x (AST defs) = let a = evalState (lowerAll defs) (Context {nameTbl = [], nextName = 0, fileId = fi}) in IR a fi

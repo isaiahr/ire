@@ -14,7 +14,7 @@ import Common.Common
 import Common.Pass
 
 passDCall = Pass {pName = "Direct call Conversion", pFunc = runP }
-    where runP ir@(IR tlf d0) = let r = IR (map (mexpr (getGlobals ir)) tlf) d0 in (messageNoLn "Direct call Conversion" (disp r) Debug, Just r)
+    where runP ir@(IR tlf d0) = let r = IR (map (mexpr (getGlobals ir)) tlf) d0 in (mempty, Just r)
           mexpr g (TLFunction n cl p ex) = (TLFunction n cl p (expr g ex))
 
 

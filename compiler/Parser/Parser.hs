@@ -16,7 +16,7 @@ import Data.Functor
 passParse :: Pass [AnnotatedToken] (AST String)
 passParse = Pass {pName = "Parser", pFunc = doPs}
     where doPs x = case run parseFile x of
-                        ParseSuccess n t -> (messageNoLn "Parser" (disp n) Debug, Just n)
+                        ParseSuccess n t -> (mempty, Just n)
                         otherwise -> (messageNoLn "Parser" ((disp x) <> "Error parsing") Common.Pass.Error, Nothing)
 
 

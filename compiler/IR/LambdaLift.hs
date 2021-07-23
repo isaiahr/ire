@@ -11,7 +11,7 @@ heap conv should be performed first (they are sort of part of lambda lifting, bu
 seperated into different files)
 -} 
 passLLift = Pass {pName = "LambdaLifting", pFunc = runP }
-    where runP ir = let r = llift ir in (messageNoLn "LambdaLifting" (disp r) Debug, Just r)
+    where runP ir = let r = llift ir in (mempty, Just r)
 
 --                      mains         add          nametypetbl  nextnameint
 data Context = Context [TLFunction] [TLFunction] Int FileInfo

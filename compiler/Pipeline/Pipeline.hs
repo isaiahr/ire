@@ -146,7 +146,7 @@ compile monoTLF monoN stage target file processed idx mout = do
         Right t -> return t
     let result = (pipeline1 importedsyms) (mkPassResult contents)
     case result of
-         (PassFail passf msg) -> ioError (userError $ disp (filterErrs msg))
+         (PassFail passf msg) -> ioError (userError $ disp (whitelistSev msg [Common.Pass.Error]))
          pr@(PassOk _ msg (AST ds)) -> do
              
              let astsyms = map (\(TypedName t (Name s _)) -> (s, t)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds))
@@ -164,7 +164,7 @@ compile monoTLF monoN stage target file processed idx mout = do
              let astexports = filter (\(s, i) -> s `elem` uExports file) (map (\(TypedName t (Name s i)) -> (s, i)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds)))
              let result2 = (pipeline2 astexports FileInfo { fiSrcFileName = (uPath file), fiFileId = idx} monoTLF monoN) pr
              case result2 of
-                 (PassFail passf2 msg2) -> ioError (userError $ disp (filterErrs (msg <> msg2)))
+                 (PassFail passf2 msg2) -> ioError (userError $ disp (whitelistSev msg2 [Common.Pass.Error]))
                  (PassOk _ msg2 (y, tlf0, name0)) -> do 
                      tout <- case stage of 
                             Nothing -> return "" -- no outfile. 
@@ -182,7 +182,7 @@ compile monoTLF monoN stage target file processed idx mout = do
                          pObjLocation = tout, 
                          pExports = exportedsyms, 
                          pImports = (uImports file), 
-                         pMsgs = (msg <> msg2),
+                         pMsgs = (msg2),
                          pFileInfo = FileInfo { fiSrcFileName = (uPath file), fiFileId = idx}
                      })
 
