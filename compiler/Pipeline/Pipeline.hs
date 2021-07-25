@@ -144,10 +144,12 @@ compile monoTLF monoN stage target file processed idx mout = do
     importedsyms <- case importedSyms file processed of
         Left p -> ioError (userError p)
         Right t -> return t
-    let result = (pipeline1 importedsyms) (mkPassResult contents)
-    case result of
-         (PassFail passf msg) -> ioError (userError $ disp (whitelistSev msg [Common.Pass.Error]))
-         pr@(PassOk _ msg (AST ds)) -> do
+    let result = (pipeline1 importedsyms) (mkPassResult contents (Just $ uPath file) )
+    case (prPassResult result) of
+         Nothing -> do 
+             writeMessages (whitelistSev (prPassMessages result) [Common.Pass.Error])
+             exitWith (ExitFailure 1)
+         Just (AST ds) -> do
              
              let astsyms = map (\(TypedName t (Name s _)) -> (s, t)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds))
              
@@ -162,10 +164,12 @@ compile monoTLF monoN stage target file processed idx mout = do
                  ioError (userError "Exporting symbol not in file")
              let exportedsyms = map (\s -> (filter (\(s2, t) -> s == s2) allsyms) !! 0) (uExports file)
              let astexports = filter (\(s, i) -> s `elem` uExports file) (map (\(TypedName t (Name s i)) -> (s, i)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds)))
-             let result2 = (pipeline2 astexports FileInfo { fiSrcFileName = (uPath file), fiFileId = idx} monoTLF monoN) pr
-             case result2 of
-                 (PassFail passf2 msg2) -> ioError (userError $ disp (whitelistSev msg2 [Common.Pass.Error]))
-                 (PassOk _ msg2 (y, tlf0, name0)) -> do 
+             let result2 = (pipeline2 astexports FileInfo { fiSrcFileName = (uPath file), fiFileId = idx} monoTLF monoN) result
+             case (prPassResult result2) of
+                 Nothing -> do
+                     writeMessages (whitelistSev (prPassMessages result2) [Common.Pass.Error])
+                     exitWith (ExitFailure 1)
+                 Just (y, tlf0, name0) -> do 
                      tout <- case stage of 
                             Nothing -> return "" -- no outfile. 
                             (Just tar) -> do
@@ -182,7 +186,7 @@ compile monoTLF monoN stage target file processed idx mout = do
                          pObjLocation = tout, 
                          pExports = exportedsyms, 
                          pImports = (uImports file), 
-                         pMsgs = (msg2),
+                         pMsgs = (prPassMessages result2),
                          pFileInfo = FileInfo { fiSrcFileName = (uPath file), fiFileId = idx}
                      })
 

@@ -16,6 +16,7 @@ library
       Common.Natives
       Common.Pass
       Common.Terminal
+      Common.Reporting
       IR.IR
       IR.Instances
       IR.Utils

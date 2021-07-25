@@ -4,6 +4,7 @@ module Parser.Lexer (AnnotatedToken(..), Token(..), lexFile, passLexer) where
 
 import Common.Common
 import Common.Pass
+import Common.Reporting
 
 import Data.List
 import Data.Maybe
@@ -17,12 +18,20 @@ data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integ
            | Exclamation | Else | GreaterEqual | LesserEqual | Import | Export | Error | Forall | Dollar | DoublePlus deriving (Show, Eq)
 
 {- an token annotated with other data such as line number, characters held -}
-data AnnotatedToken = AnnotatedToken Token Int String deriving Eq
+data AnnotatedToken = AnnotatedToken{
+    annLexeme :: Token,
+    annLineStart :: Int,
+    annLineEnd :: Int,
+    annSrcString :: String,
+    annColStart :: Int,
+    annColEnd :: Int
+    } deriving (Show, Eq)
 
 instance Disp AnnotatedToken where
     -- convert \n to ; to not mess up output
-    disp (AnnotatedToken token@Term ln str) = "; line: " ++ show ln ++ " " ++ show token
-    disp (AnnotatedToken token ln str) = str ++ " line: " ++ show ln ++ " " ++ show token
+    disp ann = case annLexeme ann of
+                    Term -> "; line: " ++ show (annLineStart ann) ++ " " ++ show (annLexeme ann)
+                    otherwise -> (annSrcString ann) ++ " line: " ++ show (annLineStart ann) ++ " " ++ show (annLexeme ann)
     
 instance Disp ([] AnnotatedToken) where
     disp r = intercalate "\n" (map disp r)
@@ -30,35 +39,52 @@ instance Disp ([] AnnotatedToken) where
 passLexer = Pass {pName = "Lexing", pFunc = doLx}
     where doLx s = let result = lexFile s in case filterE result of
                                                   [] -> (mempty, Just (result))
-                                                  es -> (foldr (<>) mempty (map e2Msg es), Nothing)
+                                                  es -> (foldr (<>) mempty (map (e2Msg s) es), Nothing)
 
-e2Msg (AnnotatedToken t ln str) = messageLn "Lexer" ("Encountered unknown symbol near " <> show (take 5 str)) Common.Pass.Error ln
+e2Msg s ann = createReportMsg $ (
+    Report {
+        msgMainText = "Encountered Invalid Symbol",
+        msgExcerpt = s,
+        msgFileName = Nothing,
+        msgSeverity = Common.Reporting.Error,
+        msgErrorCode = 1,
+        msgPassName = "Lexer",
+        msgAnnotations = [((annLineStart ann, annColStart ann, annLineEnd ann, annColEnd ann), "Here")],
+        msgNote = ["This character or character sequence is not a valid lexical symbol"]
+    })
 
-filterE = filter (\x -> case x of
-                                    (AnnotatedToken Parser.Lexer.Error ln s) -> True
-                                    otherwise -> False)
+filterE = filter (\x -> annLexeme x == Parser.Lexer.Error)
                        
 lexFile :: String -> [AnnotatedToken]
-lexFile str = lexLine str 1
+lexFile str = lexLine str 1 1
 
-lexLine :: String -> Int -> [AnnotatedToken]
+lexLine :: String -> Int -> Int -> [AnnotatedToken]
 -- eof
-lexLine "" ln = []
+lexLine "" ln col = []
 -- ignore whitespace
-lexLine (' ':tr) ln = lexLine tr ln
-lexLine ('/':'/':tr) ln = lexLine (nextLine tr) (ln+1)
-lexLine ('/':'*': tr) ln = skipToEnd tr ln
+lexLine (' ':tr) ln col = lexLine tr ln (col+1)
+lexLine ('/':'/':tr) ln col = lexLine (nextLine tr) (ln+1) 1
+lexLine ('/':'*': tr) ln col = skipToEnd tr ln (col+2)
     where 
-    skipToEnd ('*': '/' : tr) ln = lexLine tr ln
-    skipToEnd ('\n':tr) ln = skipToEnd tr (ln+1)
-    skipToEnd (a:tr) ln = skipToEnd tr ln
-    skipToEnd [] ln = []
+    skipToEnd ('*': '/' : tr) ln col = lexLine tr ln (col+2)
+    skipToEnd ('\n':tr) ln col = skipToEnd tr (ln+1) 1
+    skipToEnd (a:tr) ln col = skipToEnd tr ln (col+1)
+    skipToEnd [] ln col = []
 
 -- compare input and output from lexone, update metadata
-lexLine str ln = AnnotatedToken token ln missing : lexLine rest newln
+lexLine str ln col = anntok : (lexLine rest newln newcol)
     where (token, rest) = lexOne str
           missing = take (length str - length rest) str
           newln = if '\n' `elem` missing then ln + 1 else ln
+          newcol = if '\n' `elem` missing then 1 else col + (length missing)
+          anntok = AnnotatedToken {
+              annLexeme = token,
+              annSrcString = missing,
+              annLineStart = ln,
+              annLineEnd = if token == Parser.Lexer.Error then ln else newln,
+              annColStart = col,
+              annColEnd = if token == Parser.Lexer.Error then col else newcol
+          }
 
 nextLine :: String -> String
 nextLine ('\n':tr) = tr

@@ -30,8 +30,8 @@ parseImports = (collect (pure ()) (parseToken Term)) *> ((collectM parseImport (
 parseImport :: Parser (Bool, String)
 parseImport = parseToken Import *> Parser (\x -> 
     case x of
-         (AnnotatedToken (String text) l str):zs -> ParseSuccess (False, text) zs
-         (AnnotatedToken (Identifier text) l str):zs -> ParseSuccess (True, text) zs
+         ((AnnotatedToken{annLexeme=(String text)}):zs) -> ParseSuccess (False, text) zs
+         ((AnnotatedToken{annLexeme=(Identifier text)}):zs) -> ParseSuccess (True, text) zs
          _ -> ParseFailure)
 
 -- export abc, dce, ueu, etc
@@ -42,6 +42,6 @@ parseExport = (parseToken Export *> collect parseIdentifier (parseToken Comma)) 
 parseIdentifier :: Parser String
 parseIdentifier = Parser (\x -> 
     case x of
-         (AnnotatedToken (Identifier z) l str):zs -> ParseSuccess z zs
+         ((AnnotatedToken{annLexeme=(Identifier z)}):zs) -> ParseSuccess z zs
          _ -> ParseFailure)
 

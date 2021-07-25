@@ -82,7 +82,7 @@ main = do
                     (False, True) -> [Debug]
                     (False, False) -> [Debug, Trees]
                     (True, False) -> [Trees])
-    putStrLn $ disp fmsg
+    writeMessages fmsg
     return exitSuccess
 
     

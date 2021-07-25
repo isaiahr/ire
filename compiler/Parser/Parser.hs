@@ -27,7 +27,7 @@ parseFile = Parser.ParserRels.parseFile *> ((fmap AST $ collectM parseDefinition
 parseIdentifier :: Parser String
 parseIdentifier = Parser (\x -> 
     case x of
-         (AnnotatedToken (Identifier z) l str):zs -> ParseSuccess z zs
+         ((AnnotatedToken{annLexeme=(Identifier z)}):zs) -> ParseSuccess z zs
          _ -> ParseFailure)         
 
 parseMonoType :: Parser MonoType
@@ -39,7 +39,7 @@ parseType = liftA2 Poly parseQuant parseMonoType <|> fmap (Poly []) parseMonoTyp
 parseQuant :: Parser [Int]
 parseQuant = parseToken Forall *> collect pint (parseToken Comma) <* parseToken Dot
     where pint = Parser (\x -> case x of
-                    (AnnotatedToken (Integer z) l str):zs -> ParseSuccess z zs
+                    ((AnnotatedToken{annLexeme=(Integer z)}):zs) -> ParseSuccess z zs
                     _ -> ParseFailure)
 
 -- bracketed type
@@ -49,7 +49,7 @@ parseBType = parseToken LParen *> parseMonoType <* parseToken RParen
 parseTV :: Parser MonoType
 parseTV = parseToken Dollar *> (General <$> Parser (\x -> 
     case x of
-         (AnnotatedToken (Integer z) l str):zs -> ParseSuccess z zs
+         ((AnnotatedToken{annLexeme=(Integer z)}):zs) -> ParseSuccess z zs
          _ -> ParseFailure))
 
 parseIntType :: Parser MonoType
@@ -109,13 +109,13 @@ parsePatMatch = (parseToken LParen *> (pure (TupleUnboxing [])) <* parseToken RP
 parseInt :: Parser (Literal String)
 parseInt = Constant <$> Parser (\x -> 
     case x of
-         (AnnotatedToken (Integer z) l str):zs -> ParseSuccess z zs
+         ((AnnotatedToken{annLexeme=(Integer z)}):zs) -> ParseSuccess z zs
          _ -> ParseFailure)
 
 parseStringLiteral :: Parser (Literal String)
 parseStringLiteral = StringLiteral <$> Parser (\x -> 
     case x of
-         (AnnotatedToken (String text) l str):zs -> ParseSuccess text zs
+         ((AnnotatedToken{annLexeme=(String text)}):zs) -> ParseSuccess text zs
          _ -> ParseFailure)
 
 parseArrayLiteral :: Parser (Literal String)

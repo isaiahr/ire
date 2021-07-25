@@ -2,28 +2,19 @@
 Pass.hs: machinery to run a pass, including associated logging tools
 
 --}
-module Common.Pass (runPass, messageNoLn, messageLn, whitelistSev, blacklistSev, Messages, Pass(..), byPassWith, (>>>>), Severity(..), PassResult(..), mkPassResult) where
+module Common.Pass (runPass, writeMessages, messageNoLn, whitelistSev, createReportMsg, blacklistSev, Messages, Pass(..), byPassWith, (>>>>), Severity(..), PassResult(..), mkPassResult) where
 
 import Common.Common
+import Common.Reporting
 
-import Control.Arrow
+import Control.Monad
 import Control.Category
 import Data.List
 
-data Severity = Error | Warning | Debug | Trees deriving Eq
 
-shortS Error = "E"
-shortS Warning = "W"
-shortS Debug = "D"
-shortS Trees = "T"
+messageNoLn pn s lvl = Messages [Left $ Message {mLine = Nothing, mPassName = pn, mStr = s, mSeverity = lvl}]
 
-longS Error = "Error"
-longS Warning = "Warning"
-longS Debug = "Debug"
-longS Trees = "Trees"
-
-messageNoLn pn s lvl = Messages [Message {mLine = Nothing, mPassName = pn, mStr = s, mSeverity = lvl}]
-messageLn pn s lvl ln = Messages [Message {mLine = Just ln, mPassName = pn, mStr = s, mSeverity = lvl}]
+createReportMsg r = Messages [Right $ r]
 
 runPass input pass = (pFunc pass) input
 
@@ -43,13 +34,21 @@ header message = "[" <> (longS (mSeverity message)) <> "] [" <> mPassName messag
                     (Just ln) -> "<line " <> disp ln <> "> "
                     Nothing -> ""
           
-blacklistSev (Messages msg) sevs = Messages (filter (\x -> not (mSeverity x `elem` sevs)) msg)
-whitelistSev (Messages msg) sevs = Messages (filter (\x ->     (mSeverity x `elem` sevs)) msg)
+blacklistSev (Messages msg) sevs = Messages (filter (\x -> case x of
+                                                                Left x2 -> not (mSeverity x2 `elem` sevs)
+                                                                Right x3 -> not (msgSeverity x3 `elem` sevs)) msg)
+whitelistSev (Messages msg) sevs = Messages (filter (\x -> case x of
+                                                                Left x2 -> (mSeverity x2 `elem` sevs)
+                                                                Right x3 -> (msgSeverity x3 `elem` sevs)) msg)
 
-newtype Messages = Messages [Message] deriving Eq
+newtype Messages = Messages [Either Message Report] deriving Eq
 
-instance Disp Messages where
-    disp (Messages m) = intercalate "\n" (map (disp) m)
+writeMessages (Messages m) = do
+    forM m (\y -> do
+        case y of
+             Left m -> putStrLn $ disp m
+             Right m -> writeReport m
+        )
 
 instance Semigroup Messages where
     (Messages ms1) <> (Messages ms2) = Messages (ms1 <> ms2)
@@ -64,18 +63,53 @@ data Pass i o = Pass {
     pName  :: String
 }
 
-data PassResult o = PassOk String Messages o | PassFail String Messages
+data PassResult o = PassResult {
+        prPassName :: String,
+        prPassMessages :: Messages,
+        prPassResult :: Maybe o,
+        prPassFileInfo :: Maybe String
+}
 
-mkPassResult o = PassOk "-" mempty o
+mkPassResult o fi = PassResult {
+    prPassName = "-",
+    prPassMessages = mempty,
+    prPassResult = Just o,
+    prPassFileInfo = fi
+}
 
-(>>>>) :: Disp o => PassResult i -> Pass i o -> PassResult o
-a@(PassFail a1 a2) >>>> b = PassFail a1 a2
+chfile :: Maybe String -> Messages -> Messages
+chfile Nothing m = m
+chfile (Just str) (Messages ((Left l):ms)) = (Messages [Left l]) <> (chfile (Just str) (Messages ms))
+chfile (Just str) (Messages ((Right r):ms)) = (Messages [Right (r{msgFileName = Just str})]) <> (chfile (Just str) (Messages ms))
+chfile (Just str) (Messages []) = Messages []
 
-a@(PassOk str msg o) >>>> b = case ((pFunc b) o) of
-    (msgs, Nothing) -> PassFail (pName b) (msg <> msgs)
-    (msgs, Just dat) -> PassOk (pName b) (msg <> messageNoLn (pName b) (disp dat) Trees <> msgs) dat
 
-
+a >>>> b = case prPassResult a of
+                {-
+                interesting fact: this is semantically identical to Nothing -> a
+                but the typechecker doesnt like it because a is bound and not polymorphic,
+                even though it actually doesnt contain any polymorphic data (the maybe is nothing).
+                -}
+                Nothing -> PassResult {
+                    prPassName = prPassName a,
+                    prPassMessages = prPassMessages a,
+                    prPassResult = Nothing,
+                    prPassFileInfo = prPassFileInfo a
+                }
+                Just o -> case (pFunc b) o of
+                               (msg, Nothing) -> PassResult {
+                                   prPassName = pName b,
+                                   prPassMessages = (prPassMessages a) <> (chfile (prPassFileInfo a) msg),
+                                   prPassResult = Nothing,
+                                   prPassFileInfo = (prPassFileInfo a)
+                               }
+                               (msg, Just o') -> PassResult {
+                                   prPassName = pName b,
+                                   prPassMessages = (prPassMessages a) <> messageNoLn (pName b) (disp o') Trees <> (chfile (prPassFileInfo a) msg),
+                                   prPassResult = Just o',
+                                   prPassFileInfo = (prPassFileInfo a)
+                               }
+    
 
 -- a pass combinator. this can by used for parts of a previous pass to "bypass" a pass
 -- this takes output of a pass, a, with a combinator a -> i, feeds result into the pass, and the output 

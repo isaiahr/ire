@@ -18,6 +18,7 @@ import Control.Monad.State
 import System.Directory
 
 import System.IO
+import System.Exit
 import System.FilePath
 import Data.List
 
@@ -59,10 +60,12 @@ loadFiles preds pth = do
     inhandle <- liftIO $ openFile path ReadMode
     liftIO $ hSetEncoding inhandle utf8
     contents <- liftIO $ hGetContents inhandle
-    let u = (mkPassResult contents) >>>> passLexer >>>> passParseRels
-    !ufile <- case u of 
-                   (PassFail _ _) -> liftIO $ ioError $ userError ("Error parsing imports / exports in file " <> path)
-                   (PassOk _ msg (im, ex)) -> do
+    let u = (mkPassResult contents (Just path)) >>>> passLexer >>>> passParseRels
+    !ufile <- case (prPassResult u) of 
+                   Nothing -> do
+                       liftIO $ writeMessages (prPassMessages u)
+                       liftIO $ exitWith (ExitFailure 1)
+                   Just (im, ex) -> do
                        curdir <- liftIO $ getCurrentDirectory
                        liftIO $ setCurrentDirectory (takeDirectory path)
                        impaths <- forM im $ \(b, t0) -> liftIO $ canonicalizePath $ if b then STDLIB_PATH </> t0 <> ".ire" else t0

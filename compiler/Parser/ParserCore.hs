@@ -35,7 +35,7 @@ satisfy fun = Parser(\x ->
          _ -> ParseFailure)
 
 (@@) :: AnnotatedToken -> Token -> Bool
-(AnnotatedToken t l str) @@ to = t == to
+ann @@ to = (annLexeme ann) == to
 
 parseToken :: Token -> Parser ()
 parseToken t = satisfy ( @@ t)

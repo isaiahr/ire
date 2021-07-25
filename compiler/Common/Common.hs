@@ -27,3 +27,4 @@ instance Disp FileInfo where
 instance (Disp a) => Disp (Maybe a) where
     disp Nothing = ""
     disp (Just t) = disp t
+    
