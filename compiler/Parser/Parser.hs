@@ -1,6 +1,7 @@
 module Parser.Parser (parseFile, passParse, run) where
 
 import Common.Common
+import Common.Reporting
 import Parser.ParserCore
 import AST.AST
 import Parser.Lexer
@@ -17,9 +18,25 @@ passParse :: Pass [AnnotatedToken] (AST String)
 passParse = Pass {pName = "Parser", pFunc = doPs}
     where doPs x = case run parseFile x of
                         ParseSuccess n t -> (mempty, Just n)
-                        otherwise -> (messageNoLn "Parser" ((disp x) <> "Error parsing") Common.Pass.Error, Nothing)
+                        Unrecoverable r -> (e2msg "a" r, Nothing)
+                        ParseFailure -> (messageNoLn "Parser" ((disp x) <> "Error parsing") Common.Pass.Error, Nothing)
 
 
+e2msg :: String -> [Reason] -> Messages
+e2msg text (r:rs) = createReportMsg(
+    Report {
+        msgMainText = rMessage r,
+        msgExcerpt = "",
+        msgFileName = Nothing,
+        msgSeverity = Common.Reporting.Error,
+        msgErrorCode = 2,
+        msgPassName = "Parser",
+        msgAnnotations = [(rSrcinfo r, "Here")],
+        msgNote = []
+    }) <> (e2msg text rs)
+
+e2msg text [] = mempty
+    
 parseFile :: Parser (AST String)
 parseFile = Parser.ParserRels.parseFile *> ((fmap AST $ collectM parseDefinition $ parseToken Term) <|> ((collectM (pure ()) $ parseToken Term) *> parseEOF *> pure (AST [])))
 
@@ -78,7 +95,7 @@ parseUnion :: Parser MonoType
 parseUnion = fmap Union $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseMonoType)) (parseToken Pipe) <* parseToken RCrParen
 
 parseDefinition :: Parser (Definition String)
-parseDefinition = liftA3 (\x y z -> Definition {identifier=x, typeof=y, value=z}) parsePatMatch ((parseToken Colon *> fmap Just parseType) <|> (parseToken Colon $> Nothing)) (parseToken Equals *> parseExpressionA)
+parseDefinition = liftA3 (\x y z -> Definition {identifier=x, typeof=y, value=z}) parsePatMatch ((parseToken Colon *> fmap Just parseType) <|> (parseToken Colon $> Nothing)) (parseToken Equals *> expect "Expected Expression in Definition" parseExpressionA)
 
 
 -- expressionAll. here infx is allowed. typically it isn't, so parseExpression will not parse infx
@@ -131,8 +148,10 @@ parseRecordLiteral = fmap RecordLiteral $ parseToken LCrParen *> collect (liftA2
 
 -- \a -> {}
 -- or: \(x,y,z) -> {}
+
+-- NOTE: allowed to infixexpr here. important to use parseExpressionA here so \a -> 1+a gets interpreted as \a->(1+a) instead of (\a->1)+a
 parseFunctionLiteral :: Parser (Literal String)
-parseFunctionLiteral = liftA2 FunctionLiteral (parseToken BSlash *> parsePatMatch <* parseToken Arrow) (parseExpression)
+parseFunctionLiteral = liftA2 FunctionLiteral (parseToken BSlash *> parsePatMatch <* parseToken Arrow) (expect "Expected Expression in Function Literal" parseExpressionA)
 
 -- this is when (x,y,z) = n or in function?
 -- parseUnTuple =

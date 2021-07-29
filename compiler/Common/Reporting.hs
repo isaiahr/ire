@@ -39,7 +39,12 @@ data Report = Report {
 } deriving Eq
 
 writeReport :: Report -> IO ()
-writeReport msg = do
+writeReport msgo = do
+    msg <- case msgFileName msgo of
+                Just fn -> do 
+                    con' <- readFile fn
+                    return $ msgo {msgExcerpt = con'}
+                Nothing -> return msgo
     let colr = case msgSeverity msg of
                  Error -> Red
                  Warning -> Yellow

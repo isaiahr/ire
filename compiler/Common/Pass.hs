@@ -49,6 +49,7 @@ writeMessages (Messages m) = do
              Left m -> putStrLn $ disp m
              Right m -> writeReport m
         )
+    return ()
 
 instance Semigroup Messages where
     (Messages ms1) <> (Messages ms2) = Messages (ms1 <> ms2)

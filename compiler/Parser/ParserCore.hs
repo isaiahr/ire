@@ -1,4 +1,4 @@
-module Parser.ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, parseEOF, collect, run, collectM, infbuild, parseToken)  where 
+module Parser.ParserCore (Parser(..), ParseResult(..), Reason(..), (@@), (<|>), (<*>), satisfy, parseEOF, collect, run, collectM, infbuild, parseToken, parseFail, expect)  where 
 
 import Common.Common
 import Parser.Lexer
@@ -18,10 +18,13 @@ instance (Disp a) => Disp (ParseResult a) where
     
 newtype Parser a = Parser ([AnnotatedToken] -> ParseResult a)
 
-newtype Reason = Reason {message :: String} deriving (Show, Eq)
+data Reason = Reason {
+    rMessage :: String,
+    rSrcinfo :: (Int, Int, Int, Int)
+} deriving (Show, Eq)
 
 instance Disp Reason where
-    disp r = message r
+    disp r = rMessage r <> (show $ rSrcinfo r)
 
 run :: Parser a -> [AnnotatedToken] -> ParseResult a
 run (Parser ps) = ps
@@ -122,3 +125,15 @@ parseEOF :: Parser ()
 parseEOF = Parser (\ts -> case ts of
                               [] -> ParseSuccess () []
                               p ->  ParseFailure)
+
+-- failure
+parseFail :: String -> Parser a
+parseFail reason = Parser (\ts -> case ts of 
+                              (x:_) -> Unrecoverable $ [Reason {
+                                  rMessage = reason,
+                                  rSrcinfo = (annLineStart x, annColStart x, annLineEnd x, annColEnd x)
+                              }])
+                  
+-- raises a parse error if ps fails.
+expect :: String -> Parser a -> Parser a
+expect reason ps = ps <|> (parseFail reason)

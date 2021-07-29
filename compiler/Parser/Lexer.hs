@@ -83,7 +83,7 @@ lexLine str ln col = anntok : (lexLine rest newln newcol)
               annLineStart = ln,
               annLineEnd = if token == Parser.Lexer.Error then ln else newln,
               annColStart = col,
-              annColEnd = if token == Parser.Lexer.Error then col else newcol
+              annColEnd = if token == Parser.Lexer.Error then col else (newcol-1)
           }
 
 nextLine :: String -> String

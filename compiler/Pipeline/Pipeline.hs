@@ -53,9 +53,9 @@ pipelineIO target filename stage outfile = do
     files <- importDag filename
     (errs, processed_files, (mtff, mnamef)) <- execStateT (forM (zip [1 .. (length files)] files) $ (\(idx, x) -> do 
         liftIO $ putStr $ "[" <> show idx <> " of " <> show (length files) <> "] Compiling " <> (uPath x)
-        mpfiles <- get
-        case mpfiles of
-            ([], pfiles, (mtlf, mname)) -> do
+        (errs2, pfiles, (mtlf, mname)) <- get
+        case (whitelistSev (errs2) [Common.Pass.Error]) == mempty of
+            True -> do
                 -- this selects what to do with output after running the compiler.
                 let (tstage, out) = (case (idx == (length files), stage) of
                                             -- if we are compiling to executable, always produce an object (and link after all files compiled)
@@ -66,33 +66,31 @@ pipelineIO target filename stage outfile = do
                                             -- otherwise, since this is not the last file, and we wont need output for linking, 
                                             -- just run a "dummy" pass and discard the result.
                                             (False, _) -> (Nothing, Nothing))
-                epfile <- liftIO $ tryIOError (compile mtlf mname tstage target x pfiles idx out)
+                epfile <- liftIO (compile mtlf mname tstage target x pfiles idx out)
                 case epfile of 
                     Left err -> do
-                        put ([err], pfiles, (mtlf, mname))
+                        put (err, pfiles, (mtlf, mname))
                         liftIO $ putStr $ " ["
                         liftIO $ printColour Red "Failed" 
                         liftIO $ putStrLn "]" 
-                        
                     Right (mtlf', mname', pfile) -> do
-                        put ([], (pfile:pfiles), (mtlf', mname'))
+                        put (mempty, (pfile:pfiles), (mtlf', mname'))
                         liftIO $ putStr $ " ["
                         liftIO $ printColour Green "OK"
                         liftIO $ putStrLn "]" 
-            (errs, pfiles, _) -> do
+            False -> do
                 liftIO $ putStr $ " ["
                 liftIO $ printColour Yellow "Skipped"
                 liftIO $ putStrLn "]" 
                 
-        )) ([], [], ([], []))
-    if null errs then do
+        )) (mempty, [], ([], []))
+    if mempty == (whitelistSev (errs) [Common.Pass.Error]) then do
         if stage == S_BIN then do 
             libs <- getLinkedLibs target
             runLinker target (libs <> (map pObjLocation processed_files)) outfile
                           else return ()
     else do 
-        forM errs $ \y -> hPutStrLn stderr (ioeGetErrorString y)
-        exitFailure
+        writeMessages (whitelistSev (errs) [Common.Pass.Error])
     return $ foldl (<>) mempty (map pMsgs processed_files)
 
 
@@ -133,7 +131,15 @@ idx: compilation index. used for file uniqueness.
 mout: maybe output. will place output here. nothing -> temp file.
 --}
 
-compile :: [IR.Syntax.TLFunction] -> [IR.Syntax.Name] -> Maybe Stage -> Target -> UFile -> [PFile] -> Int -> Maybe String -> IO ([IR.Syntax.TLFunction], [IR.Syntax.Name], PFile)
+compile :: [IR.Syntax.TLFunction] ->
+           [IR.Syntax.Name] ->
+           Maybe Stage ->
+           Target ->
+           UFile ->
+           [PFile] ->
+           Int ->
+           Maybe String ->
+           IO (Either Messages ([IR.Syntax.TLFunction], [IR.Syntax.Name], PFile))
 compile monoTLF monoN stage target file processed idx mout = do
     inhandle <- openFile (uPath file) ReadMode
     hSetEncoding inhandle utf8
@@ -147,8 +153,7 @@ compile monoTLF monoN stage target file processed idx mout = do
     let result = (pipeline1 importedsyms) (mkPassResult contents (Just $ uPath file) )
     case (prPassResult result) of
          Nothing -> do 
-             writeMessages (whitelistSev (prPassMessages result) [Common.Pass.Error])
-             exitWith (ExitFailure 1)
+             return $ Left (prPassMessages result)
          Just (AST ds) -> do
              
              let astsyms = map (\(TypedName t (Name s _)) -> (s, t)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds))
@@ -181,7 +186,7 @@ compile monoTLF monoN stage target file processed idx mout = do
                                         outfile <- getTempFile
                                         writeOutput (disp y) outfile target tar
                                         return outfile
-                     return $ (tlf0, name0, PFile {
+                     return $ Right (tlf0, name0, PFile {
                          pLocation = (uPath file),
                          pObjLocation = tout, 
                          pExports = exportedsyms, 
