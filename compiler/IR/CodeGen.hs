@@ -215,11 +215,12 @@ genE (App (Prim (MkTuple ty)) eargs) = (do
     
 genE (App (Prim (MkArray ty)) eargs) = do
     eargs' <- forM eargs genE
-    -- TODO: BIG ASSSUMPTION HERE: each element will take 64 bits (or 8 bytes) of space
-    -- this is not true depending on the members of array
-    -- ALSO: some platforms have 32bit integers!!!
+    -- NOTE: getting amount of bytes to allocate to gc for array
+    -- see: http://nondot.org/sabre/LLVMNotes/SizeOf-OffsetOf-VariableSizedStructs.txt
     let lty = ir2llvmtype ty
-    ptr <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, LIntLit ((length eargs)*8))])
+    szptr <- promote $ createGEP lty LNull [LIntLit (length eargs)]
+    szint <- promote $ createPtrToInt (LLVMPtr lty) szptr (LLVMInt 64)
+    ptr <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, szint)])
     ptrty <- promote (createBitcast (LLVMPtr (LLVMInt 8)) ptr (LLVMPtr lty))
     val1 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr lty]) LUndef (LLVMInt 64) (LIntLit (length eargs)) 0)
     val2 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr lty]) val1 (LLVMPtr lty) ptrty 1)
@@ -367,9 +368,11 @@ genE (App (Prim (ArrayAppend y)) [argtuple]) = do
     arr2ptr <- promote $ createExtractValue aty' arr2 1
     arr2ptri8 <- promote $ createBitcast (LLVMPtr y') arr2ptr (LLVMPtr (LLVMInt 8))
     combinedsz <- promote $ createAdd (LLVMInt 64) arr1sz arr2sz
-    --TODO : again, assumption that array elements = 64bits (8 bytes) long
-    bytesneeded <- promote $ createMul (LLVMInt 64) combinedsz (LIntLit 8)
-    arralloc <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, bytesneeded)])
+    -- combinedsz - total # of elements in the combined array
+    szptr <- promote $ createGEP y' LNull [combinedsz]
+    szint <- promote $ createPtrToInt (LLVMPtr y') szptr (LLVMInt 64)
+    -- szint = number of bytes of the entirety of the new array
+    arralloc <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, szint)])
     arrdata <- promote (createBitcast (LLVMPtr (LLVMInt 8)) arralloc (LLVMPtr y'))
     v1 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr y']) LUndef (LLVMInt 64) (combinedsz) 0)
     v2 <- promote $ createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr y']) v1 (LLVMPtr y') arrdata 1

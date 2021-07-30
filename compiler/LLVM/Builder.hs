@@ -178,6 +178,11 @@ createPhi ty vals = do
     addInst (LPhi ret ty (map (\(x, bb) -> (x, bbLabel bb)) vals))
     return ret
 
+createPtrToInt ty val ty2 = do
+    ret <- newValue
+    addInst (LPtrToInt ret ty val ty2)
+    return ret
+    
 createUnreachable = do
     addInst LUnreachable
     return ()

@@ -81,6 +81,7 @@ data LInst
     | LOr LValue LType LValue LValue
     | LPhi LValue LType [(LValue, LLabel)]
     | LIcmp LValue CMPOperand LType LValue LValue
+    | LPtrToInt LValue LType LValue LType -- ptrtoint
     | LUnreachable
 
 data CMPOperand = OP_eq | OP_ne | OP_ugt | OP_uge | OP_ult | OP_ule | OP_sgt | OP_sge | OP_slt | OP_sle
@@ -128,6 +129,7 @@ instance Disp LInst where
     disp (LAnd v ty v1 v2) = disp v <> " = and " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LOr v ty v1 v2) = disp v <> " = or " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LIcmp v op ty v1 v2) = disp v <> " = icmp " <> disp op <> " " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LPtrToInt v ty v1 ty2) = disp v <> " = ptrtoint " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
     disp (LUnreachable) = "unreachable"
 
 data LValue = LTemp String | -- temp, like %2
@@ -135,7 +137,8 @@ data LValue = LTemp String | -- temp, like %2
               LIntLit Int | -- integer, like 3
               LUndef |  -- "undef"
               LZeroInit |  -- "zeroinitializer"
-              LVoid -- "void" 
+              LVoid | -- "void" 
+              LNull -- "null"
               deriving Eq
 
 instance Disp LValue where
@@ -145,4 +148,5 @@ instance Disp LValue where
     disp (LUndef) = "undef"
     disp (LZeroInit) = "zeroinitializer"
     disp (LVoid) = "void"
+    disp (LNull) = "null"
     
