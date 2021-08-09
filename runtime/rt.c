@@ -1,13 +1,8 @@
 #include <stdint.h>
+
 #include "iretypes.h"
-
-#ifdef LINUX_AARCH64
-#include "linux_aarch64.h"
-#endif
-
-#ifdef LINUX_AMD64
-#include"linux_amd64.h"
-#endif
+#include "platform.h"
+#include "gc.h"
 
 #define STDOUT 1
 #define STDERR 2
@@ -27,6 +22,7 @@ int8_t* __irert__gc_alloc__(ire_int_t);
 void __irert__print__(ire_string_t);
 
 void _start() {
+    gc_init();
     main();
     __irert__exit__(0);
 }
@@ -52,7 +48,7 @@ int64_t __irert__writefd__(int64_t fd, ire_string_t str){
 }
 
 int8_t* __irert__gc_alloc__(int64_t numbytes){
-    return (int8_t*) _syscall6(SYS_mmap, 0, (size_t) numbytes, 0x3, 0x22, -1, 0);
+    return gc_alloc(numbytes);
 }
 
 void __irert__print__(ire_string_t str){

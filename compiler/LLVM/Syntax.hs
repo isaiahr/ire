@@ -11,6 +11,8 @@ import Control.Monad.State
 
 -- llvm module
 data LMod = LMod {
+    deftypes :: [(String, LType)],
+    globalvars :: [LGlobal],
     fns :: [LFunction],
     sourcefn :: Maybe String,
     targetdatalayout :: Maybe String,
@@ -22,10 +24,19 @@ data LFunction = LFunction {
     fName :: String,
     fType :: LType,
     fBody :: [LBasicBlock],
-    fLinkage :: LLinkType
+    fLinkage :: LLinkType,
+    fGC :: Maybe String
 }
 
-data LLinkType = Linkage_Private | Linkage_Internal | Linkage_External | Linkage_None
+data LGlobal = LGlobal {
+    gName :: LValue,
+    gValue :: LValue,
+    gType :: LType,
+    gConst :: Bool,
+    gLinkage :: LLinkType
+}
+
+data LLinkType = Linkage_Private | Linkage_Internal | Linkage_External | Linkage_None | Linkage_Linkonce
 
 type LLabel = String
 
@@ -39,23 +50,38 @@ data LBasicBlock = LBasicBlock {
 instance Disp LMod where 
     disp lm = mdisp "source_filename = \"" (sourcefn lm) "\"\n" <>
                   mdisp "target datalayout = \"" (targetdatalayout lm) "\"\n" <>
-                  mdisp "target triple =\"" (targettriple lm) "\"\n" <> "\n\n" <> (intercalate "\n\n" (map disp (fns lm))) <>
+                  mdisp "target triple =\"" (targettriple lm) "\"\n" <> "\n\n" <>
+                  (case deftypes lm of
+                       [] -> ""
+                       abc -> (intercalate "\n" (map disp01 abc)) <> "\n\n") <>
+                  (case globalvars lm of
+                        [] -> ""
+                        abc -> (intercalate "\n" (map disp abc)) <> "\n\n") <>
+                  (intercalate "\n\n" (map disp (fns lm))) <>
                   mdisp "\n\n!llvm.ident = !{!0}\n\n!0 = !{!\"" (compilerident lm) "\"}"
         where mdisp prefix (Just d) postfix = prefix <> disp d <> postfix
               mdisp prefix (Nothing) postfix = mempty
+              disp01 (name, ty) = name <> " = type " <> disp ty
 
 instance Disp LFunction where
     disp lf = case (fBody lf) of
-                   [] -> "declare " <> disp (fLinkage lf) <> " " <> retty <> " @" <> fName lf <> "(" <> paramty <> ")"
-                   otherwise -> "define " <> disp (fLinkage lf) <> " " <> retty <> " @" <> fName lf <> "(" <> paramty <> "){\n" <> intercalate "\n" (map disp (fBody lf)) <> "\n}"
+                   [] -> "declare " <> disp (fLinkage lf) <> " " <> retty <> " @" <> fName lf <> "(" <> paramty <> ")" <> gcf
+                   otherwise -> "define " <> disp (fLinkage lf) <> " " <> retty <> " @" <> fName lf <> "(" <> paramty <> ")" <> gcf <> "{\n" <> intercalate "\n" (map disp (fBody lf)) <> "\n}"
         where (retty, paramty) = case (fType lf) of 
                                       LLVMFunction ty1 ty2 -> (disp ty1, intercalate ", " (map disp ty2))
                                       _ -> error "Function with non-function ty" 
+              gcf = case (fGC lf) of
+                         Nothing -> ""
+                         Just m -> " gc \"" <> m <> "\""
+
+instance Disp LGlobal where
+    disp lg = disp (gName lg) <> " = " <> (disp (gLinkage lg)) <> " " <> (if gConst lg then "const " else "global ") <> disp (gType lg) <> " " <> disp (gValue lg)
 
 instance Disp LLinkType where
     disp Linkage_External = "external"
     disp Linkage_Internal = "internal"
     disp Linkage_Private = "private"
+    disp Linkage_Linkonce = "linkonce"
     disp Linkage_None = ""
 
 instance Disp LBasicBlock where
@@ -66,14 +92,14 @@ data LInst
     | LAdd LValue LType LValue LValue Bool Bool -- val = add ty v1 v2 nuw nsw
     | LSub LValue LType LValue LValue Bool Bool -- val = sub ty v1 v2 nuw nsw
     | LMul LValue LType LValue LValue Bool Bool -- val = mul ty v1 v2 nuw nsw
-    | LGEP LValue Bool LType LType LValue [LValue] -- val = getelementptr inbounds ty ty* v [i64 i[0], i64 i[1] etc]
+    | LGEP LValue Bool LType LType LValue [(LType, LValue)] -- val = getelementptr inbounds ty ty* v [i64 i[0], i64 i[1] etc]
     | LLoad LValue LType LType LValue -- val = load ty ty* v
     | LStore Bool LType LValue LType LValue -- store volatile ty v ty* ptr
     | LCall LValue LType LValue [(LType, LValue)]
     | LVCall LValue [(LType, LValue)]
     | LAlloca LValue LType LType Int
-    | LExtractValue LValue LType LValue Int
-    | LInsertValue LValue LType LValue LType LValue Int
+    | LExtractValue LValue LType LValue [Int]
+    | LInsertValue LValue LType LValue LType LValue [Int]
     | LBitcast LValue LType LValue LType
     | LCBr LValue LLabel LLabel -- conditional branch
     | LUBr LLabel -- unconditional branch
@@ -112,16 +138,16 @@ instance Disp LInst where
     disp (LMul v ty v1 v2 True False) = disp v <> " = mul nuw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LMul v ty v1 v2 True True) = disp v <> " = mul nuw nsw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LMul v ty v1 v2 False True) = disp v <> " = mul nsw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LGEP v True ty1 ty2 val lnt) = disp v <> " = getelementptr inbounds " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val <> concat (map (\y -> ", i64 " <> (disp y)) lnt)
-    disp (LGEP v False ty1 ty2 val lnt) = disp v <> " = getelementptr " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val <> concat (map (\y -> ", i64 " <> (disp y)) lnt)
+    disp (LGEP v True ty1 ty2 val lnt) = disp v <> " = getelementptr inbounds " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val <> concat (map (\(x, y) -> ", " <> disp x <>  " " <> (disp y)) lnt)
+    disp (LGEP v False ty1 ty2 val lnt) = disp v <> " = getelementptr " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val <> concat (map (\(x, y) -> ", " <> disp x <> " " <> (disp y)) lnt)
     disp (LLoad v ty1 ty2 val) = disp v <> " = load " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val
     disp (LStore True ty1 v1 ty2 v2) = "store volatile " <> disp ty1 <> " " <> disp v1 <> ", " <> disp ty2 <> " " <> disp v2
     disp (LStore False ty1 v1 ty2 v2) = "store " <> disp ty1 <> " " <> disp v1 <> ", " <> disp ty2 <> " " <> disp v2
     disp (LCall v ty fn params) = disp v <> " = call " <> disp ty <> " " <> disp fn <> " (" <> intercalate ", " (map (\(ty, v) -> disp ty <> " " <> disp v) params) <> ")"
     disp (LVCall fn params) = "call void " <> disp fn <> " (" <> intercalate ", " (map (\(ty, v) -> disp ty <> " " <> disp v) params) <> ")"
     disp (LAlloca v ty ty2 num) = disp v <> " = alloca " <> disp ty <> ", " <> disp ty2 <> " " <> disp num
-    disp (LExtractValue v ty v1 idx) = disp v <> " = extractvalue " <> disp ty <> " " <> disp v1 <> ", " <> disp idx
-    disp (LInsertValue v ty v1 ty1 v2 idx) = disp v <> " = insertvalue " <> disp ty <> " " <> disp v1 <> ", " <> disp ty1 <> " " <> disp v2 <> ", " <> disp idx
+    disp (LExtractValue v ty v1 idx) = disp v <> " = extractvalue " <> disp ty <> " " <> disp v1 <> ", " <> (intercalate ", " (map disp idx))
+    disp (LInsertValue v ty v1 ty1 v2 idx) = disp v <> " = insertvalue " <> disp ty <> " " <> disp v1 <> ", " <> disp ty1 <> " " <> disp v2 <> ", " <> (intercalate ", " (map disp idx))
     disp (LBitcast v ty v1 ty2) = disp v <> " = bitcast " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
     disp (LCBr lv lbltrue lblfalse) = "br i1 " <> disp lv <> ", label %" <> disp lbltrue <> ", label %" <> disp lblfalse
     disp (LUBr lbl) = "br label %" <> disp lbl

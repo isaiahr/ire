@@ -4,6 +4,7 @@ import Data.List
 import Common.Common
 
 data LType = 
+    LLVMDType String |
     LLVMInt Int |
     LLVMHalf |
     LLVMFloat | 
@@ -25,6 +26,7 @@ data LType =
     
 
 instance Disp LType where
+    disp (LLVMDType s) = s
     disp (LLVMInt nt) = 'i' : show nt
     disp (LLVMHalf) = "half"
     disp (LLVMFloat) = "float"

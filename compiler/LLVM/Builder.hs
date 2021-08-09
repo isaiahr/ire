@@ -32,19 +32,28 @@ addInst inst = do
     return ()
     
 
-createLLVMModule :: String -> String -> [LFunction] -> LMod
-createLLVMModule fn ident lf = LMod { sourcefn = Just fn, targetdatalayout = Nothing, targettriple = Nothing, compilerident = Just ident, fns = lf }
+createLLVMModule :: String -> String -> [LFunction] -> [(String, LType)] -> [LGlobal] -> LMod
+createLLVMModule fn ident lf types globs = LMod {
+    sourcefn = Just fn,
+    targetdatalayout = Nothing,
+    targettriple = Nothing,
+    compilerident = Just ident,
+    fns = lf,
+    deftypes = types,
+    globalvars = globs
+}
 
 
 data FunctionHeader = FunctionHeader {
     name :: String,
     retty :: LType, 
     paramty :: [LType],
-    linkage :: LLinkType
+    linkage :: LLinkType,
+    garbagecollector :: Maybe String
 }
     
-createFunction :: String -> LType -> LLinkType -> FunctionHeader
-createFunction name (LLVMFunction retty party) lnk = FunctionHeader { name = name, retty = retty, paramty = party, linkage = lnk }
+createFunction :: String -> LType -> LLinkType -> Maybe String -> FunctionHeader
+createFunction name (LLVMFunction retty party) lnk gc = FunctionHeader { name = name, retty = retty, paramty = party, linkage = lnk, garbagecollector = gc}
 
 -- opens the function for writing code into the body, and starts the first basic block.
 writeFunction :: FunctionHeader -> LLVMBodyM ()
@@ -57,10 +66,10 @@ writeFunction fh = do
 closeFunction :: FunctionHeader -> LLVMBodyM LFunction
 closeFunction fh = do
     bodym <- get
-    return LFunction { fName = name fh,  fType = LLVMFunction (retty fh) (paramty fh), fBody = body bodym, fLinkage = (linkage fh)} 
+    return LFunction { fName = name fh,  fType = LLVMFunction (retty fh) (paramty fh), fBody = body bodym, fLinkage = (linkage fh), fGC = (garbagecollector fh)} 
 
 -- function stub, for external defines
-createFunctionStub name ty lnk = LFunction {fName = name, fType = ty, fBody = [], fLinkage = lnk}
+createFunctionStub name ty lnk gc = LFunction {fName = name, fType = ty, fBody = [], fLinkage = lnk, fGC = gc}
 
 getParams :: FunctionHeader -> [LValue]
 getParams fh = map (LTemp . show) [0..((length (paramty fh))-1)]
@@ -163,6 +172,11 @@ createBitcast ty val ty2 = do
 createGEP ty v idx = do
     ret <- newValue
     addInst (LGEP ret True ty (LLVMPtr ty) v idx)
+    return ret
+    
+createGEP2 ty1 ty2 v idx = do
+    ret <- newValue
+    addInst (LGEP ret True ty1 ty2 v idx)
     return ret
 
 createConditionalBr cond bbtrue bbfalse = do
