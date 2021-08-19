@@ -75,7 +75,7 @@ instance Disp LFunction where
                          Just m -> " gc \"" <> m <> "\""
 
 instance Disp LGlobal where
-    disp lg = disp (gName lg) <> " = " <> (disp (gLinkage lg)) <> " " <> (if gConst lg then "const " else "global ") <> disp (gType lg) <> " " <> disp (gValue lg)
+    disp lg = disp (gName lg) <> " = " <> (disp (gLinkage lg)) <> " " <> (if gConst lg then "constant " else "global ") <> disp (gType lg) <> " " <> disp (gValue lg)
 
 instance Disp LLinkType where
     disp Linkage_External = "external"
@@ -164,7 +164,10 @@ data LValue = LTemp String | -- temp, like %2
               LUndef |  -- "undef"
               LZeroInit |  -- "zeroinitializer"
               LVoid | -- "void" 
-              LNull -- "null"
+              LStructLit [(LType, LValue)] | -- "{a, b, c, ...}"
+              LArrayLit [(LType, LValue)] | -- "[1, 2, 3, ...]"
+              LNull | -- "null"
+              LConstExpr ConstExpr -- constant expresion.
               deriving Eq
 
 instance Disp LValue where
@@ -175,4 +178,18 @@ instance Disp LValue where
     disp (LZeroInit) = "zeroinitializer"
     disp (LVoid) = "void"
     disp (LNull) = "null"
+    disp (LStructLit vals) = "{" <> intercalate ", " (map (\(a,b) -> disp a <> " " <> disp b) vals) <> "}"
+    disp (LArrayLit vals) = "[" <> intercalate ", " (map (\(a,b) -> disp a <> " " <> disp b) vals) <> "]"
+    disp (LConstExpr e) = disp e
     
+    
+data ConstExpr = 
+        CExprPtrToInt LType LValue LType |
+        CExprGEP LType (LType, LValue) [(LType, LValue)] |
+        CExprBitcast LType LValue LType
+    deriving Eq
+    
+instance Disp ConstExpr where
+    disp (CExprPtrToInt ty lv ty2) = "ptrtoint(" <> disp ty <> " " <> disp lv <> " to " <> disp ty2 <> ")"
+    disp (CExprGEP ty (ty1, lv1) idxlist) = "getelementptr(" <> disp ty <> ", " <> disp ty1 <> " " <> disp lv1 <> ", " <> intercalate ", " (map (\(a,b) -> disp a <> " " <> disp b) idxlist) <> ")"
+    disp (CExprBitcast ty v ty2) = "bitcast(" <> disp ty <> " " <> disp v <> " to " <> disp ty2 <> ")"

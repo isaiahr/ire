@@ -5,6 +5,7 @@
 #define SYS_exit 93
 #define SYS_write 64
 #define SYS_mmap 222
+#define SYS_munmap 215
 
 #define linux_reg_size_t int64_t 
 #define size_t int64_t

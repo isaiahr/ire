@@ -169,7 +169,7 @@ parseYield :: Parser (Statement String)
 parseYield = fmap AST.AST.Yield $ parseToken Parser.Lexer.Yield *> parseExpressionA
 
 parseAssignment :: Parser (Statement String)
-parseAssignment = liftA2 Assignment (parsePatMatch <* parseToken Equals) parseExpression
+parseAssignment = liftA2 Assignment (parsePatMatch <* parseToken Equals) parseExpressionA
 -- UnionLiteral ((String, Expression), [(String, Type)])
 -- remove union literals for now. not completely sure on syntax for them yet
 -- parseUnionLiteral = fmap UnionLiteral $ parseToken LCrParen *> liftA2 (\x y -> (x, y)) () () <* parseToken RCrParen

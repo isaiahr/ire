@@ -1,5 +1,6 @@
 #include<stdint.h>
 #include "platform.h"
+#include "wrapper.h"
 
 #define NULL 0
 
@@ -22,20 +23,48 @@ struct StackEntry {
 struct StackEntry* gc_root_chain;
 
 
+// an object containing further heap objects as members
+struct HeapObj{
+    // offset (in bytes) into the object
+    int64_t offset;
+    // pointer to heaptracking struct for this member object
+    struct HeapTracking* ptr;
+    // array_size - if nonzero, offset pointes to the i64_t object "length", and the length number of objects 
+    // the size itself is not length of array, but the size of an individual element. this means that 
+    // array[0] is 1st element array + (array_size number of bytes is the second). basically, each element takes up
+    // array size amount of bytes. so a i8 -> 1, i64 -> 8, i32 -> 4 etc.
+    int64_t array_size; 
+};
+
+/*
+ heaptracking - structure of location of heap pointers of an object
+ */
+struct HeapTracking {
+    int32_t num_objs;
+    struct HeapObj objs[0];
+};
+
+
 struct HeapEntry {
     // pointer to the heap allocation
     void* ptr;
     // metadata associated with the allocation.
-    void* meta;
+    struct HeapTracking* meta;
     // mark. this object is marked when it is still assecible to the mutator.
     int8_t mark;
     // generation
     int32_t generation;
+    // size (in bytes)
+    int64_t size;
     // next heapentry; hashtable chaining with linked lists.
     struct HeapEntry* chain_next;
 };
-
+#ifdef DEBUG
+#define HEAP_SIZE 10
+#endif
+#ifndef DEBUG
 #define HEAP_SIZE 5000
+#endif
 
 struct Heap {
     struct HeapEntry* values[HEAP_SIZE];
@@ -64,8 +93,8 @@ int8_t* system_reserve_mem(int64_t numbytes){
 
 
 // system free mem - the raw system deallocation function
-void system_free_mem(int8_t* ptr){
-    //todo
+void system_free_mem(int8_t* ptr, int64_t numbytes){
+    _syscall6(SYS_munmap, (int64_t) ptr, numbytes, 0, 0, 0, 0);
 }
 
 // allocate - essentially "malloc". wrapper around system_reserve_mem for now, but this is different in order
@@ -75,8 +104,8 @@ int8_t* allocate(int64_t numbytes){
 }
 
 // free - counterpart to allocate.
-void free(int8_t* ptr){
-    system_free_mem(ptr);
+void free(int8_t* ptr, int64_t numbytes){
+    system_free_mem(ptr, numbytes);
 }
 
 
@@ -143,32 +172,117 @@ struct HeapEntry* find(int8_t* key, int8_t create){
     return h->chain_next;
 }
 
+#ifdef DEBUG
 
-void visit(void* ptr, void* data){
-    struct HeapEntry* result = find((int8_t*)ptr, 0);
-    if(result == NULL){
-        // not in heap.
-        // lives on stack.
+void debug_print_chainentry(struct HeapEntry* p){
+    debug_printint((int64_t)p->ptr);
+}
+
+void debug_print_table(){
+    for(int i = 0; i < HEAP_SIZE; i++){
+        struct HeapEntry* p = heap.values[i];
+        debug_printint(i);
+        debug_print("|");
+        while(p != NULL){
+            debug_print_chainentry(p);
+            debug_print("|");
+            p = p->chain_next;
+        }
+        debug_print("\n");
+    }
+}
+#endif
+
+/*
+ * visit - visits a pointer
+ * documentation. ptr is a pointer to the stack allocation.
+ * so ptr = alloca ty 
+ *  ptr = ty*. 
+ * if data == null, pointer is a single heap object.
+ * the heap object is reffered to by **ptr. data descripter still needed, but get it from the hashtbl.
+ * use *ptr in hashtable.
+ * if data != null, data is a pointer to the data descripter (see struct heaptracking).
+ * this means ptr is a stack object, so **ptr is not valid. 
+ * just use *ptr, and the data descripter to visit individual fields recursively.
+ */
+void visit_subfields(int8_t*, struct HeapTracking*);
+void visit(void* ptr, struct HeapTracking* data){
+    #ifdef DEBUG
+    debug_print("visit: ");
+    debug_printint((int64_t) ptr);
+    debug_print("\n");
+    #endif
+    if(data == NULL){
+        // null - directly a heap object.
+        void** ptr2 = (void**) ptr;
+        void* heap_obj = *ptr2;
+        struct HeapEntry* result = find((int8_t*) heap_obj, 0);
+        if(result == NULL){
+            #ifdef DEBUG 
+            debug_print("ERROR: HEAP VARIABLE EARLY FREE?");
+            #endif
+            exit(5);
+        }
+        else {
+            result->mark = 1;
+            // meta null is ok. just means no subfields.
+            if(result->meta != NULL){
+                visit_subfields((int8_t*) heap_obj, result->meta);
+            }
+        }
     }
     else {
-        result->mark = 1;
+        // not null - stack object.
+        visit_subfields(ptr, data);
     }
     
+}
+
+void visit_subfields(int8_t* ptr, struct HeapTracking* meta){
+    int32_t objs = meta->num_objs;
+    for(int i = 0; i < objs; i++){
+        struct HeapObj member_data = meta->objs[i];
+        int64_t off = member_data.offset;
+        int8_t* ptr_off = &ptr[off];
+        if(member_data.array_size != 0){
+            int64_t* ptr_off_i64 = (int64_t*) ptr_off;
+            int64_t length = ptr_off_i64[0];
+            // ok, now advance ptr_off to the array element
+            ptr_off_i64 = &ptr_off_i64[1];
+            ptr_off = (int8_t*) ptr_off_i64;
+            // visit the "main" array pointer
+            visit(ptr_off, NULL);
+            // now visit subfields.
+            for(int j = 0; j < objs; j++){
+                visit(&ptr_off[j*member_data.array_size], member_data.ptr);
+            }
+        }
+        else {
+            visit(ptr_off, member_data.ptr);
+        }
+    }
 }
 
 void traverse_gc_roots(){
     struct StackEntry* chain = gc_root_chain;
     while(chain != NULL){
         for(int i = 0; i < chain->numroots*2; i+=2){
-            void* ptr = chain->roots[i];
+            void* ptr = (void*) chain->roots[i];
             void* data = chain->roots[i+1];
-            visit(ptr, data);
+            // null here means the pointer is not in scope yet
+            if(ptr != NULL){
+                visit(ptr, data);
+            }
         }
         chain = chain->caller;
     }
 }
 
 void gc(){
+    #ifdef DEBUG
+    debug_print("---START GC---\n");
+    debug_print_table();
+    #endif
     for(int i = 0; i < HEAP_SIZE; i++){
         struct HeapEntry* p = heap.values[i];
         while(p != NULL){
@@ -182,22 +296,39 @@ void gc(){
         struct HeapEntry* prev = NULL;
         while(p != NULL){
             if(!p->mark){
+                #ifdef DEBUG
+                debug_print("FREEPTR: ");
+                debug_printint((int64_t)p->ptr);
+                debug_print("\n");
+                #endif
                 if(prev == NULL){
                     heap.values[i] = p->chain_next;
                 }
                 else{
                     prev->chain_next = p->chain_next;
                 }
-                free(p->ptr);
-                free((int8_t*) p);
+                free(p->ptr, p->size);
+                
+                struct HeapEntry* tmp = p->chain_next;
+                free((int8_t*) p, sizeof (struct HeapEntry));
+                p = tmp;
             }
             else{
+                #ifdef DEBUG
+                debug_print("PRESERVE: ");
+                debug_printint((int64_t)p->ptr);
+                debug_print("\n");
+                #endif
                 p->generation += 1;
+                prev = p;
+                p = p->chain_next;
             }
-            prev = p;
-            p = p->chain_next;
         }
     }
+    #ifdef DEBUG
+    debug_print_table();
+    debug_print("---END GC---\n");
+    #endif
 }
 
 void gc_init(){
@@ -206,15 +337,24 @@ void gc_init(){
     }
 }
 
-int8_t* gc_alloc(int64_t numbytes){
+int8_t* gc_alloc(int64_t numbytes, struct HeapTracking* meta){
+    
+    #ifdef DEBUG
+    gc();
+    #endif
+    #ifndef DEBUG
     // do this check before allocating memory.
     if(usage > gc_threshold){
         gc();
+        // note gc also should decrease variable "usage"
+        gc_threshold = gc_threshold * 2;
     }
+    #endif
     int8_t* ptr = allocate(numbytes);
     // n.b. this is ok to zero-extend on platforms where pointers are <64 bits.
     struct HeapEntry* entry = find(ptr, 1);
-    entry->meta = NULL;
+    entry->size = numbytes;
+    entry->meta = meta;
     usage += numbytes;
     return ptr;
 }

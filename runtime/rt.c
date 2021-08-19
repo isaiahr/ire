@@ -2,20 +2,14 @@
 
 #include "iretypes.h"
 #include "platform.h"
+#include "wrapper.h"
 #include "gc.h"
 
 #define STDOUT 1
 #define STDERR 2
 #define STDIN 0
 
-
 extern void main();
-
-struct i_string_t {
-    int64_t bytes;
-    int8_t* ptr;
-};
-
 
 void __irert__exit__(ire_int_t);
 int8_t* __irert__gc_alloc__(ire_int_t);
@@ -25,22 +19,6 @@ void _start() {
     gc_init();
     main();
     __irert__exit__(0);
-}
-
-// would prefer llvm creating own memcpy, but it seems to expect one. so here it is
-void* memcpy (void* restrict dest, const void* restrict src, int64_t n){
-    int8_t* db = (int8_t*) dest;
-    int8_t* sb = (int8_t*) src;
-    for(int64_t i=0; i<n; i++){
-        db[i] = sb[i];
-    }
-    return dest;
-}
-
-
-int64_t writefd(int32_t fd, int8_t* buffer, size_t count){
-    // buffer should be zero-extended
-    return _syscall6(SYS_write, fd, (size_t) buffer, count, 0, 0, 0);
 }
 
 int64_t __irert__writefd__(int64_t fd, ire_string_t str){
@@ -56,7 +34,7 @@ void __irert__print__(ire_string_t str){
 }
 
 void __irert__exit__(ire_int_t status) {
-    _syscall1(SYS_exit, status);
+    exit(status);
 }
 
 void __irert__panic__(){

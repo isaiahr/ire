@@ -43,7 +43,9 @@ data Ctx = Ctx {
     bodyc :: BodyCtx,
     fileId :: FileInfo,
     writRet :: Bool, -- hack (sortof) to not write a 2nd return after writing a (nested) return
-    shadowstackidx :: Int -- index of heap ptr into shadow stack.
+    shadowstackidx :: Int, -- index of heap ptr into shadow stack.
+    globs :: [LGlobal],
+    heapmetas :: [(LType, LValue)]
 }
 
 passGenLLVM = Pass {pName = "LLVM Gen", pFunc = runP }
@@ -60,12 +62,14 @@ genLLVM (IR tl fi) = evalState (genLLVM2 tl) (
         bodyc = error "poked error thunk", 
         fileId = fi, 
         writRet = False,
-        shadowstackidx = 0
+        shadowstackidx = 0,
+        globs = [],
+        heapmetas = []
         }) 
 
 llvmntypeof Native_Exit = LLVMFunction LLVMVoid [LLVMInt 64]
 llvmntypeof Native_Print = LLVMFunction LLVMVoid [ir2llvmtype StringIRT]
-llvmntypeof Native_Alloc = LLVMFunction (LLVMPtr (LLVMInt 8)) [LLVMInt 64]
+llvmntypeof Native_Alloc = LLVMFunction (LLVMPtr (LLVMInt 8)) [LLVMInt 64, LLVMPtr $ LLVMDType "%gcheaptracker"]
 llvmntypeof Native_Panic = LLVMFunction (LLVMVoid) []
 llvmntypeof Native_IntToString = LLVMFunction (ir2llvmtype StringIRT) [LLVMInt 64]
 
@@ -76,7 +80,11 @@ genLLVM2 tlfs = do
     fhs <- forM tlfs genTLF
     lfs <- forM (zip tlfs fhs) genTLFe
     ctx <- get
-    let tys = [("%gcchain", LLVMStruct False [LLVMPtr (LLVMDType "%gcchain"), LLVMInt 32, LLVMArray 0 (LLVMPtr (LLVMInt 8))] )]
+    let tys = [
+            ("%gcchain", LLVMStruct False [LLVMPtr (LLVMDType "%gcchain"), LLVMInt 32, LLVMArray 0 (LLVMPtr (LLVMInt 8))]),
+            ("%gcheaptracker", LLVMStruct False [LLVMInt 32, LLVMArray 0 (LLVMDType "%gcheapobj")]),
+            ("%gcheapobj", LLVMStruct False [LLVMInt 64, LLVMPtr (LLVMDType "%gcheaptracker"), LLVMInt 64])
+            ]
     let g = LGlobal {
         gName = LGlob "gc_root_chain",
         gValue = LNull,
@@ -84,12 +92,16 @@ genLLVM2 tlfs = do
         gConst = False,
         gLinkage = Linkage_Linkonce
     }
-    return $ createLLVMModule (fiSrcFileName (fileId ctx)) ("irec " <> VERSION_STRING <> " commit " <> COMMIT_ID)  (map snd (externs ctx) <> lfs2 <> lfs) tys [g]
+    return $ createLLVMModule (fiSrcFileName (fileId ctx)) ("irec " <> VERSION_STRING <> " commit " <> COMMIT_ID)  (map snd (externs ctx) <> lfs2 <> lfs) tys ([g] <> globs ctx)
     --- do things
 
 getIRType :: Expr -> State Ctx Type
 getIRType expr = do
     return $ exprType expr
+    
+addGlobal :: LGlobal -> State Ctx ()
+addGlobal g = do
+    modify $ \ctx -> ctx{globs = g:(globs ctx)}
 
 getRetty :: Name -> State Ctx Type
 getRetty name = do
@@ -194,7 +206,8 @@ genE (Lit (BoolL i)) = do
     
 genE (Lit (StringL str)) = do
     let bytes = Data.ByteString.unpack . Data.Text.Encoding.encodeUtf8 . Data.Text.pack $ str
-    ptr <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, LIntLit (length bytes))])
+    tracker <- createGCMeta StringIRT
+    ptr <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, LIntLit (length bytes)), (LLVMPtr $ LLVMDType "%gcheaptracker", tracker)])
     str1 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr (LLVMInt 8)]) LUndef (LLVMInt 64) (LIntLit (length bytes)) [0])
     str2 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr (LLVMInt 8)]) str1 (LLVMPtr (LLVMInt 8)) ptr [1])
     forM (zip bytes [0..((length bytes) -1)]) (\(byte, idx) -> do
@@ -298,7 +311,8 @@ genE (App (Prim (MkArray ty)) eargs) = do
     let lty = ir2llvmtype ty
     szptr <- promote $ createGEP lty LNull [(LLVMInt 32, LIntLit (length eargs))]
     szint <- promote $ createPtrToInt (LLVMPtr lty) szptr (LLVMInt 64)
-    ptr <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, szint)])
+    tracker <- createGCMeta (Array ty)
+    ptr <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, szint), (LLVMPtr $ LLVMDType "%gcheaptracker", tracker)])
     ptrty <- promote (createBitcast (LLVMPtr (LLVMInt 8)) ptr (LLVMPtr lty))
     val1 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr lty]) LUndef (LLVMInt 64) (LIntLit (length eargs)) [0])
     val2 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr lty]) val1 (LLVMPtr lty) ptrty [1])
@@ -450,7 +464,8 @@ genE (App (Prim (ArrayAppend y)) [argtuple]) = do
     szptr <- promote $ createGEP y' LNull [(LLVMInt 64, combinedsz)]
     szint <- promote $ createPtrToInt (LLVMPtr y') szptr (LLVMInt 64)
     -- szint = number of bytes of the entirety of the new array
-    arralloc <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, szint)])
+    tracker <- createGCMeta (Array y)
+    arralloc <- promote (createCall (LLVMPtr (LLVMInt 8)) (LGlob (prim2llvmname Native_Alloc)) [(LLVMInt 64, szint), (LLVMPtr $ LLVMDType "%gcheaptracker", tracker)])
     arrdata <- promote (createBitcast (LLVMPtr (LLVMInt 8)) arralloc (LLVMPtr y'))
     v1 <- promote (createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr y']) LUndef (LLVMInt 64) (combinedsz) [0])
     v2 <- promote $ createInsertValue (LLVMStruct False [LLVMInt 64, LLVMPtr y']) v1 (LLVMPtr y') arrdata [1]
@@ -545,6 +560,155 @@ genE (If cond e1 e2) = do
     result <- promote $ createLoad llvmty ptrresult
     return result
     
+createGCMeta :: Type -> State Ctx LValue
+createGCMeta ty = do
+    let lty = ir2llvmtype ty
+    st <- get
+    case lookup lty (heapmetas st) of 
+         Just p -> return p
+         Nothing -> do
+             p2 <- createNewGCMeta ty
+             return p2
+             
+
+{--
+NOTE: subfields of a type should have null metadata when they need to be derefenced.
+
+so the type ((Int, [Int]), Int, String, Int*) for example:
+meta1: 3 children, meta2, meta3, meta6
+meta2: 1 child, meta4
+meta3: 1 child, meta5
+meta4: 0 child
+meta5: 0 child
+meta6: 0 child (but heap allocation should find metadata for it)
+-}
+
+-- needs a subfield entry. ie dont immediatly derefence it.
+-- not applicable for not gc-able items (like bits)
+needsSubfield (Tuple ty) = True
+needsSubfield (Function p r) = False
+needsSubfield (EnvFunction p cl r) = error "TODO: envfunction gc / testing/ etc #83490809345890345890"
+needsSubfield (Bits n) = False
+needsSubfield (Array t) = True
+needsSubfield (Ptr t) = False
+needsSubfield (StringIRT) = True
+
+createNewGCMeta ty@(Tuple stys) = do
+    ctx0 <- get
+    let count = length (heapmetas ctx0)
+    let tytrack = LLVMDType "%gcheaptracker"
+    let ty2 = LLVMDType "%gcheapobj"
+    r <- forM (zip stys [0..(length stys)-1]) $ \(sty, idx) -> do
+        if needsGC sty && needsSubfield sty then do
+            stymeta <- createGCMeta sty
+            let offset = offsetOf (ir2llvmtype ty) idx (LLVMInt 64)
+            return $ Just $ LStructLit [(LLVMInt 64, offset), (LLVMPtr tytrack, stymeta), (LLVMInt 64, LIntLit 0)] 
+        else if needsGC sty then do
+            let offset = offsetOf (ir2llvmtype ty) idx (LLVMInt 64)
+            return $ Just $ LStructLit [(LLVMInt 64, offset), (LLVMPtr tytrack, LNull), (LLVMInt 64, LIntLit 0)]
+        else
+            return Nothing
+    let r2 = [(ty2, z) | Just z <- r]
+    let val = LStructLit [(LLVMInt 32, LIntLit (length r2)), (LLVMArray (length r2) ty2, LArrayLit r2)]
+    let g = LGlobal {
+        gName = LGlob $ "gc_heaptracker_" <> (disp count),
+        gValue = val,
+        gType = LLVMStruct False [(LLVMInt 32), (LLVMArray (length r2) (LLVMDType "%gcheapobj"))],
+        gConst = True,
+        gLinkage = Linkage_Private
+    }
+    let p = LConstExpr $ CExprBitcast (LLVMPtr $ gType g) (gName g) (LLVMPtr (LLVMDType "%gcheaptracker"))
+    modify $ \ctx -> ctx {heapmetas = (ir2llvmtype ty, p):(heapmetas ctx)}
+    addGlobal g
+    return $ p
+    
+createNewGCMeta ty@(Bits n) = do
+    error "shouldnt happen#548989034589045"
+    return LNull
+
+createNewGCMeta ty@(Function _ _) = error "shouldnt happen5838534" -- return LNull
+createNewGCMeta ty@(EnvFunction _ _ _) = error "TODO EnvFunction 8954389435"
+    {-
+    ctx0 <- get
+    count = length (heapmetas ctx0)
+    let ty = LLVMDType "%gcheaptracker"
+    let val = LStructLit [(LLVMInt 32, LIntLit 0), LArrayLit []]
+    let g = LGlobal {
+        gName = LGlob "gc_heaptracker_" <> (disp count),
+        gValue = val,
+        gType = ty,
+        gConst = True,
+        gLinkage = Linkage_Private
+    }
+    modify $ \ctx -> ctx {heapmetas = (ty, g):(heapmetas ctx)}
+    return g
+    -}
+    
+createNewGCMeta tyo@(Array sty) = do
+    stymeta <- if needsSubfield sty then createGCMeta sty else return LNull
+    ctx0 <- get
+    let count = length (heapmetas ctx0)
+    let ty = LLVMDType "%gcheaptracker"
+    let size = measure (ir2llvmtype sty) (LLVMInt 64)
+    let ptr0 = LStructLit [(LLVMInt 64, LIntLit 0), (LLVMPtr ty, stymeta), (LLVMInt 64, size)]
+    let val = LStructLit [(LLVMInt 32, LIntLit 1), (LLVMArray 1 (LLVMDType "%gcheapobj"), LArrayLit [(LLVMDType "%gcheapobj", ptr0)])]
+    let g = LGlobal {
+        gName = LGlob $ "gc_heaptracker_" <> (disp count),
+        gValue = val,
+        gType = LLVMStruct False [(LLVMInt 32), (LLVMArray 1 (LLVMDType "%gcheapobj"))],
+        gConst = True,
+        gLinkage = Linkage_Private
+    }
+    let p = LConstExpr $ CExprBitcast (LLVMPtr $ gType g) (gName g) (LLVMPtr (LLVMDType "%gcheaptracker"))
+    modify $ \ctx -> ctx {heapmetas = (ir2llvmtype tyo, p):(heapmetas ctx)}
+    addGlobal g
+    return $ p
+    
+createNewGCMeta tyo@(Ptr sty) = do
+    stymeta <- createGCMeta sty
+    ctx0 <- get
+    let count = length (heapmetas ctx0)
+    let ty = LLVMDType "%gcheaptracker"
+    let ptr0 = LStructLit [(LLVMInt 64, LIntLit 0), (LLVMPtr ty, stymeta), (LLVMInt 64, LIntLit 0)]
+    let val = LStructLit [(LLVMInt 32, LIntLit 1), (LLVMArray 1 (LLVMDType "%gcheapobj"), LArrayLit [(LLVMDType "%gcheapobj", ptr0)])]
+    let g = LGlobal {
+        gName = LGlob $ "gc_heaptracker_" <> (disp count),
+        gValue = val,
+        gType = LLVMStruct False [(LLVMInt 32), (LLVMArray 1 (LLVMDType "%gcheapobj"))],
+        gConst = True,
+        gLinkage = Linkage_Private
+    }
+    let p = LConstExpr $ CExprBitcast (LLVMPtr $ gType g) (gName g) (LLVMPtr (LLVMDType "%gcheaptracker"))
+    modify $ \ctx -> ctx {heapmetas = (ir2llvmtype tyo, p):(heapmetas ctx)}
+    addGlobal g
+    return $ p
+
+createNewGCMeta tyo@(StringIRT) = do
+    ctx0 <- get
+    let count = length (heapmetas ctx0)
+    let ty = LLVMDType "%gcheaptracker"
+    let size = measure (LLVMInt 8) (LLVMInt 64)
+    let ptr0 = LStructLit [(LLVMInt 64, LIntLit 0), (LLVMPtr ty, LNull), (LLVMInt 64, size)]
+    let val = LStructLit [(LLVMInt 32, LIntLit 1), (LLVMArray 1 (LLVMDType "%gcheapobj"), LArrayLit [(LLVMDType "%gcheapobj", ptr0)])]
+    let g = LGlobal {
+        gName = LGlob $ "gc_heaptracker_" <> (disp count),
+        gValue = val,
+        gType = LLVMStruct False [(LLVMInt 32), (LLVMArray 1 (LLVMDType "%gcheapobj"))],
+        gConst = True,
+        gLinkage = Linkage_Private
+    }
+    let p = LConstExpr $ CExprBitcast (LLVMPtr $ gType g) (gName g) (LLVMPtr (LLVMDType "%gcheaptracker"))
+    modify $ \ctx -> ctx {heapmetas = (ir2llvmtype tyo, p):(heapmetas ctx)}
+    addGlobal g
+    return $ p
+    
+-- measure - length in bytes of obj
+-- asty = probably i64
+-- ty - type to measure
+measure ty asty = LConstExpr $ CExprPtrToInt (LLVMPtr ty) (LConstExpr $ CExprGEP ty (LLVMPtr ty, LNull) [(LLVMInt 32, LIntLit 1)]) asty
+
+-- offsetof - returns offset (in bytes) of a tuple
+offsetOf ty@(LLVMStruct b tys) idx asty = LConstExpr $ CExprPtrToInt (LLVMPtr (tys !! idx)) (LConstExpr $ CExprGEP ty (LLVMPtr ty, LNull)  [(LLVMInt 32, LIntLit 0), (LLVMInt 32, LIntLit idx)]) asty
 --helper0 and helper1 are to help packing / unpacking bigptr, which is the closure env, into typed closure variables.
 
 helper0 :: LValue -> (LValue, LType, Int) -> State Ctx ()
