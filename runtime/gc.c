@@ -249,11 +249,12 @@ void visit_subfields(int8_t* ptr, struct HeapTracking* meta){
             int64_t length = ptr_off_i64[0];
             // ok, now advance ptr_off to the array element
             ptr_off_i64 = &ptr_off_i64[1];
-            ptr_off = (int8_t*) ptr_off_i64;
+            // dereference, since arrays are {i64, ty*}
+            ptr_off = (int8_t*) *ptr_off_i64;
             // visit the "main" array pointer
             visit(ptr_off, NULL);
             // now visit subfields.
-            for(int j = 0; j < objs; j++){
+            for(int j = 0; j < length; j++){
                 visit(&ptr_off[j*member_data.array_size], member_data.ptr);
             }
         }

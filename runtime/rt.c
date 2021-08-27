@@ -5,6 +5,7 @@
 #include "wrapper.h"
 #include "gc.h"
 
+#define NULL 0
 #define STDOUT 1
 #define STDERR 2
 #define STDIN 0
@@ -12,8 +13,34 @@
 extern void main();
 
 void __irert__exit__(ire_int_t);
-int8_t* __irert__gc_alloc__(ire_int_t);
+int8_t* __irert__gc_alloc__(ire_int_t, void* metadata);
 void __irert__print__(ire_string_t);
+
+// same abi as heaptracker with a = 1
+struct ht_1 {
+    int32_t a;
+    int64_t b;
+    void* c;
+    int64_t d;
+};
+
+struct ht_0 {
+    int32_t a;
+};
+
+struct ht_1 ire_string_trck = {
+    1,
+    8,
+    NULL,
+    0
+};
+
+struct ht_0 ire_anonymous_block = {
+    0
+};
+
+#define ire_string_tracker ((struct HeapTracking*) (&ire_string_trck))
+#define ire_anon_tracker ((struct HeapTracking*) (&ire_anonymous_block))
 
 void _start() {
     gc_init();
@@ -25,8 +52,8 @@ int64_t __irert__writefd__(int64_t fd, ire_string_t str){
     return writefd(fd, str.ptr, str.bytes);
 }
 
-int8_t* __irert__gc_alloc__(int64_t numbytes){
-    return gc_alloc(numbytes);
+int8_t* __irert__gc_alloc__(int64_t numbytes, void* metadata){
+    return gc_alloc(numbytes, metadata);
 }
 
 void __irert__print__(ire_string_t str){
@@ -54,7 +81,7 @@ ire_string_t __irert__inttostring__(ire_int_t value){
         // handle this manually.
         ire_string_t t;
         t.bytes = 1;
-        t.ptr = __irert__gc_alloc__(1);
+        t.ptr = __irert__gc_alloc__(1, ire_anon_tracker);
         t.ptr[0] = '0';
         return t;
     }
@@ -77,12 +104,12 @@ ire_string_t __irert__inttostring__(ire_int_t value){
     ire_string_t t;
     if(negative){
         t.bytes = i+1;
-        t.ptr = __irert__gc_alloc__(t.bytes);
+        t.ptr = __irert__gc_alloc__(t.bytes, ire_anon_tracker);
         t.ptr[0] = '-';
     }
     else{
         t.bytes = i;
-        t.ptr = __irert__gc_alloc__(t.bytes);
+        t.ptr = __irert__gc_alloc__(t.bytes, ire_anon_tracker);
     }
     for(int8_t j = 0; j < i; j++){
         t.ptr[j+negative] = buffer[i-j-1];
