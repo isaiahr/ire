@@ -98,6 +98,12 @@ runLinker (Target Linux _) paths output = do
 runLinker t@(Target _ _) filepath output = targetUnsupported t
 
 
+runOpt :: Target -> String -> String -> IO ()
+runOpt target path output = do
+    handle <- runProcess OPT_PATH ["--march", getMarch target, "-O3", "-S", path, "-o", output] Nothing Nothing Nothing Nothing Nothing
+    result <- waitForProcess handle
+    return ()
+
 runLLC :: Target -> String -> String ->  IO ()
 runLLC target path output = do
     handle <- runProcess LLC_PATH ["--march", getMarch target, path, "-o", output] Nothing Nothing Nothing Nothing Nothing
@@ -122,26 +128,58 @@ runCompiler output outfile = do
     hPutStr handle output
     hClose handle
     
-writeOutput :: String -> String -> Target -> Stage -> IO ()
-writeOutput output ofile target stage = do
+writeOutput :: String -> String -> Target -> Stage -> Bool -> IO ()
+writeOutput output ofile target stage opt = do
     case stage of
-         S_LLVM -> runCompiler output ofile
+         S_LLVM -> case opt of 
+                        False -> runCompiler output ofile
+                        True -> do
+                            lfile <- getTempFile
+                            runCompiler output lfile
+                            runOpt target lfile ofile
+                            removeFile lfile
          S_ASM -> do
              lfile <- getTempFile
              runCompiler output lfile
-             runLLC target lfile ofile 
+             case opt of
+                  False -> runLLC target lfile ofile 
+                  True -> do
+                      lofile <- getTempFile
+                      runOpt target lfile lofile
+                      runLLC target lofile ofile
+                      removeFile lofile
              removeFile lfile
          S_OBJ -> do
              lfile <- getTempFile
              runCompiler output lfile
-             runLLCAsm target lfile ofile 
+             case opt of
+                  False -> runLLCAsm target lfile ofile 
+                  True -> do
+                      lofile <- getTempFile
+                      runOpt target lfile lofile
+                      runLLCAsm target lofile ofile
+                      removeFile lofile
              removeFile lfile
          S_BIN -> do
-             lfile <- getTempFile
-             objfile <- getTempFile
-             runCompiler output lfile
-             runLLCAsm target lfile objfile
-             libs <- getLinkedLibs target  
-             runLinker target (libs <> [objfile]) ofile
-             removeFile lfile
-             removeFile objfile
+             case opt of 
+                False -> do
+                    lfile <- getTempFile
+                    objfile <- getTempFile
+                    runCompiler output lfile
+                    runLLCAsm target lfile objfile
+                    libs <- getLinkedLibs target  
+                    runLinker target (libs <> [objfile]) ofile
+                    removeFile lfile
+                    removeFile objfile
+                True -> do
+                    lfile <- getTempFile
+                    lofile <- getTempFile
+                    objfile <- getTempFile
+                    runCompiler output lfile
+                    runOpt target lfile lofile
+                    runLLCAsm target lofile objfile
+                    libs <- getLinkedLibs target  
+                    runLinker target (libs <> [objfile]) ofile
+                    removeFile lfile
+                    removeFile lofile
+                    removeFile objfile

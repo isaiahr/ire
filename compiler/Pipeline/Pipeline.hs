@@ -49,7 +49,7 @@ data PFile = PFile {
 instance Show PFile where
     show pf = show (pLocation pf) <> show (pExports pf) <> show (pImports pf)
  
-pipelineIO target filename stage outfile = do
+pipelineIO target filename stage opt outfile = do
     -- todo target etc etc etc
     files <- importDag filename
     (errs, processed_files, (mtff, mnamef)) <- execStateT (forM (zip [1 .. (length files)] files) $ (\(idx, x) -> do 
@@ -67,7 +67,7 @@ pipelineIO target filename stage outfile = do
                                             -- otherwise, since this is not the last file, and we wont need output for linking, 
                                             -- just run a "dummy" pass and discard the result.
                                             (False, _) -> (Nothing, Nothing))
-                epfile <- liftIO (compile mtlf mname tstage target x pfiles idx out)
+                epfile <- liftIO (compile mtlf mname tstage opt target x pfiles idx out)
                 case epfile of 
                     Left err -> do
                         put (err, pfiles, (mtlf, mname))
@@ -126,6 +126,7 @@ parameters:
 monoTLF: top-level functions that are candidates to monomorphization (havent been monomorphized, but may in the future when needed)
 monoN: monomorphized versions of monoTLF, for re-use
 stage: stage to which to compile to. Nothing -> no post-processing
+opt: run opt -O3 to optimize IR 
 target: target os-arch pair
 ufile: unproccesed file to read from
 processed: list of processed files.
@@ -136,13 +137,14 @@ mout: maybe output. will place output here. nothing -> temp file.
 compile :: [IR.Syntax.TLFunction] ->
            [IR.Syntax.Name] ->
            Maybe Stage ->
+           Bool ->
            Target ->
            UFile ->
            [PFile] ->
            Int ->
            Maybe String ->
            IO (Either Messages ([IR.Syntax.TLFunction], [IR.Syntax.Name], PFile))
-compile monoTLF monoN stage target file processed idx mout = do
+compile monoTLF monoN stage opt target file processed idx mout = do
     inhandle <- openFile (uPath file) ReadMode
     hSetEncoding inhandle utf8
     contents <- hGetContents inhandle
@@ -182,11 +184,11 @@ compile monoTLF monoN stage target file processed idx mout = do
                             (Just tar) -> do
                                 case mout of
                                     (Just outfile) -> do 
-                                        writeOutput (disp y) outfile target tar
+                                        writeOutput (disp y) outfile target tar opt
                                         return outfile
                                     Nothing -> do
                                         outfile <- getTempFile
-                                        writeOutput (disp y) outfile target tar
+                                        writeOutput (disp y) outfile target tar opt
                                         return outfile
                      return $ Right (tlf0, name0, PFile {
                          pLocation = (uPath file),
