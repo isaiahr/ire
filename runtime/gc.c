@@ -210,6 +210,8 @@ void visit(void* ptr, struct HeapTracking* data){
     #ifdef DEBUG
     debug_print("visit: ");
     debug_printint((int64_t) ptr);
+    debug_print(", meta: ");
+    debug_printint((int64_t)data);
     debug_print("\n");
     #endif
     if(data == NULL){
@@ -252,6 +254,18 @@ void visit_subfields(int8_t* ptr, struct HeapTracking* meta){
             ptr_off_i64 = &ptr_off_i64[1];
             // dereference, since arrays are {i64, ty*}
             ptr_off = (int8_t*) *ptr_off_i64;
+            
+            struct HeapEntry* p = find(ptr_off, 0);
+            if(p == NULL){
+                #ifdef DEBUG
+                debug_print("heapentry null for array data: ");
+                debug_printint((int64_t)ptr_off);
+                #endif
+                exit(3);
+            }
+            else{
+                p->mark = 1;
+            }
             // now visit subfields.
             for(int j = 0; j < length; j++){
                 #ifdef DEBUG
