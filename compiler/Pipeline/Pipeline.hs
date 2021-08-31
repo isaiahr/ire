@@ -33,6 +33,7 @@ import IR.Lowering
 import IR.HeapConversion
 import IR.LambdaLift
 import IR.CodeGen
+import IR.GCPrepare
 import Pipeline.Relations
 import Pipeline.Target
 import LLVM.Syntax
@@ -116,6 +117,7 @@ pipeline2 x fi tlfs names = \pr -> (pr >>>>
               passHConv >>>>
               passLLift >>>>
               passMonoM tlfs names >>>>
+              byPassWith (\(a, b, c) -> a) (\(newir, (a, b, c)) -> (newir, b, c)) passGCPrepare >>>>
               byPassWith (\(a, b, c) -> a) (\(newir,(a, b, c)) -> (newir, b, c)) passGenLLVM)
 
 {-

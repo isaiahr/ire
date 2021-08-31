@@ -25,6 +25,7 @@ library
       IR.HeapConversion
       IR.LambdaLift
       IR.Monomorphization
+      IR.GCPrepare
       IR.Lowering
       IR.Syntax
       LLVM.Builder

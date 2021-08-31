@@ -8,9 +8,15 @@ import Common.Natives
 import Data.List
 import Control.Monad
 import Control.Monad.Identity
+import Control.Monad.State
     
-allNames (IR [] u) = error "got deleted by accident; if needed see https://github.com/isaiahr/ire/commit/64998911d1ca3abd695ddbf93460b1348b745e02#diff-e06f5476614140b21ca844e88215a899b4978378859855db39069e336e74efcc"
-nextIntName ir = (foldl largest 0 (map nPk (allNames ir)))
+allNames :: IR -> [Name]
+allNames ir = execState (mapNameCtx magic ir) []
+    where magic :: Name -> State [Name] Name
+          magic name = do
+                    modify $ \y -> if name `elem` y then y else (name:y)
+                    return name
+nextIntName ir = (foldl largest 0 (map nPk (allNames ir))) + 1
     where largest a b = if a > b then a else b
           
 mapName f (IR ((TLFunction nm nms nms2 e):tlfs) fi) = IR ((TLFunction (f nm) (map f nms) (map f nms2) (go e)):(let (IR t _) =  (mapName f (IR tlfs fi)) in t)) fi
@@ -162,3 +168,17 @@ libtypeof Native_Exit = Function [Bits 64] (Tuple [])
 libtypeof Native_Print = Function [StringIRT] (Tuple [])
 libtypeof Native_Panic = Function [Tuple []] (Tuple [])
 libtypeof Native_IntToString = Function [Bits 64] (StringIRT)
+
+
+
+{--
+needs gc ; or - should this value be tracked as a root?
+true iff value is heap-allocated or an aggregate composed of at least one heap-allocated value
+-}
+needsGC (Tuple tys) = foldr (\a b -> needsGC a || b) (False) tys
+needsGC (Function p r) = False
+needsGC (EnvFunction params cl ret) = foldr (\a b -> needsGC a || b) False cl
+needsGC (Bits nt) = False
+needsGC (Array t) = True
+needsGC (Ptr t) = True
+needsGC (StringIRT) = True

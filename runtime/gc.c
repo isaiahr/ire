@@ -73,7 +73,7 @@ struct Heap {
 struct Heap heap;
 
 // 1mb - 1024b = 1kb * 1024 = 1024kb = 1mb
-#define INIT_GC_THRESHOLD 1024*1024 
+#define INIT_GC_THRESHOLD 1024*1024
 
 int64_t gc_threshold = INIT_GC_THRESHOLD;
 
@@ -219,7 +219,8 @@ void visit(void* ptr, struct HeapTracking* data){
         struct HeapEntry* result = find((int8_t*) heap_obj, 0);
         if(result == NULL){
             #ifdef DEBUG 
-            debug_print("ERROR: HEAP VARIABLE EARLY FREE?");
+            debug_print("ERROR: HEAP VARIABLE EARLY FREE? ");
+            debug_printint((int64_t)heap_obj);
             #endif
             exit(5);
         }
@@ -251,14 +252,20 @@ void visit_subfields(int8_t* ptr, struct HeapTracking* meta){
             ptr_off_i64 = &ptr_off_i64[1];
             // dereference, since arrays are {i64, ty*}
             ptr_off = (int8_t*) *ptr_off_i64;
-            // visit the "main" array pointer
-            visit(ptr_off, NULL);
             // now visit subfields.
             for(int j = 0; j < length; j++){
+                #ifdef DEBUG
+                debug_print("offsetarray: ");
+                debug_printint(j*member_data.array_size);
+                #endif
                 visit(&ptr_off[j*member_data.array_size], member_data.ptr);
             }
         }
         else {
+            #ifdef DEBUG
+            debug_print("offset: ");
+            debug_printint(off);
+            #endif
             visit(ptr_off, member_data.ptr);
         }
     }
@@ -341,7 +348,10 @@ void gc_init(){
 int8_t* gc_alloc(int64_t numbytes, struct HeapTracking* meta){
     
     #ifdef DEBUG
-    gc();
+    if(usage*1024 > gc_threshold){
+        gc();
+        gc_threshold = gc_threshold * 2;
+    }
     #endif
     #ifndef DEBUG
     // do this check before allocating memory.

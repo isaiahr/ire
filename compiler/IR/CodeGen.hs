@@ -19,6 +19,9 @@ import Control.Monad.State
 import IR.IR
 import Common.Natives
 
+
+import Debug.Trace
+
 {-
     CodeGen.hs  -- IR to LLVM lowering
     this generates llvm code from the IR.
@@ -168,11 +171,15 @@ pushgcchain e = do
     newchain <- promote $ createAlloca ty
     step1 <- promote $ createInsertValue ty LUndef (LLVMPtr (LLVMDType "%gcchain")) chain [0]
     step2 <- promote $ createInsertValue ty step1 (LLVMInt 32) (LIntLit numroots) [1]
-    s <- forM [0..numroots-1] $ \y -> do
-        step3 <- promote $ createInsertValue ty step2 (LLVMPtr (LLVMInt 8)) LNull [2, 2*y]
-        return step3
-    ok <- if (length s > 0) then return $ last s else return step2
-    promote $ createStore ty ok newchain
+    latest <- execStateT (forM [0..numroots-1] $ \y -> do
+            curstep <- get
+            -- null pointer
+            step3 <- lift $ promote $ createInsertValue ty curstep (LLVMPtr (LLVMInt 8)) LNull [2, 2*y]
+            -- null meta (not nessecary actually, since ptr checked before meta, meta wont be checked if ptr isnt.)
+            step4 <- lift $ promote $ createInsertValue ty step3 (LLVMPtr (LLVMInt 8)) LNull [2, 1+2*y]
+            put step4
+            return ()) step2
+    promote $ createStore ty latest newchain
     cast <- promote $ createBitcast (LLVMPtr ty) newchain (LLVMPtr (LLVMDType "%gcchain"))
     promote $ createStore (LLVMPtr (LLVMDType "%gcchain")) cast (LGlob "gc_root_chain")
 
@@ -186,6 +193,16 @@ numrootsof e = execState (go e) 0
                     modify $ \st -> st+1
                 else return ()
                 return u
+        {-
+          go u@(App (Prim (MkTuple _)) eargs) = do
+                let eargs' = filter needsGC (map exprType eargs)
+                modify $ (+(length eargs'))
+                return u
+          go u@(App (Prim (MkArray _)) eargs) = do
+                let eargs' = filter needsGC (map exprType eargs)
+                modify $ (+(length eargs'))
+                return u
+                -}
           go expr = traverseExpr go expr
         
 
@@ -609,7 +626,6 @@ needsSubfield (StringIRT) = True
 {-
 NOTE: this needs a big revamp once recursive types get added.
 --}
-
 createNewGCMeta ty@(Tuple stys) = do
     let tytrack = LLVMDType "%gcheaptracker"
     let ty2 = LLVMDType "%gcheapobj"
@@ -801,15 +817,3 @@ ir2llvmtype (Bits nt) = (LLVMInt nt)
 ir2llvmtype (Array t) = LLVMStruct False [(LLVMInt 64), LLVMPtr (ir2llvmtype t)]
 ir2llvmtype (Ptr t) = LLVMPtr (ir2llvmtype t)
 ir2llvmtype (StringIRT) = LLVMStruct False [(LLVMInt 64), LLVMPtr (LLVMInt 8)]
-
-{--
-needs gc ; or - should this value be tracked as a root?
-true iff value is heap-allocated or an aggregate composed of at least one heap-allocated value
--}
-needsGC (Tuple tys) = foldr (\a b -> needsGC a || b) (False) tys
-needsGC (Function p r) = False
-needsGC (EnvFunction params cl ret) = foldr (\a b -> needsGC a || b) False cl
-needsGC (Bits nt) = False
-needsGC (Array t) = True
-needsGC (Ptr t) = True
-needsGC (StringIRT) = True
