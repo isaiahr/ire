@@ -60,7 +60,7 @@ loadFiles preds pth = do
     inhandle <- liftIO $ openFile path ReadMode
     liftIO $ hSetEncoding inhandle utf8
     contents <- liftIO $ hGetContents inhandle
-    let u = (mkPassResult contents (Just path)) >>>> passLexer >>>> passParseRels
+    u <- liftIO $ ((mkPassResult contents (Just path)) >>>> passLexer) >>>= passParseRels
     !ufile <- case (prPassResult u) of 
                    Nothing -> do
                        liftIO $ writeMessages (prPassMessages u)

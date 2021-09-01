@@ -27,7 +27,8 @@ data Options = Options {
     oVersion   :: Bool,
     oHelp      :: Bool,
     oTarget    :: Target,
-    oOptimization :: Bool
+    oOptimization :: Bool,
+    oTiming :: Bool
 } 
 
 defaults = Options {
@@ -39,7 +40,8 @@ defaults = Options {
     oDebug = False,
     oHelp = False,
     oOptimization = False,
-    oTarget = thisSystem
+    oTarget = thisSystem,
+    oTiming = False
 }
 
 
@@ -50,6 +52,7 @@ options = [
     Option ['s'] ["stage"] (OptArg (\p x -> x{oStage = maybe S_BIN stageFromStr p}) "llvm/asm/obj/bin") "stop after stage, default binary",
     Option ['o'] ["output"] (ReqArg (\p x -> x{oOutput = p}) "file") "write output to file",
     Option ['O'] ["optimize"] (NoArg (\x -> x{oOptimization = True})) "enable optimization passes",
+    Option ['T'] ["timings"] (NoArg (\x -> x{oTiming = True})) "print elapsed time of individual passes per file",
     Option ['t'] ["target"] (OptArg (\p x ->  x{oTarget = case (p >>= targetFromStr) of
                                                                Just t -> t
                                                                Nothing -> thisSystem} ) "os-arch") "compile for particular os-architecture pair, default this machine",
@@ -79,7 +82,7 @@ main = do
     pn <- getProgName
     op <- process a pn
     let filename = oInput op
-    msgs <- pipelineIO (oTarget op) filename (oStage op) (oOptimization op) (oOutput op)
+    msgs <- pipelineIO (oTarget op) filename (oStage op) (oOptimization op) (oTiming op) (oOutput op)
     let fmsg = blacklistSev msgs (case (oDebug op, oDumptrees op) of
                     (True, True) -> []
                     (False, True) -> [Debug]

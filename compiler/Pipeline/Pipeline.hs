@@ -6,12 +6,15 @@ Pipeline.hs - functions for whole-program compilation
 
 -}
 
+import System.FilePath
 import System.IO
 import System.Exit
 import System.IO.Error
+import System.CPUTime
 import Control.Monad.State
 import Control.Exception (evaluate)
 import Data.List
+import Text.Printf
 
 import Common.Common
 import Common.Pass
@@ -44,12 +47,13 @@ data PFile = PFile {
     pExports :: [(String, Type)],
     pImports :: [String],
     pMsgs :: Messages,
-    pFileInfo :: FileInfo
+    pFileInfo :: FileInfo,
+    pTimingInfo :: [(String, Double)]
 } 
 instance Show PFile where
     show pf = show (pLocation pf) <> show (pExports pf) <> show (pImports pf)
  
-pipelineIO target filename stage opt outfile = do
+pipelineIO target filename stage opt time outfile = do
     -- todo target etc etc etc
     files <- importDag filename
     (errs, processed_files, (mtff, mnamef)) <- execStateT (forM (zip [1 .. (length files)] files) $ (\(idx, x) -> do 
@@ -92,15 +96,55 @@ pipelineIO target filename stage opt outfile = do
                           else return ()
     else do 
         writeMessages (whitelistSev (errs) [Common.Pass.Error])
+    if time then do
+        writeTimingInfo processed_files
+    else return ()
     return $ foldl (<>) mempty (map pMsgs processed_files)
 
+writeTimingInfo :: [PFile] -> IO ()
+writeTimingInfo pf = do
+    putStr "Pass Name"
+    forM pf $ \p -> do
+        putStr ", "
+        putStr $ takeFileName (pLocation p)
+    putStrLn ""
+    let passes = magicHelper pf
+    forM passes $ \(p, data2) -> do
+        putStr $ p
+        forM data2 $ \(file, db) -> do
+            putStr ", "
+            putStr (printf "%.4f" db)
+        putStrLn ""
+        return ()
+    return ()
+        
+-- magic. dont ask
+-- ok. but what it does is sort of a matrix transpose on the things, and rearranges them
+-- so that the first pass goes first. (note a < b and b < c does not imply a < c, so its not posible for it
+-- to be perfect.)
+magicHelper :: [PFile] -> [(String, [(String, Double)])]
+magicHelper pfs = case foldr magic2 Nothing pfs of
+                       Just lowest -> (lowest, map (\y -> case (filter (\z -> fst z == lowest) (pTimingInfo y)) of 
+                                            [(p, t)] -> (pLocation y, t)
+                                            -- below: n/a 
+                                            _        -> (pLocation y, 0)) pfs): (magicHelper (remove lowest pfs))
+                       Nothing -> []
+    where magic2 pf1 (Just u) = case elemIndex u (map fst (pTimingInfo pf1)) of
+                                    Nothing -> Just u
+                                    Just 0 -> Just u
+                                    Just i -> Just $ fst ((pTimingInfo pf1) !! 0)
+          magic2 pf1 Nothing = case (pTimingInfo pf1) of
+                                    [] -> Nothing
+                                    ((a,b):_) -> Just a
+          remove lowest pfs = map (rem2 lowest) pfs
+          rem2 lowest pf = pf{pTimingInfo = filter (\y -> (fst y) /= lowest) (pTimingInfo pf)}
 
-pipeline1 x = \pr -> (pr >>>>
-              passLexer >>>>
-              passParse >>>>
-              passYieldInj >>>>
-              passName x >>>>
-              passSubScript >>>>
+pipeline1 x pr = (pr >>>>
+              passLexer >>>=
+              passParse >>>=
+              passYieldInj >>>=
+              passName x >>>=
+              passSubScript >>>=
               passType) -- >>>
 
 -- hack kind of 
@@ -111,13 +155,13 @@ instance Disp (LLVM.Syntax.LMod, [IR.Syntax.TLFunction], [IR.Syntax.Name]) where
     disp (a, b, c) = disp a
 -- x = exported syms
 pipeline2 x fi tlfs names = \pr -> (pr >>>>
-              passTypeCheck >>>>
-              passLower x fi >>>>  
-              passDCall >>>> 
-              passHConv >>>>
-              passLLift >>>>
-              passMonoM tlfs names >>>>
-              byPassWith (\(a, b, c) -> a) (\(newir, (a, b, c)) -> (newir, b, c)) passGCPrepare >>>>
+              passTypeCheck >>>=
+              passLower x fi >>>=  
+              passDCall >>>=
+              passHConv >>>=
+              passLLift >>>=
+              passMonoM tlfs names >>>=
+              byPassWith (\(a, b, c) -> a) (\(newir, (a, b, c)) -> (newir, b, c)) passGCPrepare >>>=
               byPassWith (\(a, b, c) -> a) (\(newir,(a, b, c)) -> (newir, b, c)) passGenLLVM)
 
 {-
@@ -154,7 +198,7 @@ compile monoTLF monoN stage opt target file processed idx mout = do
     importedsyms <- case importedSyms file processed of
         Left p -> ioError (userError p)
         Right t -> return t
-    let result = (pipeline1 importedsyms) (mkPassResult contents (Just $ uPath file) )
+    result <- (pipeline1 importedsyms) (mkPassResult contents (Just $ uPath file) )
     case (prPassResult result) of
          Nothing -> do 
              return $ Left (prPassMessages result)
@@ -173,30 +217,39 @@ compile monoTLF monoN stage opt target file processed idx mout = do
                  ioError (userError "Exporting symbol not in file")
              let exportedsyms = map (\s -> (filter (\(s2, t) -> s == s2) allsyms) !! 0) (uExports file)
              let astexports = filter (\(s, i) -> s `elem` uExports file) (map (\(TypedName t (Name s i)) -> (s, i)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds)))
-             let result2 = (pipeline2 astexports FileInfo { fiSrcFileName = (uPath file), fiFileId = idx} monoTLF monoN) result
+             result2 <- (pipeline2 astexports FileInfo { fiSrcFileName = (uPath file), fiFileId = idx} monoTLF monoN) result
              case (prPassResult result2) of
                  Nothing -> do
                      writeMessages (whitelistSev (prPassMessages result2) [Common.Pass.Error])
                      exitWith (ExitFailure 1)
                  Just (y, tlf0, name0) -> do 
-                     tout <- case stage of 
-                            Nothing -> return "" -- no outfile. 
+                     (tout, ti2) <- case stage of 
+                            Nothing -> return ("", []) -- no outfile. 
                             (Just tar) -> do
                                 case mout of
                                     (Just outfile) -> do 
+                                        a <- getCPUTime
                                         writeOutput (disp y) outfile target tar opt
-                                        return outfile
+                                        b <- getCPUTime                    
+                                        let delta = b - a
+                                        let millis = (fromIntegral(delta)/1000000000)::Double
+                                        return (outfile, [("LLVM Toolchain", millis)])
                                     Nothing -> do
                                         outfile <- getTempFile
+                                        a <- getCPUTime
                                         writeOutput (disp y) outfile target tar opt
-                                        return outfile
+                                        b <- getCPUTime                    
+                                        let delta = b - a
+                                        let millis = (fromIntegral(delta)/1000000000)::Double
+                                        return (outfile, [("LLVM Toolchain", millis)])
                      return $ Right (tlf0, name0, PFile {
                          pLocation = (uPath file),
                          pObjLocation = tout, 
                          pExports = exportedsyms, 
                          pImports = (uImports file), 
                          pMsgs = (prPassMessages result2),
-                         pFileInfo = FileInfo { fiSrcFileName = (uPath file), fiFileId = idx}
+                         pFileInfo = FileInfo { fiSrcFileName = (uPath file), fiFileId = idx},
+                         pTimingInfo = (prTime result2 <> ti2)
                      })
 
 importedSyms :: UFile -> [PFile] -> Either String [(String, Type, FileInfo)]

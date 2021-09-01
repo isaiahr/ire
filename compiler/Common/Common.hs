@@ -1,5 +1,11 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StandaloneDeriving #-}
 module Common.Common where
+
+import GHC.Generics
+import Control.DeepSeq
  
 class Disp a where
     disp :: a -> String
@@ -27,4 +33,7 @@ instance Disp FileInfo where
 instance (Disp a) => Disp (Maybe a) where
     disp Nothing = ""
     disp (Just t) = disp t
+    
+deriving instance Generic FileInfo
+deriving instance NFData FileInfo
     

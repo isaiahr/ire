@@ -1,4 +1,7 @@
 {-# LANGUAGE FlexibleContexts #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StandaloneDeriving #-}
 
 -- llvm abstract syntax tree
 module LLVM.Syntax where 
@@ -6,8 +9,9 @@ module LLVM.Syntax where
 import LLVM.Types
 import Common.Common
 
+import GHC.Generics
+import Control.DeepSeq
 import Data.List
-import Control.Monad.State
 
 -- llvm module
 data LMod = LMod {
@@ -46,6 +50,24 @@ data LBasicBlock = LBasicBlock {
 }
 
 
+deriving instance Generic LMod
+deriving instance NFData LMod
+deriving instance Generic LFunction
+deriving instance NFData LFunction
+deriving instance Generic LGlobal
+deriving instance NFData LGlobal
+deriving instance Generic LLinkType
+deriving instance NFData LLinkType
+deriving instance Generic LBasicBlock
+deriving instance NFData LBasicBlock
+deriving instance Generic LValue
+deriving instance NFData LValue
+deriving instance Generic LInst
+deriving instance NFData LInst
+deriving instance Generic ConstExpr
+deriving instance NFData ConstExpr
+deriving instance Generic CMPOperand
+deriving instance NFData CMPOperand
 
 instance Disp LMod where 
     disp lm = mdisp "source_filename = \"" (sourcefn lm) "\"\n" <>

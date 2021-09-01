@@ -1,7 +1,13 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
 module LLVM.Types where
 
 import Data.List
 import Common.Common
+import GHC.Generics
+import Control.DeepSeq
 
 data LType = 
     LLVMDType String |
@@ -24,6 +30,9 @@ data LType =
     LLVMFunction LType [LType]
     deriving Eq
     
+
+deriving instance Generic LType
+deriving instance NFData LType
 
 instance Disp LType where
     disp (LLVMDType s) = s

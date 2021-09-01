@@ -1,11 +1,31 @@
- module IR.Instances where
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
+module IR.Instances where
 
 import Common.Common
 import Common.Natives
 import IR.Syntax
+import GHC.Generics
+import Control.DeepSeq
 
 import Data.List
 
+deriving instance Generic Name
+deriving instance NFData Name
+deriving instance Generic IR
+deriving instance NFData IR
+deriving instance Generic TLFunction
+deriving instance NFData TLFunction
+deriving instance Generic Type
+deriving instance NFData Type
+deriving instance Generic Expr
+deriving instance NFData Expr
+deriving instance Generic LitE
+deriving instance NFData LitE
+deriving instance Generic PrimE
+deriving instance NFData PrimE
 
 instance Eq Name where
     n == n2 = (nSubscr n == nSubscr n2) && (((nPk n == nPk n2) && (nSrcFileId n == nSrcFileId n2)) || ((nSrcFileId n == nSrcFileId n2) && nSrcName n == nSrcName n2 && nSrcName n /= Nothing))

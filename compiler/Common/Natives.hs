@@ -1,6 +1,13 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
 module Common.Natives where 
 
 import Common.Common
+
+import GHC.Generics
+import Control.DeepSeq
 
 {---
 Natives.hs
@@ -30,6 +37,9 @@ data Native =
     Native_IntToString |
     Native_Panic 
       deriving (Ord, Eq)
+
+deriving instance Generic Native
+deriving instance NFData Native
 
 instance Disp Native where
     disp Native_Exit = "__ire__exit__"

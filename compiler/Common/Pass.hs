@@ -2,7 +2,13 @@
 Pass.hs: machinery to run a pass, including associated logging tools
 
 --}
-module Common.Pass (runPass, writeMessages, messageNoLn, whitelistSev, createReportMsg, blacklistSev, Messages, Pass(..), byPassWith, (>>>>), Severity(..), PassResult(..), mkPassResult) where
+
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE DeriveGeneric, DeriveAnyClass #-}
+
+module Common.Pass (runPass, writeMessages, messageNoLn, whitelistSev,
+    createReportMsg, blacklistSev, Messages, Pass(..), byPassWith, (>>>>),
+        (>>>=), Severity(..), PassResult(..), mkPassResult) where
 
 import Common.Common
 import Common.Reporting
@@ -11,6 +17,9 @@ import Control.Monad
 import Control.Category
 import Data.List
 
+import System.CPUTime
+import Control.DeepSeq
+import GHC.Generics
 
 messageNoLn pn s lvl = Messages [Left $ Message {mLine = Nothing, mPassName = pn, mStr = s, mSeverity = lvl}]
 
@@ -68,14 +77,16 @@ data PassResult o = PassResult {
         prPassName :: String,
         prPassMessages :: Messages,
         prPassResult :: Maybe o,
-        prPassFileInfo :: Maybe String
+        prPassFileInfo :: Maybe String,
+        prTime :: [(String, Double)]
 }
 
 mkPassResult o fi = PassResult {
     prPassName = "-",
     prPassMessages = mempty,
     prPassResult = Just o,
-    prPassFileInfo = fi
+    prPassFileInfo = fi,
+    prTime = []
 }
 
 chfile :: Maybe String -> Messages -> Messages
@@ -85,30 +96,43 @@ chfile (Just str) (Messages ((Right r):ms)) = (Messages [Right (r{msgFileName = 
 chfile (Just str) (Messages []) = Messages []
 
 
+(>>>=) :: (Disp o, NFData o) => IO (PassResult i) -> (Pass i o) -> IO (PassResult o)
+a >>>= b = (a >>= ( >>>> b))
+
+(>>>>) :: (Disp o, NFData o) => (PassResult i) -> (Pass i o) -> IO (PassResult o)
 a >>>> b = case prPassResult a of
                 {-
                 interesting fact: this is semantically identical to Nothing -> a
                 but the typechecker doesnt like it because a is bound and not polymorphic,
                 even though it actually doesnt contain any polymorphic data (the maybe is nothing).
                 -}
-                Nothing -> PassResult {
+                Nothing -> return PassResult {
                     prPassName = prPassName a,
                     prPassMessages = prPassMessages a,
                     prPassResult = Nothing,
-                    prPassFileInfo = prPassFileInfo a
+                    prPassFileInfo = prPassFileInfo a,
+                    prTime = []
                 }
-                Just o -> case (pFunc b) o of
-                               (msg, Nothing) -> PassResult {
+                Just o -> do
+                    start <- getCPUTime
+                    let (msg0, val) = (pFunc b) o
+                    end <- deepseq val getCPUTime
+                    let delta = end - start
+                    let millis = (fromIntegral(delta)/1000000000)::Double
+                    case (msg0, val) of
+                               (msg, Nothing) -> return PassResult {
                                    prPassName = pName b,
                                    prPassMessages = (prPassMessages a) <> (chfile (prPassFileInfo a) msg),
                                    prPassResult = Nothing,
-                                   prPassFileInfo = (prPassFileInfo a)
+                                   prPassFileInfo = (prPassFileInfo a),
+                                   prTime = (prTime a) <> [(pName b, millis)]
                                }
-                               (msg, Just o') -> PassResult {
+                               (msg, Just o') -> return PassResult {
                                    prPassName = pName b,
                                    prPassMessages = (prPassMessages a) <> messageNoLn (pName b) (disp o') Trees <> (chfile (prPassFileInfo a) msg),
                                    prPassResult = Just o',
-                                   prPassFileInfo = (prPassFileInfo a)
+                                   prPassFileInfo = (prPassFileInfo a),
+                                   prTime = (prTime a) <> [(pName b, millis)]
                                }
     
 

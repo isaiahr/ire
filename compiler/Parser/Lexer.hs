@@ -1,4 +1,7 @@
 {-# LANGUAGE FlexibleInstances #-}
+{-# LANGUAGE StandaloneDeriving #-}
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
 
 module Parser.Lexer (AnnotatedToken(..), Token(..), lexFile, passLexer) where 
 
@@ -11,11 +14,16 @@ import Data.Maybe
 import Data.Char
 import Data.Bifunctor
 import Control.Applicative
+import Control.DeepSeq
+import GHC.Generics
 
 data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integer Int | Character Char | String String | Identifier String
            | Term | Comma | Equals | Return | Yield | PlusEquals | Pipe | New | Void | Type | Colon | Dot | Arrow | If | Then
            | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals | FSlash | BSlash
            | Exclamation | Else | GreaterEqual | LesserEqual | Import | Export | Error | Forall | Dollar | DoublePlus deriving (Show, Eq)
+
+deriving instance Generic Token
+deriving instance NFData Token
 
 {- an token annotated with other data such as line number, characters held -}
 data AnnotatedToken = AnnotatedToken{
@@ -27,6 +35,9 @@ data AnnotatedToken = AnnotatedToken{
     annColEnd :: Int
     } deriving (Show, Eq)
 
+deriving instance Generic AnnotatedToken
+deriving instance NFData AnnotatedToken
+    
 instance Disp AnnotatedToken where
     -- convert \n to ; to not mess up output
     disp ann = case annLexeme ann of

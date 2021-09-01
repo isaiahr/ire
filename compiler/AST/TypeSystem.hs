@@ -1,7 +1,13 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
 module AST.TypeSystem where 
 
 import Common.Common
 import Data.List
+import GHC.Generics
+import Control.DeepSeq
 
 {--
  TYPE SYSTEM
@@ -51,4 +57,8 @@ instance Disp MonoType where
     disp (General g) = "$" ++ disp g
 
 
+deriving instance Generic Type
+deriving instance NFData Type
 
+deriving instance Generic MonoType
+deriving instance NFData MonoType

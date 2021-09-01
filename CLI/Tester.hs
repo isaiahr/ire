@@ -87,7 +87,7 @@ runTestCase file = do
     case test of
          Skip -> return TestSkip
          Ok (exitcode, stdoutput) -> do
-             pipelineIO thisSystem file S_BIN False "/tmp/output"
+             pipelineIO thisSystem file S_BIN False False "/tmp/output"
              let proc = CreateProcess {
                  cmdspec = ShellCommand "/tmp/output",
                  cwd = Nothing,

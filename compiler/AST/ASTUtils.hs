@@ -1,9 +1,41 @@
+{-# LANGUAGE DeriveAnyClass #-}
+{-# LANGUAGE DeriveGeneric #-}
+{-# LANGUAGE StandaloneDeriving #-}
+
 module AST.ASTUtils where 
 
 import AST.Syntax
 import AST.TypeSystem
 import Data.List
 import Common.Common
+import GHC.Generics
+import Control.DeepSeq
+
+
+deriving instance Generic (AST a)
+deriving instance (NFData a) => NFData (AST a)
+
+deriving instance Generic (Definition a)
+deriving instance (NFData a) => NFData (Definition a)
+
+deriving instance Generic (Expression a)
+deriving instance (NFData a) => NFData (Expression a)
+
+deriving instance Generic (Statement a)
+deriving instance (NFData a) => NFData (Statement a)
+
+deriving instance Generic (Literal a)
+deriving instance (NFData a) => NFData (Literal a)
+
+deriving instance Generic (PatternMatching a)
+deriving instance (NFData a) => NFData (PatternMatching a)
+
+
+deriving instance Generic Name
+deriving instance NFData Name
+
+deriving instance Generic TypedName
+deriving instance NFData TypedName
 
 nextName :: AST TypedName -> Int
 nextName ast = 1 + numof (foldr largest (TypedName (Poly [] (General 0)) (Name "" 0)) ast)
