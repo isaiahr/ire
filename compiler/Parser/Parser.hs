@@ -1,3 +1,7 @@
+{--
+Parser.hs - this transformes the unstructured lexemes into the structured parse tree (AST String)
+--}
+
 module Parser.Parser (parseFile, passParse, run) where
 
 import Common.Common
@@ -121,7 +125,9 @@ parseLiteral = fmap Literal $ parseInt <|> parseStringLiteral <|> parseArrayLite
 parsePatMatch :: Parser (PatternMatching String)
 parsePatMatch = (parseToken LParen *> (pure (TupleUnboxing [])) <* parseToken RParen) <|>
                 (fmap Plain parseIdentifier) <|>
-                (fmap TupleUnboxing $ parseToken LParen *> collect parseIdentifier (parseToken Comma) <* parseToken RParen)
+                fmap change (fmap TupleUnboxing $ parseToken LParen *> collect parseIdentifier (parseToken Comma) <* parseToken RParen)
+    where change (TupleUnboxing [a]) = Plain a
+          change b = b
 
 parseInt :: Parser (Literal String)
 parseInt = Constant <$> Parser (\x -> 
@@ -136,15 +142,15 @@ parseStringLiteral = StringLiteral <$> Parser (\x ->
          _ -> ParseFailure)
 
 parseArrayLiteral :: Parser (Literal String)
-parseArrayLiteral = fmap ArrayLiteral $ parseToken LSqParen *> collect parseExpression (parseToken Comma) <* parseToken RSqParen
+parseArrayLiteral = fmap ArrayLiteral $ parseToken LSqParen *> collect parseExpressionA (parseToken Comma) <* parseToken RSqParen
 
 -- TODO: change this so (expr) is parseerror ??? might not be nessecary. 
 parseTupleLiteral :: Parser (Literal String)
 parseTupleLiteral = (parseToken LParen *> (pure (TupleLiteral [])) <* parseToken RParen) <|> -- edge case for "empty tuples", our unit type.
-                    (fmap TupleLiteral $ parseToken LParen *> collect parseExpression (parseToken Comma) <* parseToken RParen)
+                    (fmap TupleLiteral $ parseToken LParen *> collect parseExpressionA (parseToken Comma) <* parseToken RParen)
 
 parseRecordLiteral :: Parser (Literal String)
-parseRecordLiteral = fmap RecordLiteral $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Equals *> parseExpression)) (parseToken Comma) <* parseToken RCrParen
+parseRecordLiteral = fmap RecordLiteral $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Equals *> parseExpressionA)) (parseToken Comma) <* parseToken RCrParen
 
 -- \a -> {}
 -- or: \(x,y,z) -> {}
@@ -160,7 +166,7 @@ parseBlock :: Parser (Expression String)
 parseBlock = fmap Block (parseToken LCrParen *> (collectM parseStatement $ parseToken Term) <* parseToken RCrParen)
 
 parseStatement :: Parser (Statement String)
-parseStatement = fmap Defn parseDefinition <|> parseReturn <|> parseYield <|> parseAssignment <|> fmap Expr parseExpression
+parseStatement = fmap Defn parseDefinition <|> parseReturn <|> parseYield <|> parseAssignment <|> fmap Expr parseExpressionA
 
 parseReturn :: Parser (Statement String)
 parseReturn = fmap AST.AST.Return $ parseToken Parser.Lexer.Return *> parseExpressionA

@@ -1,0 +1,9 @@
+// Ok(0, "")
+
+// this regression test tests that (a) in parameters does NOT get parsed as single elem tuple 
+
+fun := \(a) -> a
+
+main := \() -> {
+    fun 3
+}
