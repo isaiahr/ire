@@ -1,0 +1,13 @@
+// Ok(21, "")
+
+// this test tests booleans literals (yes, I forgot about them for a while)
+
+
+main := \() -> {
+    b := true
+    a := [b, false]
+    c := false
+    d := if b then 1 else 2
+    e := if c then 10 else 20
+    __ire__exit__(d + e)
+}

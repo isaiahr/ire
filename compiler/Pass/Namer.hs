@@ -152,6 +152,7 @@ nameExpr (Block s) = Block <$> (mapM nameStmt s)
 nameLiteral (Constant c) = return (Constant c)
 
 nameLiteral (StringLiteral s) = return (StringLiteral s)
+nameLiteral (BooleanLiteral b) = return (BooleanLiteral b)
 
 nameLiteral (ArrayLiteral xs) =  ArrayLiteral <$> (mapM nameExpr xs)
 nameLiteral (TupleLiteral xs) = TupleLiteral <$> (mapM nameExpr xs)

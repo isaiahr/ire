@@ -32,6 +32,7 @@ yExpr (Block ss) = Block (insertYield ss)
 
 yLit (Constant c) = (Constant c)
 yLit (StringLiteral s) = StringLiteral s
+yLit (BooleanLiteral b) = BooleanLiteral b
 yLit (ArrayLiteral l) = ArrayLiteral (map yExpr l)
 yLit (TupleLiteral l) = TupleLiteral (map yExpr l)
 yLit (FunctionLiteral a b) = FunctionLiteral a (yExpr b)

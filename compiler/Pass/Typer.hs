@@ -450,6 +450,9 @@ inferE (Literal (Constant _)) tv = do
 
 inferE (Literal (StringLiteral s)) tv = do
     mkCons tv typeStr
+    
+inferE (Literal (BooleanLiteral s)) tv = do
+    mkCons tv typeBool
 
 inferE (Literal (ArrayLiteral (r:rs))) tv = do
     nn <- fresh

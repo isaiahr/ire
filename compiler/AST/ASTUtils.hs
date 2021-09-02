@@ -71,6 +71,7 @@ mapliteral fn (TupleLiteral a) = TupleLiteral (map (mapexpr fn) a)
 mapliteral fn (FunctionLiteral a b) = FunctionLiteral (mappat fn a) (mapexpr fn b)
 mapliteral fn (Constant nt) = Constant nt
 mapliteral fn (StringLiteral n) = StringLiteral n
+mapliteral fn (BooleanLiteral b) = BooleanLiteral b
 
 mappat fn (Plain a) = Plain (fn a)
 mappat fn (TupleUnboxing a) = TupleUnboxing (map fn a)
@@ -96,6 +97,7 @@ foldml f (TupleLiteral a) = foldMap (\x -> foldme f x) a
 foldml f (FunctionLiteral a b) = foldpat f a <> (foldme f b)
 foldml f (Constant nt) = mempty
 foldml f (StringLiteral s) = mempty
+foldml f (BooleanLiteral b) = mempty
 
 foldms :: Monoid m => (a -> m) -> Statement a -> m
 foldms f (Defn d) = foldmd f d
@@ -127,6 +129,7 @@ instance (Disp a) => Disp (Expression a) where
 instance (Disp a) => Disp (Literal a) where
     disp (Constant i) = disp i
     disp (StringLiteral l) = disp l
+    disp (BooleanLiteral b) = if b then "true" else "false"
     disp (ArrayLiteral e) = "[" ++ intercalate ", " (map disp e) ++ "]"
     disp (TupleLiteral t) = "(" ++ intercalate ", " (map disp t) ++ ")"
     disp (RecordLiteral r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ " = " ++ disp y) r) ++ "}"

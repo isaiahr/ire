@@ -245,6 +245,9 @@ llit (Constant nt) = do
 
 llit (StringLiteral s) = do
     return (Lit (StringL s))
+    
+llit (BooleanLiteral b) = do
+    return (Lit (BoolL b))
 
 llit (TupleLiteral ea) = do
     nm <- mapM lexp ea

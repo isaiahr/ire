@@ -120,7 +120,13 @@ parseBrExpression :: Parser (Expression String)
 parseBrExpression = parseToken LParen *> parseExpressionA <* parseToken RParen
 
 parseLiteral :: Parser (Expression String)
-parseLiteral = fmap Literal $ parseInt <|> parseStringLiteral <|> parseArrayLiteral <|> parseTupleLiteral <|> parseRecordLiteral  <|> parseFunctionLiteral
+parseLiteral = fmap Literal $ parseInt <|>
+                              parseBoolLiteral <|>
+                              parseStringLiteral <|>
+                              parseArrayLiteral <|>
+                              parseTupleLiteral <|>
+                              parseRecordLiteral  <|>
+                              parseFunctionLiteral
 
 parsePatMatch :: Parser (PatternMatching String)
 parsePatMatch = (parseToken LParen *> (pure (TupleUnboxing [])) <* parseToken RParen) <|>
@@ -134,6 +140,9 @@ parseInt = Constant <$> Parser (\x ->
     case x of
          ((AnnotatedToken{annLexeme=(Integer z)}):zs) -> ParseSuccess z zs
          _ -> ParseFailure)
+         
+parseBoolLiteral :: Parser (Literal String)
+parseBoolLiteral = fmap BooleanLiteral $ (parseToken Tru *> pure True <|> parseToken Fals *> pure False)
 
 parseStringLiteral :: Parser (Literal String)
 parseStringLiteral = StringLiteral <$> Parser (\x -> 

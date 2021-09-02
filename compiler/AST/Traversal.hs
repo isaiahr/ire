@@ -48,6 +48,7 @@ traverseLit :: Monad m => (Traveller m a b) -> Literal a -> m (Literal b)
 traverseLit t (Constant c) = return $ Constant c
 
 traverseLit t (StringLiteral s) = return $ StringLiteral s
+traverseLit t (BooleanLiteral b) = return $ BooleanLiteral b
 
 traverseLit t (ArrayLiteral ls) = do
     ls' <- forM ls (travExpr t)

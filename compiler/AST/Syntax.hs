@@ -18,6 +18,7 @@ data Expression a =
 -- a literal
 data Literal a = 
                  Constant Int |
+                 BooleanLiteral Bool |
                  StringLiteral String | 
                  ArrayLiteral [Expression a] |
                  TupleLiteral [Expression a] |
