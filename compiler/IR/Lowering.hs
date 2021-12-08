@@ -57,7 +57,8 @@ lower fi x (AST defs) = let a = evalState (lowerAll defs) (Context {nameTbl = []
     
 convTy (AST.AST.Array ty) = IR.Syntax.Array (convTy ty)
 convTy (AST.AST.StringT) = IR.Syntax.StringIRT
-convTy (AST.AST.Bits i) = IR.Syntax.Bits i
+convTy (AST.AST.IntT) = IR.Syntax.Bits 64
+convTy (AST.AST.BoolT) = IR.Syntax.Bits 8
 convTy (AST.AST.Function ty1 ty2) = IR.Syntax.Function [convTy ty1] (convTy ty2)
 convTy (AST.AST.Tuple tys) = IR.Syntax.Tuple (map convTy tys)
 convTy (AST.AST.General i) = IR.Syntax.TV i

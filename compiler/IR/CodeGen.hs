@@ -397,49 +397,54 @@ genE (App (Prim (IntEq)) [argtuple]) = do
     argtuple' <- genE argtuple
     r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
     r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
-    result <- promote $ createIcmp OP_eq (LLVMInt 64) r1 r2
+    resultb <- promote $ createIcmp OP_eq (LLVMInt 64) r1 r2
+    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
     return $ result
 
 genE (App (Prim (IntGT)) [argtuple]) = do
     argtuple' <- genE argtuple
     r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
     r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
-    result <- promote $ createIcmp OP_sgt (LLVMInt 64) r1 r2
+    resultb <- promote $ createIcmp OP_sgt (LLVMInt 64) r1 r2
+    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
     return $ result
 
 genE (App (Prim (IntLT)) [argtuple]) = do
     argtuple' <- genE argtuple
     r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
     r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
-    result <- promote $ createIcmp OP_slt (LLVMInt 64) r1 r2
+    resultb <- promote $ createIcmp OP_slt (LLVMInt 64) r1 r2
+    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
     return $ result
 
 genE (App (Prim (IntGET)) [argtuple]) = do
     argtuple' <- genE argtuple
     r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
     r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
-    result <- promote $ createIcmp OP_sge (LLVMInt 64) r1 r2
+    resultb <- promote $ createIcmp OP_sge (LLVMInt 64) r1 r2
+    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
     return $ result
 
 genE (App (Prim (IntLET)) [argtuple]) = do
     argtuple' <- genE argtuple
     r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
     r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
-    result <- promote $ createIcmp OP_sle (LLVMInt 64) r1 r2
+    resultb <- promote $ createIcmp OP_sle (LLVMInt 64) r1 r2
+    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
     return $ result
     
 genE (App (Prim (BoolOr)) [argtuple]) = do
     argtuple' <- genE argtuple
-    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 1), (LLVMInt 1)]) argtuple' [0]
-    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 1), (LLVMInt 1)]) argtuple' [1]
-    result <- promote $ createOr (LLVMInt 1) r1 r2
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 8), (LLVMInt 8)]) argtuple' [0]
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 8), (LLVMInt 8)]) argtuple' [1]
+    result <- promote $ createOr (LLVMInt 8) r1 r2
     return $ result
 
 genE (App (Prim (BoolAnd)) [argtuple]) = do
     argtuple' <- genE argtuple
-    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 1), (LLVMInt 1)]) argtuple' [0]
-    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 1), (LLVMInt 1)]) argtuple' [1]
-    result <- promote $ createAnd (LLVMInt 1) r1 r2
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 8), (LLVMInt 8)]) argtuple' [0]
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 8), (LLVMInt 8)]) argtuple' [1]
+    result <- promote $ createAnd (LLVMInt 8) r1 r2
     return $ result
 
 -- we store array length at index -1 of array
@@ -556,7 +561,8 @@ genE (Abs n e) = do
     
     
 genE (If cond e1 e2) = do
-    condlv <- genE cond
+    condlvi8 <- genE cond
+    condlv <- promote $ createTrunc (LLVMInt 8) condlvi8 (LLVMInt 1)
     resultty <- getIRType e1
     let llvmty = ir2llvmtype resultty
     ptrresult <- promote $ createAlloca llvmty

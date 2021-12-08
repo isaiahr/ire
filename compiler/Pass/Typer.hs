@@ -148,8 +148,8 @@ typeTuple ty = TyApp "tuple" ty
 ast2tyinfer (StringT) = return typeStr
 ast2tyinfer (Function t1 t2) = liftM2 typeFunction (ast2tyinfer t1) (ast2tyinfer t2)
 ast2tyinfer (Tuple tys) = typeTuple <$> (mapM ast2tyinfer tys)
-ast2tyinfer (Bits 64) = return typeInt
-ast2tyinfer (Bits 1) = return typeBool
+ast2tyinfer (IntT) = return typeInt
+ast2tyinfer (BoolT) = return typeBool
 ast2tyinfer (Record _) = error "not yet impl"
 ast2tyinfer (Union _) = error "not yet impl2"
 ast2tyinfer (General ig) = do
@@ -183,8 +183,8 @@ ast2tyscheme (Poly nt mt) = do
     return $ TyScheme thing ty0
 
 tyinfer2ast (TyCon "string") = StringT
-tyinfer2ast (TyCon "boolean") = Bits 1
-tyinfer2ast (TyCon "int") = Bits 64
+tyinfer2ast (TyCon "boolean") = BoolT
+tyinfer2ast (TyCon "int") = IntT
 tyinfer2ast (TyApp "func" [t1, t2]) = Function (tyinfer2ast t1) (tyinfer2ast t2)
 tyinfer2ast (TyApp "tuple" t) = Tuple (map tyinfer2ast t)
 tyinfer2ast (TyApp "array" [t]) = Array (tyinfer2ast t)
@@ -624,22 +624,22 @@ instance Disp TypeError where
     disp (InfiniteType tv ty) = "Occurs check when solving " <> disp tv <> " ~ " <> disp ty
     
 
-typeofn Native_Exit = (TyScheme []) <$> ast2tyinfer (Function (Bits 64) (Tuple []))
+typeofn Native_Exit = (TyScheme []) <$> ast2tyinfer (Function (IntT) (Tuple []))
 typeofn Native_Print = (TyScheme []) <$> ast2tyinfer (Function (StringT) (Tuple []))
 typeofn Native_Panic = (TyScheme []) <$> ast2tyinfer (Function (Tuple []) (Tuple []))
-typeofn Native_IntToString = (TyScheme []) <$> ast2tyinfer (Function (Bits 64) (StringT))
+typeofn Native_IntToString = (TyScheme []) <$> ast2tyinfer (Function (IntT) (StringT))
 
-typeofn Native_Addition = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 64))
-typeofn Native_Subtraction = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 64))
-typeofn Native_Multiplication = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 64))
+typeofn Native_Addition = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
+typeofn Native_Subtraction = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
+typeofn Native_Multiplication = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
 -- for now. this will change in the future (after polymorphism is added)
-typeofn Native_Equal = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
-typeofn Native_Greater = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
-typeofn Native_Less = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
-typeofn Native_GreaterEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
-typeofn Native_LesserEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 64, Bits 64]) (Bits 1))
-typeofn Native_Or = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 1, Bits 1]) (Bits 1))
-typeofn Native_And = (TyScheme []) <$> ast2tyinfer (Function (Tuple [Bits 1, Bits 1]) (Bits 1))
+typeofn Native_Equal = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_Greater = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_Less = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_GreaterEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_LesserEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_Or = (TyScheme []) <$> ast2tyinfer (Function (Tuple [BoolT, BoolT]) (BoolT))
+typeofn Native_And = (TyScheme []) <$> ast2tyinfer (Function (Tuple [BoolT, BoolT]) (BoolT))
 typeofn Native_ArraySize = do
     tv <- fresh
     return $ TyScheme [tv] (typeFunction (typeArray (TyVar tv)) typeInt)

@@ -74,10 +74,10 @@ parseTV = parseToken Dollar *> (General <$> Parser (\x ->
          _ -> ParseFailure))
 
 parseIntType :: Parser MonoType
-parseIntType = parseToken (Identifier "Int") $> Bits 64
+parseIntType = parseToken (Identifier "Int") $> IntT
 
 parseBoolType :: Parser MonoType
-parseBoolType = parseToken (Identifier "Boolean") $> Bits 1
+parseBoolType = parseToken (Identifier "Boolean") $> BoolT
 
 parseStringType :: Parser MonoType
 parseStringType = parseToken (Identifier "String") $> StringT

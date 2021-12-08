@@ -74,7 +74,8 @@ checkDefn t d = do
 
 getBindings (General lnt) ty = [(lnt, ty)]
 getBindings (Array mt) (Array mt0) = getBindings mt mt0
-getBindings (Bits lnt) (Bits lnt3) = []
+getBindings (IntT) (IntT) = []
+getBindings (BoolT) (BoolT) = []
 getBindings (StringT) (StringT) = []
 getBindings (Function mt0 mt1) (Function mt2 mt3) = getBindings mt0 mt2 ++ getBindings mt1 mt3
 getBindings (Tuple (m:ts)) (Tuple (m2:ts2)) = getBindings m m2 ++ getBindings (Tuple ts) (Tuple ts2)
@@ -93,6 +94,7 @@ applyBindings (General lnt) b = case find (\(l, ty) -> l == lnt) b of
                                      
 applyBindings (Array mt) b = Array (applyBindings mt b)
 applyBindings (Function mt0 mt1) b = Function (applyBindings mt0 b) (applyBindings mt1 b)
-applyBindings (Bits lnt) b = Bits lnt
+applyBindings (IntT) b = IntT
+applyBindings (BoolT) b = BoolT
 applyBindings (StringT) b = StringT
 applyBindings (Tuple mt) b = Tuple (map (\y -> applyBindings y b) mt)

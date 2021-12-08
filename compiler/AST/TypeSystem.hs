@@ -35,7 +35,8 @@ data Type = Poly [Int] MonoType deriving (Eq, Ord, Show)
 data MonoType = 
             General Int | -- for polymorphism - type variable
             Array MonoType | -- arrays
-            Bits Int | -- bits (llvm i[n])
+            IntT | -- bits (llvm i[n])
+            BoolT | 
             StringT | -- string
             Function MonoType MonoType | -- a -> b
             Tuple [MonoType] | -- (a, b, c)
@@ -48,7 +49,8 @@ instance Disp Type where
             
 instance Disp MonoType where 
     disp (Array t) = "[" ++ disp t ++ "]"
-    disp (Bits n) = "bits" ++ disp n
+    disp (IntT) = "Int"
+    disp (BoolT) = "Boolean"
     disp (StringT) = "String"
     disp (Function f t) = disp f ++ " -> " ++ disp t
     disp (Tuple arr) = "(" ++ intercalate ", " (map disp arr) ++ ")"

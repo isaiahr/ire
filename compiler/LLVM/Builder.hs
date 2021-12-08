@@ -197,6 +197,21 @@ createPtrToInt ty val ty2 = do
     addInst (LPtrToInt ret ty val ty2)
     return ret
     
+createZExt ty val ty2 = do
+    ret <- newValue
+    addInst (LZExt ret ty val ty2)
+    return ret
+
+createSExt ty val ty2 = do
+    ret <- newValue
+    addInst (LSExt ret ty val ty2)
+    return ret
+    
+createTrunc ty val ty2 = do
+    ret <- newValue
+    addInst (LTrunc ret ty val ty2)
+    return ret
+    
 createUnreachable = do
     addInst LUnreachable
     return ()

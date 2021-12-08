@@ -130,6 +130,9 @@ data LInst
     | LPhi LValue LType [(LValue, LLabel)]
     | LIcmp LValue CMPOperand LType LValue LValue
     | LPtrToInt LValue LType LValue LType -- ptrtoint
+    | LZExt LValue LType LValue LType -- zero extend
+    | LSExt LValue LType LValue LType -- sign extend
+    | LTrunc LValue LType LValue LType -- truncation
     | LUnreachable
 
 data CMPOperand = OP_eq | OP_ne | OP_ugt | OP_uge | OP_ult | OP_ule | OP_sgt | OP_sge | OP_slt | OP_sle
@@ -178,6 +181,9 @@ instance Disp LInst where
     disp (LOr v ty v1 v2) = disp v <> " = or " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LIcmp v op ty v1 v2) = disp v <> " = icmp " <> disp op <> " " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LPtrToInt v ty v1 ty2) = disp v <> " = ptrtoint " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
+    disp (LZExt v ty v1 ty2) = disp v <> " = zext " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
+    disp (LSExt v ty v1 ty2) = disp v <> " = sext " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
+    disp (LTrunc v ty v1 ty2) = disp v <> " = trunc " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
     disp (LUnreachable) = "unreachable"
 
 data LValue = LTemp String | -- temp, like %2

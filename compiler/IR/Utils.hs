@@ -85,13 +85,13 @@ exprType (Prim (GetTupleElem (Tuple tys) indx)) = Function [Tuple tys] (tys !! i
 exprType (Prim (IntAdd)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
 exprType (Prim (IntSub)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
 exprType (Prim (IntMul)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
-exprType (Prim (IntEq)) = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
-exprType (Prim (IntGET)) = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
-exprType (Prim (IntGT)) = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
-exprType (Prim (IntLET)) = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
-exprType (Prim (IntLT)) = Function [Tuple [Bits 64, Bits 64]] (Bits 1)
-exprType (Prim (BoolOr)) = Function [Tuple [Bits 1, Bits 1]] (Bits 1)
-exprType (Prim (BoolAnd)) = Function [Tuple [Bits 1, Bits 1]] (Bits 1)
+exprType (Prim (IntEq)) = Function [Tuple [Bits 64, Bits 64]] (Bits 8)
+exprType (Prim (IntGET)) = Function [Tuple [Bits 64, Bits 64]] (Bits 8)
+exprType (Prim (IntGT)) = Function [Tuple [Bits 64, Bits 64]] (Bits 8)
+exprType (Prim (IntLET)) = Function [Tuple [Bits 64, Bits 64]] (Bits 8)
+exprType (Prim (IntLT)) = Function [Tuple [Bits 64, Bits 64]] (Bits 8)
+exprType (Prim (BoolOr)) = Function [Tuple [Bits 8, Bits 8]] (Bits 8)
+exprType (Prim (BoolAnd)) = Function [Tuple [Bits 8, Bits 8]] (Bits 8)
 exprType (Prim (ArraySize ty)) = Function [ty] (Bits 64)
 exprType (Prim (ArrayAppend ty)) = Function [Tuple [Array ty, Array ty]] (Array ty)
 exprType (Prim (ArraySet ty)) = Function [Tuple [Array ty, Bits 64, ty]] (Tuple [])
@@ -102,7 +102,7 @@ exprType (Seq e1 e2) = exprType e2
 exprType (If e1 e2 e3) = exprType e2 -- if e2 == e3 then e2 else error "ifstmt bad ty"
 exprType (Ret e) = (Tuple [])
 exprType (Lit (IntL _)) = Bits 64
-exprType (Lit (BoolL _)) = Bits 1
+exprType (Lit (BoolL _)) = Bits 8
 exprType (Lit (StringL _)) = StringIRT
 
 
