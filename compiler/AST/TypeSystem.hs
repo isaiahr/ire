@@ -34,6 +34,7 @@ data Type = Poly [Int] MonoType deriving (Eq, Ord, Show)
 -- (something like forall 1 . 1 -> (forall 2 . 2 -> 1))
 data MonoType = 
             General Int | -- for polymorphism - type variable
+            DType String [MonoType] | -- defined type. note: length [mt] == length (dtType str), use General lnt for placeholders
             Array MonoType | -- arrays
             IntT | -- bits (llvm i[n])
             BoolT | 
@@ -42,6 +43,12 @@ data MonoType =
             Tuple [MonoType] | -- (a, b, c)
             Record [(String, MonoType)] | -- record
             Union [(String, MonoType)] deriving (Eq, Ord, Show) --union
+            
+data DefinedType = DefinedType {
+    dtName :: String,
+    dtBindings :: [Int],
+    dtType :: MonoType
+} deriving (Eq, Ord, Show)
 
 instance Disp Type where
     disp (Poly [] mt) = disp mt
@@ -58,9 +65,12 @@ instance Disp MonoType where
     disp (Union u) = "{" ++ intercalate " | " (map (\(x, y) -> x ++ ": " ++ disp y) u) ++ "}"
     disp (General g) = "$" ++ disp g
 
+instance Disp DefinedType where
+    disp dt = "type " <> dtName dt <> "<" <> (intercalate "," (map (disp . General) (dtBindings dt))) <> "> = " <> disp (dtType dt)
 
 deriving instance Generic Type
 deriving instance NFData Type
-
 deriving instance Generic MonoType
 deriving instance NFData MonoType
+deriving instance Generic DefinedType
+deriving instance NFData DefinedType

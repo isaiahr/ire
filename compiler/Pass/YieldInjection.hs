@@ -20,7 +20,7 @@ passYieldInj = Pass {pName = "YieldInjection", pFunc = yieldInj}
     where yieldInj x = let j = yAST x in (mempty, Just j)
 
 yAST :: AST a -> AST a
-yAST (AST ds) = AST (map yDef ds)
+yAST ast = let ds = astDefns ast in ast {astDefns =  (map yDef ds)}
 
 yDef d = d { value = yExpr (value d) }
 

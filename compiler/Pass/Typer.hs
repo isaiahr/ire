@@ -361,11 +361,11 @@ newVar (mi, a@(Name _ _)) = do
 newVar (mi, a@(NameError)) = error "NAME ERROR"
 
 infer ast = do
-    infer1 ast 
-    infer2 ast
+    infer1 (astDefns ast)
+    infer2 (astDefns ast)
     
 -- gen \/ 1 . $1  for tlfs
-infer1 (AST (d:ds)) = do
+infer1 (d:ds) = do
     case identifier d of
          (TupleUnboxing _) -> error "todo: prohibit tuple top-level defns"
          (Plain (_, ident)) -> do
@@ -374,16 +374,16 @@ infer1 (AST (d:ds)) = do
              st <- get
              let (Env emap) = env st
              put $ st {env = Env (Map.insert ident tys emap)}
-    infer1 (AST ds)
+    infer1 ds
 
-infer1 (AST []) = return ()
+infer1 [] = return ()
 
-infer2 (AST (d:ds)) = do
+infer2 (d:ds) = do
     c1 <- inferD d
-    c2 <- infer (AST (ds))
+    c2 <- infer2 ds
     return $ c1 <> c2
 
-infer2 (AST []) = return []
+infer2 [] = return []
 
 updateGen :: Name -> InferM ()
 updateGen nam = do

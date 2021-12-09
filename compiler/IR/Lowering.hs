@@ -22,7 +22,7 @@ passLower x fi = Pass {pName = "AST to IR lowering", pFunc = runP }
     where runP ast = let r = lower fi x ast in (mempty, Just r)
           
 lower :: FileInfo -> [(String, Int)] -> AST TypedName -> IR
-lower fi x (AST defs) = let a = evalState (lowerAll defs) (Context {nameTbl = [], nextName = 0, fileId = fi}) in IR a fi
+lower fi x ast = let a = evalState (lowerAll (astDefns ast)) (Context {nameTbl = [], nextName = 0, fileId = fi}) in IR a fi
     where 
         lowerAll :: [Definition TypedName] -> State Context [TLFunction]
         lowerAll defs = do

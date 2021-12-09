@@ -202,8 +202,8 @@ compile monoTLF monoN stage opt target file processed idx mout = do
     case (prPassResult result) of
          Nothing -> do 
              return $ Left (prPassMessages result)
-         Just (AST ds) -> do
-             
+         Just ast -> do
+             let ds = astDefns ast
              let astsyms = map (\(TypedName t (Name s _)) -> (s, t)) (map (\(Plain p) -> p) (map (\d -> identifier d) ds))
              
              let allsyms = (astsyms ++ (map (\(x, y, t) -> (x, y)) importedsyms))

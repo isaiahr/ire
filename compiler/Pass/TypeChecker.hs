@@ -30,9 +30,9 @@ errStr (TypedName t tn, ti) = messageNoLn "TypeCheck" (disp tn <> " declared typ
 typechk ast = messages (execState (checkAST ast) (Ctx { bindings = [], messages = mempty}))
 
 checkAST :: AST TypedName -> State Ctx (AST TypedName)
-checkAST (AST ds) = do
-    _ <- mapM (checkDefn traversal) ds
-    return $ AST ds
+checkAST ast = do
+    _ <- mapM (checkDefn traversal) (astDefns ast)
+    return $ ast
 
 traversal = Traveller {
     travExpr = (traverseExpr traversal),

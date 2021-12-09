@@ -69,12 +69,13 @@ name a syms = case (runState (nameAST a) ((SymbolTable syms [] Nothing, 0))) of
                    _ -> error "symtbl stack didn't pop namer#237"
 
 nameAST :: AST String -> State (SymbolTable, Int) (AST Name)
-nameAST (AST (ds)) = do
+nameAST ast = do
+    let ds = astDefns ast
     tbl <- get
     put $ foldl (\b a2 -> case a2 of
                                (Plain a) -> execState (newSym a) b) tbl (map identifier (ds))
     res <- nameAST2 ds
-    return $ AST res
+    return $ ast {astDefns = res}
     
 nameAST2 (d:ds) = do
     a <- nameDefnS d

@@ -28,7 +28,7 @@ import Control.Monad
 import Control.Monad.State
 
 passSubScript = Pass {pName = "Name Subscripting", pFunc = subscript}
-    where subscript (AST ds) = (mempty, Just $ AST $ evalState (mapM (travDefn traversal) ds) 0)
+    where subscript ast = (mempty, Just $ ast {astDefns = evalState (mapM (travDefn traversal) (astDefns ast)) 0})
           
           
 -- Note; this would be a lot easier with a traversable inst for ast.

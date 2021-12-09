@@ -39,7 +39,10 @@ data PatternMatching a =
                          TupleUnboxing [a] deriving (Eq) -- "tuple unboxing", so binding tuples' vars to vars
 
 
-data AST a = AST [Definition a] deriving (Eq)
+data AST a = AST {
+    astTypes :: [DefinedType],
+    astDefns :: [Definition a]
+    }deriving (Eq)
 
 
 data Name 

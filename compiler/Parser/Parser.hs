@@ -42,7 +42,10 @@ e2msg text (r:rs) = createReportMsg(
 e2msg text [] = mempty
     
 parseFile :: Parser (AST String)
-parseFile = Parser.ParserRels.parseFile *> ((fmap AST $ collectM parseDefinition $ parseToken Term) <|> ((collectM (pure ()) $ parseToken Term) *> parseEOF *> pure (AST [])))
+parseFile = Parser.ParserRels.parseFile *> ((liftA2 (\x y -> AST{astTypes = x, astDefns = y}) (collectM parseTypeDefn (parseToken Term) <|> ((collectM (pure ()) $ parseToken Term) *> pure []))
+                                (collectM parseDefinition (parseToken Term))) <|>
+                                ((collectM (pure ()) $ parseToken Term) *>
+                                parseEOF *> pure (AST {astDefns = [], astTypes = []})))
 
 -- parses an identifier
 parseIdentifier :: Parser String
@@ -52,7 +55,7 @@ parseIdentifier = Parser (\x ->
          _ -> ParseFailure)         
 
 parseMonoType :: Parser MonoType
-parseMonoType = parseBType <|> infbuild (parseRecord <|> parseUnion <|> parseIntType <|> parseBoolType <|> parseStringType <|> parseArrayType <|> parseTuple <|> parseTV) parseFunctionType
+parseMonoType = parseBType <|> infbuild (parseRecord <|> parseUnion <|> parseIntType <|> parseBoolType <|> parseStringType <|> parseArrayType <|> parseTuple <|> parseTV <|> parseDType) parseFunctionType
 
 parseType :: Parser Type
 parseType = liftA2 Poly parseQuant parseMonoType <|> fmap (Poly []) parseMonoType -- <|> todo this stuff parseToken (Forall) *> collect ()(parseToken Comma)
@@ -87,6 +90,13 @@ parseArrayType = parseToken LSqParen *> fmap Array parseMonoType <* parseToken R
 
 parseFunctionType :: MonoType -> Parser MonoType
 parseFunctionType t = liftA2 Function (pure t) (parseToken Arrow *> parseMonoType)
+
+parseDType :: Parser MonoType
+parseDType = liftA2 DType parseIdentifier parseTriangleTy
+
+-- parsing of <Int, Bool> for example
+parseTriangleTy :: Parser [MonoType]
+parseTriangleTy = (parseToken Less *> collect parseMonoType (parseToken Comma) <* parseToken Greater) <|> pure []
 
 parseTuple :: Parser MonoType
 parseTuple = fmap Tuple $ parseToken LParen *> collect parseMonoType (parseToken Comma) <* parseToken RParen
@@ -191,6 +201,18 @@ parseAssignment = liftA2 Assignment (parsePatMatch <* parseToken Equals) parseEx
 
 parseFunctionCall :: (Expression String) -> Parser (Expression String)
 parseFunctionCall t = liftA2 FunctionCall (pure t) parseExpression
+
+
+parseTypeDefn :: Parser DefinedType
+parseTypeDefn = liftA3 (\x y z -> DefinedType{dtName = x, dtBindings = y, dtType = z}) (parseToken Type *> parseIdentifier) (parseTriangleTy2 <* parseToken Equals) parseMonoType
+
+-- like parseTriangleTy but only allows $n i.e general bindings.
+parseTriangleTy2 :: Parser [Int]
+parseTriangleTy2 = (parseToken Less *> collect helper (parseToken Comma) <* parseToken Greater) <|> pure []
+    where helper = parseToken Dollar *> Parser (\x -> 
+                    case x of
+                        ((AnnotatedToken{annLexeme=(Integer z)}):zs) -> ParseSuccess z zs
+                        _ -> ParseFailure)
 
 -- an infix operation. int = priority, token = lexical token (for example, +)
 data Operation = Operation Int Token String

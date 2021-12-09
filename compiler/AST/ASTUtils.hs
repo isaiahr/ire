@@ -44,11 +44,10 @@ nextName ast = 1 + numof (foldr largest (TypedName (Poly [] (General 0)) (Name "
           largest x y = if numof x > numof y then x else y
 
 instance (Disp a) => Disp (AST a) where
-    disp (AST (d:ds)) = disp d ++ "\n" ++ disp (AST ds)
-    disp _ = "" 
+    disp ast = intercalate "\n" (map disp (astTypes ast)) <> "\n" <>  intercalate "\n" (map disp (astDefns ast))
     
 instance Functor AST where
-    fmap fn (AST ds) = AST (map (mapdefn fn) ds)
+    fmap fn ast = ast {astDefns = (map (mapdefn fn) (astDefns ast))}
 
 mapdefn :: (a -> b) -> Definition a -> Definition b
 mapdefn fn d = d { identifier = mappat fn (identifier d), value = mapexpr fn (value d) }
@@ -77,8 +76,9 @@ mappat fn (Plain a) = Plain (fn a)
 mappat fn (TupleUnboxing a) = TupleUnboxing (map fn a)
 
 instance Foldable AST where
-    foldMap f (AST (d:ds)) = (foldmd f d) <> foldMap f (AST ds)
-    foldMap f (AST []) = mempty
+    foldMap f ast = foldMap2 f (astDefns ast)
+        where foldMap2 f (d:ds) = (foldmd f d) <> foldMap2 f ds
+              foldMap2 f [] = mempty
     
 foldmd :: Monoid m => (a -> m) -> Definition a -> m
 foldmd f defn = foldpat f (identifier defn) <> (foldme f (value defn))
