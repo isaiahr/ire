@@ -42,6 +42,9 @@ data PrimE
     = MkTuple [Type] -- primitive function, int -> arity. so (1,2,3) would be App (MkTuple 3, 1, 2, 3)
     | MkArray Type -- primitive function, create array with n > 0 elems
     | GetTupleElem Type Int -- prim to get nth elem from tuple of type
+    | GetPtrTupleElem Type Int -- similarly except with ptrs
+    | SetTupleElem Type Int -- prim to set nth elem from tuple of type
+    | SetPtrTupleElem Type Int -- similarly except with ptrs
     | GetPtr Type -- primitive function to derefence pointers
     | SetPtr Type -- primitive function to update pointed-to data
     | CreatePtr Type -- primitive function to create pointers 

@@ -10,7 +10,7 @@ import AST.AST hiding (nextName)
 import IR.IR as IR.Syntax
 
 import Control.Monad.State
-import Debug.Trace
+import Data.List
 
 data Context = Context {
     nameTbl :: [(TypedName, IR.Syntax.Name)],
@@ -56,6 +56,7 @@ lower fi x ast = let a = evalState (lowerAll (astDefns ast)) (Context {nameTbl =
         
     
 convTy (AST.AST.Array ty) = IR.Syntax.Array (convTy ty)
+convTy (AST.AST.DType _ mts) = IR.Syntax.Ptr (convTy mts)
 convTy (AST.AST.StringT) = IR.Syntax.StringIRT
 convTy (AST.AST.IntT) = IR.Syntax.Bits 64
 convTy (AST.AST.BoolT) = IR.Syntax.Bits 8
@@ -161,6 +162,8 @@ magic2 [] tupleexpr tty indx restexpr = do
     restexpr' <- lexp (Block restexpr)
     return $ restexpr'
     
+astType e = Record [("x", IntT), ("y", IntT), ("z", IntT), ("str", StringT)]
+    
 lexp (Literal l) = do
     nexp <- llit l
     return nexp
@@ -201,23 +204,66 @@ lexp (Block ((Return r):bs)) = do
 lexp (Block ((Assignment a e):bs)) = do
     ne <- lexp e
     case a of
-         (Plain name) -> do
+         (Singleton name@(TypedName (Poly [] t) _) sels) -> do
              na <- registerEName name
+             result <- repeatSel t (Var na) sels ne
              nbs <- lexp (Block bs)
-             return $ Seq (Assign na ne) nbs
-         (TupleUnboxing names) -> do
+             return $ Seq result nbs
+         (TupleUnboxingA names) -> do
              names' <- forM names registerEName
              let tuplety = (AST.AST.Tuple (map (\(TypedName (Poly [] t) n) -> t) names))
              dummy <- newName (Poly [] tuplety)
              assigns <- magic2 names' (IR.Syntax.Var dummy) (convTy tuplety) 0 bs
              return $ Let dummy ne assigns
-    
+
+    where
+        repeatSel astty (Var v) [] ex = do
+            return $ Assign v ex
+
+        repeatSel astty baseir [(SelDot, mem)] ex = do
+            let (Record ty) = astty
+            let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
+            return $ App (Prim $ SetTupleElem (convTy $ rec2tuple (Record ty)) idx) [baseir, ex]
+
+        repeatSel astty baseir ((SelDot,mem):rest) ex = do
+            let (Record ty) = astty
+            let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
+            let baseir' = App (Prim $ GetTupleElem (convTy $ rec2tuple (Record ty)) idx) [baseir]
+            expr0 <- repeatSel ((map snd ty)  !! idx) baseir' rest ex
+            return $ expr0
+            
+        repeatSel astty baseir [(SelArrow, mem)] ex = do
+            let (DType _ (Record ty)) = astty
+            let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
+            return $ App (Prim $ SetPtrTupleElem (convTy $ rec2tuple (Record ty)) idx) [baseir, ex]
+
+        repeatSel astty baseir ((SelArrow,mem):rest) ex = do
+            let (DType _ (Record ty)) = astty
+            let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
+            let baseir' = App (Prim $ GetPtrTupleElem (convTy $ rec2tuple (Record ty)) idx) [baseir]
+            expr0 <- repeatSel ((map snd ty)  !! idx) baseir' rest ex
+            return $ expr0
+
 lexp (Block ((Expr b):bs)) = do
     nb <- lexp b
     nbs <- lexp (Block bs)
     return $ Seq nb nbs
 
 lexp (Block []) = error "Block must terminate in yield or return"
+
+
+
+lexp (Selector ex SelDot a) = do
+    ex' <- lexp ex
+    let (Record ty) = astType ex
+    let (Just idx) = elemIndex a (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
+    return $ App (Prim $ GetTupleElem (convTy (rec2tuple (Record ty))) idx) [ex']
+
+lexp (Selector ex SelArrow a) = do
+    ex' <- lexp ex
+    let (DType _ (Record ty)) = astType ex
+    let (Just idx) = elemIndex a (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
+    return $ App (Prim $ GetPtrTupleElem (convTy (rec2tuple (Record ty))) idx) [ex']
 
 lexp (IfStmt cond thn els) = do
     cond' <- lexp cond
@@ -230,6 +276,10 @@ lexp (FunctionCall e1 e2) = do
     ne2 <- lexp e2
     return $ App ne1 [ne2]
 
+lexp (Initialize (TypedName t n) lit) = do
+    lit' <- llit lit
+    let t' = snd $ convTyScheme t
+    return $ App (Prim $ CreatePtr t') [lit']
 
 lexp (Variable (TypedName t (NativeName n))) =  return $ Prim $ primName (convTyScheme t) n
     
@@ -292,3 +342,6 @@ magic3 (l:lst) tupleexpr tty indx restexpr = do
 
 magic3 [] tupleexpr tty indx restexpr = do
     return $ restexpr
+
+    
+rec2tuple (Record r) = AST.AST.Tuple $ map snd (sortBy (\x y -> compare (fst x) (fst y)) r)

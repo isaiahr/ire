@@ -117,7 +117,9 @@ instance Disp Constraint where
 data Typ = 
     TyVar TVar | 
     TyCon String | -- constant
-    TyApp String [Typ]  -- application of a type function. example: "->" Int String is function from int to string.
+    TyApp String [Typ] |  -- application of a type function. example: "->" Int String is function from int to string.
+    TyNamedApp String [(String, Typ)] | -- like tyapp except with names.
+    TyNamedType (Maybe Int, Name)
     deriving (Show, Eq)
     
 
@@ -140,6 +142,8 @@ typeStr = TyCon "string"
 typeArray oft = TyApp "array" [oft]
 typeFunction a b = TyApp "func" [a, b]
 typeTuple ty = TyApp "tuple" ty
+typeRecord = TyNamedApp "record"
+typeType h = TyApp "ptr" [h]
 
 -- bijection ast types tyinfer types
 -- NOTE:  poly types need fresh tvs, so they dont conflict with generated tvs.
@@ -495,6 +499,26 @@ inferE (FunctionCall f x) n = do
     c1 <- inferE f (TyVar nf)
     c2 <- inferE x (TyVar nx)
     return $ c0 <> c1 <> c2
+    
+inferE (Selector e SelDot n2) n = do
+    ne <- fresh
+    c0 <- mkCons (TyVar ne) (typeRecord [(n2, n)])
+    c1 <- inferE e (TyVar ne)
+    return $ c0 <> c1
+    
+inferE (Selector e SelArrow n2) n = do
+    ne <- fresh
+    c0 <- mkCons (TyVar ne) (typeType (typeRecord [(n2, n)]))
+    c1 <- inferE e (TyVar ne)
+    return $ c0 <> c1
+
+inferE (Initialize a lit) n = do
+    ne <- fresh
+    c0 <- mkCons n (TyNamedType a)
+    le <- fresh
+    c1 <- inferE (Literal lit) (TyVar le) -- <- basically just type checking
+    c2 <- mkCons (typeType (TyVar le)) (TyNamedType a)
+    return $ c0 <> c1 <> c2
 
 inferE (Variable u) n = do
     n2 <- newVar u
@@ -556,15 +580,33 @@ inferS (Defn d) = do
 
 inferS (Assignment a e) = do
     case a of
-         (Plain s) -> do 
-             n <- newVar s
-             inferE e n
-         (TupleUnboxing ss) -> do
+         (Singleton a2 sels) -> do 
+             n <- newVar a2
+             n2 <- fresh
+             c1 <- inferE e (TyVar n2)
+             c2 <- inferSH n sels (TyVar n2)
+             return $ c1 <> c2
+         (TupleUnboxingA ss) -> do
              ns <- forM ss newVar 
              tc <- fresh
              c1 <- mkCons (TyVar tc) (typeTuple ns)
              c2 <- inferE e (TyVar tc)
              return $ c1 <> c2
+    where
+        inferSH s ((SelDot, a):rest) endexpr = do
+            ns <- fresh
+            c0 <- mkCons s (typeRecord [(a, TyVar ns)])
+            c1 <- inferSH (TyVar ns) rest endexpr
+            return $ c0 <> c1
+        inferSH s ((SelArrow, a):rest) endexpr = do
+            ns <- fresh
+            c0 <- mkCons s (typeType (typeRecord [(a, TyVar ns)]))
+            c1 <- inferSH (TyVar ns) rest endexpr
+            return $ c0 <> c1
+        inferSH s [] endexpr = do
+            mkCons s endexpr
+        
+        
 
 inferS (Return r) = error "handled in blk #234235"
 inferS (Yield y) = error "handled in blk #29588"

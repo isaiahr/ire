@@ -34,7 +34,7 @@ data Type = Poly [Int] MonoType deriving (Eq, Ord, Show)
 -- (something like forall 1 . 1 -> (forall 2 . 2 -> 1))
 data MonoType = 
             General Int | -- for polymorphism - type variable
-            DType String [MonoType] | -- defined type. note: length [mt] == length (dtType str), use General lnt for placeholders
+            DType String MonoType | -- defined type. use General lnt for placeholders
             Array MonoType | -- arrays
             IntT | -- bits (llvm i[n])
             BoolT | 

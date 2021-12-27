@@ -359,6 +359,7 @@ genE (App (Prim (SetPtr ty)) [ptr, dat] ) = do
     ptrlv <- genE ptr
     datlv <- genE dat
     gep <- promote $ createGEP (ir2llvmtype ty) ptrlv [(LLVMInt 32, LIntLit 0)]
+    -- TODO: gep unused?
     result <- promote $ createStore (ir2llvmtype ty) datlv ptrlv
     return (error "no lvalue for prim setptr app")
 
@@ -372,6 +373,14 @@ genE (App (Prim (GetTupleElem ty idx)) [arg]) = do
     result <- promote $ createExtractValue (ir2llvmtype ty) arg' [idx]
     return result
 
+genE (App (Prim (SetTupleElem ty idx)) [arg, val]) = do
+    arg' <- genE arg
+    val' <- genE val
+    let ty' = ir2llvmtype ty
+    gep <- promote $ createGEP ty' arg' [(LLVMInt 32, LIntLit idx)]
+    result <- promote $ createStore ty' val' gep
+    return (error "no lvalue for prim settuplelem app")
+    
 genE (App (Prim (IntAdd)) [argtuple]) = do
     argtuple' <- genE argtuple
     r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
@@ -823,3 +832,4 @@ ir2llvmtype (Bits nt) = (LLVMInt nt)
 ir2llvmtype (Array t) = LLVMStruct False [(LLVMInt 64), LLVMPtr (ir2llvmtype t)]
 ir2llvmtype (Ptr t) = LLVMPtr (ir2llvmtype t)
 ir2llvmtype (StringIRT) = LLVMStruct False [(LLVMInt 64), LLVMPtr (LLVMInt 8)]
+ir2llvmtype (TV _) = error "hit type variable monomorphization should have removed. #80909485485"

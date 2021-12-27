@@ -30,6 +30,15 @@ traverseExpr t (FunctionCall a b) = do
     b' <- (travExpr t) b
     return $ FunctionCall a' b'
     
+traverseExpr t (Selector e sk a) = do
+    e' <- (travExpr t) e
+    return (Selector e' sk a)
+
+traverseExpr t (Initialize a l) = do
+    a' <- (travMapper t) a
+    l' <- (travLit t) l
+    return (Initialize a' l')
+
 traverseExpr t (Literal l) = do
     l' <- (travLit t) l
     return $ Literal l'
@@ -74,7 +83,7 @@ traverseStmt t (Expr e) = do
     
 traverseStmt t (Assignment a e) = do
     e' <- (travExpr t) e
-    a' <- helper t a
+    a' <- helper2 t a
     return $ Assignment a' e'
     
 traverseStmt t (Yield e) = do
@@ -89,6 +98,14 @@ traverseDefn t d = do
     ne <- (travExpr t) (value d)
     ident <- helper t (identifier d)
     return $ d {value = ne, identifier=ident}
+
+helper2 t (Singleton a as) = do
+    a' <- (travMapper t) a
+    return $ Singleton a' as
+    
+helper2 t (TupleUnboxingA as) = do
+    as' <- mapM (travMapper t) as
+    return $ TupleUnboxingA as'
 
 helper t (Plain a) = do
     a' <- (travMapper t) a

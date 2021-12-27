@@ -30,6 +30,11 @@ deriving instance (NFData a) => NFData (Literal a)
 deriving instance Generic (PatternMatching a)
 deriving instance (NFData a) => NFData (PatternMatching a)
 
+deriving instance Generic SelectorKind
+deriving instance NFData SelectorKind
+
+deriving instance Generic (AssignLHS a)
+deriving instance (NFData a) => NFData (AssignLHS a)
 
 deriving instance Generic Name
 deriving instance NFData Name
@@ -54,7 +59,7 @@ mapdefn fn d = d { identifier = mappat fn (identifier d), value = mapexpr fn (va
 
 mapstmt fn (Defn d) = Defn (mapdefn fn d)
 mapstmt fn (Expr e) = Expr (mapexpr fn e)
-mapstmt fn (Assignment a e) = Assignment (mappat fn a) (mapexpr fn e)
+mapstmt fn (Assignment a e) = Assignment (maplhs fn a) (mapexpr fn e)
 mapstmt fn (Return r) = Return (mapexpr fn r)
 mapstmt fn (Yield y) = Yield (mapexpr fn y)
 
@@ -71,6 +76,9 @@ mapliteral fn (FunctionLiteral a b) = FunctionLiteral (mappat fn a) (mapexpr fn 
 mapliteral fn (Constant nt) = Constant nt
 mapliteral fn (StringLiteral n) = StringLiteral n
 mapliteral fn (BooleanLiteral b) = BooleanLiteral b
+
+maplhs fn (Singleton a rs) = Singleton (fn a) rs
+maplhs fn (TupleUnboxingA a) = TupleUnboxingA (map fn a)
 
 mappat fn (Plain a) = Plain (fn a)
 mappat fn (TupleUnboxing a) = TupleUnboxing (map fn a)
@@ -102,16 +110,25 @@ foldml f (BooleanLiteral b) = mempty
 foldms :: Monoid m => (a -> m) -> Statement a -> m
 foldms f (Defn d) = foldmd f d
 foldms f (Expr e) = foldme f e
-foldms f (Assignment a e) = foldpat f a <> foldme f e
+foldms f (Assignment a e) = foldalhs f a <> foldme f e
 foldms f (Return e) = foldme f e
 foldms f (Yield e) = foldme f e
 
 -- NOTE: can use foldr here as this is associative, so idk which has best performance? 
-foldpat f (Plain a) = f a 
+foldpat f (Plain a) = f a
 foldpat f (TupleUnboxing as) = foldMap f as
 
-
-
+foldalhs f (Singleton a rs) = f a
+foldalhs f (TupleUnboxingA as) = foldMap f as
+{-
+astType (Variable (TypedName t n)) = t
+astType (FunctionCall e1 e2) = case astType e1 of 
+                                    Function p r -> r
+astType (IfStmt cond e1 e2) = astType e1
+astType (Literal (Constant n)) = IntT
+astType (Literal (BooleanLiteral l)) = BoolT
+astType (Literal (ArrayLiteral ea)) = Array (map astType ea)
+-}
 instance (Disp a) => Disp (Definition a) where
     disp def = disp (identifier def) ++ ": " ++ shw (typeof def) ++ " = " ++ disp (value def)
         where shw (Just a) = disp a
@@ -143,9 +160,16 @@ instance (Disp a) => Disp (Statement a) where
     disp (Return e) = "return " ++ disp e
     disp (Yield e) = "yield " ++ disp e
 
-instance (Disp a) => (Disp (PatternMatching a)) where
+instance (Disp a) => Disp (PatternMatching a) where
     disp (Plain a) = disp a
     disp (TupleUnboxing a) = "(" <> intercalate ", " (map disp a) <> ")"
+
+instance (Disp a) => Disp (AssignLHS a) where
+    disp (Singleton a as) = disp a <> disp0 as
+        where disp0 ((SelArrow,u):as) = "->" <> disp u <> disp0 as
+              disp0 ((SelDot, u):as) = "." <> disp u <> disp0 as
+              disp0 [] = ""
+    disp (TupleUnboxingA a) = "(" <> intercalate ", " (map disp a) <> ")"
 
 
 instance Eq TypedName where

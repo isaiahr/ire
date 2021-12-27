@@ -116,12 +116,12 @@ nameStmt (Expr e) = Expr <$> (nameExpr e)
 
 nameStmt (Assignment a e) = do
     na <- case a of 
-               (Plain n) -> do
+               (Singleton n sels) -> do
                    n' <- findSym n
-                   return $ Plain n'
-               (TupleUnboxing nn) -> do
+                   return $ Singleton n' sels
+               (TupleUnboxingA nn) -> do
                    nn' <- findSyms nn
-                   return $ TupleUnboxing nn'
+                   return $ TupleUnboxingA nn'
     ne <- nameExpr e
     return $ Assignment na ne
 
@@ -132,6 +132,15 @@ nameExpr (FunctionCall a b) = do
     na <- nameExpr a
     nb <- nameExpr b
     return $ FunctionCall na nb
+
+nameExpr (Selector e1 sel nm) = do
+    e1' <- nameExpr e1
+    return $ Selector e1' sel nm
+
+nameExpr (Initialize a lit) = do
+    a' <- findSym a
+    lit' <- nameLiteral lit
+    return $ Initialize a' lit'
 
 nameExpr (Literal l) = do
     l2 <- nameLiteral l

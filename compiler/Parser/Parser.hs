@@ -92,7 +92,7 @@ parseFunctionType :: MonoType -> Parser MonoType
 parseFunctionType t = liftA2 Function (pure t) (parseToken Arrow *> parseMonoType)
 
 parseDType :: Parser MonoType
-parseDType = liftA2 DType parseIdentifier parseTriangleTy
+parseDType = liftA2 DType parseIdentifier parseMonoType -- ?FIXME?
 
 -- parsing of <Int, Bool> for example
 parseTriangleTy :: Parser [MonoType]
@@ -117,7 +117,7 @@ parseExpressionA :: Parser (Expression String)
 parseExpressionA = fmap orderOps parseInfixOp
 
 parseExpression :: Parser (Expression String)
-parseExpression = infbuild (parseBrExpression <|> parseBlock <|> parseIfStmt <|> parseLiteral <|> parseVariable) parseFunctionCall
+parseExpression = infbuild (parseInitalization <|> (infbuild parseBrExpression parseSelector) <|> parseBlock <|> parseIfStmt <|> parseLiteral <|> (infbuild parseVariable parseSelector)) parseFunctionCall
 
 parseIfStmt :: Parser (Expression String)
 parseIfStmt = liftA3 IfStmt (parseToken If *> parseExpressionA) (parseToken Then *> parseExpressionA) (parseToken Else *> parseExpressionA)
@@ -129,6 +129,9 @@ parseVariable = fmap Variable parseIdentifier
 parseBrExpression :: Parser (Expression String)
 parseBrExpression = parseToken LParen *> parseExpressionA <* parseToken RParen
 
+parseInitalization :: Parser (Expression String)
+parseInitalization = liftA2 Initialize (parseToken New *> parseIdentifier) (fmap (\(Literal l) -> l) parseLiteral)
+
 parseLiteral :: Parser (Expression String)
 parseLiteral = fmap Literal $ parseInt <|>
                               parseBoolLiteral <|>
@@ -137,6 +140,13 @@ parseLiteral = fmap Literal $ parseInt <|>
                               parseTupleLiteral <|>
                               parseRecordLiteral  <|>
                               parseFunctionLiteral
+
+parseAssignLHS :: Parser (AssignLHS String)
+parseAssignLHS = infbuild (fmap change parsePatMatch) magic2
+    where change (Plain a) = Singleton a []
+          change (TupleUnboxing t) = TupleUnboxingA t
+          magic2 (TupleUnboxingA t) = pure $ TupleUnboxingA t
+          magic2 (Singleton a rs) = liftA2 (\x y -> Singleton a (rs ++ [(x, y)])) ((parseToken Arrow *> pure SelArrow) <|> (parseToken Dot *> pure SelDot)) parseIdentifier
 
 parsePatMatch :: Parser (PatternMatching String)
 parsePatMatch = (parseToken LParen *> (pure (TupleUnboxing [])) <* parseToken RParen) <|>
@@ -194,13 +204,16 @@ parseYield :: Parser (Statement String)
 parseYield = fmap AST.AST.Yield $ parseToken Parser.Lexer.Yield *> parseExpressionA
 
 parseAssignment :: Parser (Statement String)
-parseAssignment = liftA2 Assignment (parsePatMatch <* parseToken Equals) parseExpressionA
+parseAssignment = liftA2 Assignment (parseAssignLHS <* parseToken Equals) parseExpressionA
 -- UnionLiteral ((String, Expression), [(String, Type)])
 -- remove union literals for now. not completely sure on syntax for them yet
 -- parseUnionLiteral = fmap UnionLiteral $ parseToken LCrParen *> liftA2 (\x y -> (x, y)) () () <* parseToken RCrParen
 
 parseFunctionCall :: (Expression String) -> Parser (Expression String)
 parseFunctionCall t = liftA2 FunctionCall (pure t) parseExpression
+
+parseSelector :: (Expression String) -> Parser (Expression String)
+parseSelector t = liftA3 Selector (pure t) ((parseToken Arrow *> pure SelArrow) <|> (parseToken Dot *> pure SelDot)) parseIdentifier
 
 
 parseTypeDefn :: Parser DefinedType

@@ -185,6 +185,7 @@ lexKw str
     | kwMatch str "import" = Just (Import, drop 6 str)
     | kwMatch str "export" = Just (Export, drop 6 str)
     | kwMatch str "forall" = Just (Forall, drop 6 str)
+    | kwMatch str "new" = Just (New, drop 3 str)
     | otherwise = Nothing
  
 kwMatch :: String -> String -> Bool

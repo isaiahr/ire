@@ -13,6 +13,8 @@ data Expression a =
                     Block  [Statement a] | -- block, like {stmt1;stmt2;yield expr}
                     FunctionCall (Expression a) (Expression a) | -- FunctionCall, like print "hello world"
                     Variable a | -- variable, like i
+                    Selector (Expression a) SelectorKind String |
+                    Initialize a (Literal a) |
                     IfStmt (Expression a) (Expression a) (Expression a) deriving (Eq) -- if, like if 1==2 then expr1 else expr2
 
 -- a literal
@@ -29,15 +31,20 @@ data Literal a =
 data Statement a = 
                    Defn (Definition a) | -- a := expr
                    Expr (Expression a) | -- expr
-                   Assignment (PatternMatching a) (Expression a) | -- a = expr
+                   Assignment (AssignLHS a) (Expression a) | -- a = expr
                    Return (Expression a) | -- return expr
                    Yield (Expression a) deriving (Eq) -- yield expr
 
 
+data AssignLHS a = 
+                         Singleton a [(SelectorKind, String)]| -- "single var", no tuple unboxing, but possibly a.b.c->d->e.f 
+                         TupleUnboxingA [a] deriving (Eq) -- "tuple unboxing", so binding tuples' vars to vars
+
 data PatternMatching a = 
-                         Plain a | -- "plain", no pattern matching.
+                         Plain a | -- "plain", no tuple unboxing
                          TupleUnboxing [a] deriving (Eq) -- "tuple unboxing", so binding tuples' vars to vars
 
+data SelectorKind = SelArrow | SelDot deriving Eq
 
 data AST a = AST {
     astTypes :: [DefinedType],
