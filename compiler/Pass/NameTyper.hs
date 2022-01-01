@@ -20,4 +20,4 @@ takes a named AST and assigns types to it
 
 passType = Pass {pName = "TypeInfer", pFunc = doType}
     where
-        doType s = evalState (infer s) InferCtx {iEnv = (Map.empty), iBounds = [], iCount = 0, iCache = Set.empty, recHack = Map.empty}
+        doType s = evalState (infer s) InferCtx {iEnv = (Map.empty), iBounds = [], iCount = 0, iCache = Set.empty, recHack = Map.empty, iFnRetty = Nothing}

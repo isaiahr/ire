@@ -68,13 +68,29 @@ https://okmij.org/ftp/ML/generalization.html
 -}
 data TypeScheme = TypeScheme (Int, SType) deriving (Eq, Show, Ord)
 
-data SType = STyVar TypeVariable | STyCon String | SFunc SType SType | SRec [(String, SType)] deriving (Eq, Show, Ord)
+data SType = 
+          STyVar TypeVariable 
+        | STyCon String 
+        | STuple [SType]
+        | SFunc SType SType 
+        | SRec [(String, SType)] deriving (Eq, Show, Ord)
 
-data Typ = Top | Bot | Meet Typ Typ | Join Typ Typ | Func Typ Typ | Rec [(String, Typ)] | Recur TypeVariable Typ | TyVar TypeVariable | TyCon String deriving (Eq, Show, Ord)
+data Typ = 
+          Top 
+        | Bot 
+        | Meet Typ Typ
+        | Join Typ Typ 
+        | Func Typ Typ 
+        | Tup [Typ]
+        | Rec [(String, Typ)] 
+        | Recur TypeVariable Typ -- mu
+        | TyVar TypeVariable 
+        | TyCon String deriving (Eq, Show, Ord)
 
 stBool = STyCon "bool"
 stInt = STyCon "int"
 stString = STyCon "string"
+stVoid = STuple []
 
 data Polarity = Negative | Positive deriving (Eq, Show, Ord)
 
@@ -88,13 +104,19 @@ data InferCtx = InferCtx {
     iBounds :: [(TypeVariable, Int, [SType], [SType])],
     iCount :: Int,
     iCache :: Set.Set (SType, SType),
+    iFnRetty :: Maybe SType,
     recHack :: Map.Map (TypeVariable, Polarity) TypeVariable
 }
 
 printBounds b = intercalate "," (map show b)
 
 infer ast = do
-    _ <- forM (astDefns ast) (inferD 0)
+    mgc3 <- forM (astDefns ast) (\e -> do
+        let (Plain ev) = identifier e
+        st <- newVar 1 ev
+        return $ st)
+    let h = zip mgc3 (astDefns ast)
+    _ <- forM h (uncurry inferTLD)
     ctx <- get
     msg <- forM (Map.toList (iEnv ctx)) (\(k, v) -> do
         let (TypeScheme (_, v34)) = v
@@ -149,6 +171,22 @@ instantiate (TypeScheme (lv, t)) d = do
                     v' <- inst2 v
                     return (k, v))
                 return $ SRec r'
+        inst2 (STuple tp) = do
+            tlv <- lift $ getLevel t
+            if (tlv <= lv) then do
+                return t
+            else do
+                t' <- forM tp inst2
+                return (STuple t')
+
+getFnReturnType :: InferM (Maybe SType)
+getFnReturnType = do
+    ctx <- get
+    return (iFnRetty ctx)
+
+setFnReturnTy :: Maybe SType -> InferM ()
+setFnReturnTy ty = do
+    modify $ \ctx -> ctx {iFnRetty = ty}
 
 getLevel :: SType -> InferM Int
 getLevel (STyVar tv) = do
@@ -165,6 +203,10 @@ getLevel (SFunc t0 t1) = do
 
 getLevel (SRec s) = do
     lvs <- forM s (\(k, v) -> getLevel v)
+    return $ foldr max 0 lvs
+
+getLevel (STuple s) = do
+    lvs <- forM s getLevel
     return $ foldr max 0 lvs
     
 getBounds :: TypeVariable -> InferM ([SType], [SType])
@@ -209,6 +251,12 @@ constrain lhs rhs = do
                           Nothing -> error "??? field rec"
                           Just (_, v2) -> constrain v v2)
                  return ()
+             (STuple t1, STuple t2) -> do
+                 if (length t1 /= length t2) then
+                     error "tuple length"
+                 else do
+                     _ <- mapM (uncurry constrain) (zip t1 t2)
+                     return ()
              (STyVar tv, aaaaaaa) -> do
                  rhslv <- getLevel rhs
                  lhslv <- getLevel lhs
@@ -256,6 +304,10 @@ exc (SRec kv) pol lv = do
         return (k, v'))
     return $ SRec kv'
 
+exc (STuple t) pol lv = do
+    t' <- forM t (\a -> exc a pol lv)
+    return $ STuple t'
+
 exc (STyVar v) pol lv = do
     ctx <- get
     case Map.lookup v ctx of
@@ -295,6 +347,10 @@ recC (SRec kv) pol proc = do
         v' <- recC v pol proc
         return (k, v'))
     return $ Rec kv'
+    
+recC (STuple t) pol proc = do
+    t' <- mapM (\a -> recC a pol proc) t
+    return $ Tup t'
 
 recC (STyVar v) pol proc = do
     if (v, pol) `Set.member` proc then do
@@ -332,25 +388,64 @@ newPVar lv (mi, name) typ = do
 
 
 getVar :: (Maybe Int, Name) -> InferM TypeScheme
+getVar (mi, a@(NativeName n)) = do
+    return $ typeofn n
+    where 
+    typeofn Native_Exit = TypeScheme (-1, SFunc stInt stVoid)
+    typeofn Native_Print = TypeScheme (-1, SFunc stString stVoid)
+    typeofn Native_Panic = TypeScheme (-1, SFunc stVoid stVoid)
+    typeofn Native_IntToString = TypeScheme (-1, SFunc stInt stString)
+    typeofn Native_Addition = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stInt)
+    typeofn Native_Subtraction = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stInt)
+    typeofn Native_Multiplication = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stInt)
+    typeofn Native_Equal = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_Greater = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_Less = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_GreaterEqual = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_LesserEqual = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_Or = TypeScheme (-1, SFunc (STuple [stBool, stBool]) stBool)
+    typeofn Native_And = TypeScheme (-1, SFunc (STuple [stBool, stBool]) stBool)
+
+{--
+getVar (mi, a@(Symbol str ty fi)) = do
+    return $ convTy ty
+-} 
 getVar (mi, name) = do
     ctx <- get
     case Map.lookup (Nothing, name) (iEnv ctx) of
          (Just sty) -> return sty
          Nothing -> error "use-before-defn; namer should have caught this."
 
+inferTLD :: SType -> Definition (Maybe Int, Name) -> InferM ()
+inferTLD sty defn = do
+    -- invariants (for now)
+    let (Plain a) = identifier defn
+    let (Literal fl@(FunctionLiteral _ _)) = value defn
+    
+    val <- inferL 1 fl
+    constrain val sty
+    -- note: this should overwrite the current var.
+    newPVar 0 a (TypeScheme (0, sty))
+
 inferD :: Int -> Definition (Maybe Int, Name) -> InferM ()
 inferD lv defn = do
-    let (Plain a) = identifier defn
-    case value defn of
-         (Literal fl@(FunctionLiteral (Plain vr) expr)) -> do
-             val <- inferL (lv+1) fl
-             newPVar lv a (TypeScheme (lv, val))
-             -- ?constrain tv
-         other -> do
-             tv <- newVar lv a
-             val <- inferE lv (value defn)
-             constrain val tv
-             return ()
+    case identifier defn of
+        (Plain a) -> case value defn of
+            (Literal fl@(FunctionLiteral _ _)) -> do
+                val <- inferL (lv+1) fl
+                newPVar lv a (TypeScheme (lv, val))
+                -- ?constrain tv
+            other -> do
+                tv <- newVar lv a
+                val <- inferE lv (value defn)
+                constrain val tv
+                return ()
+        (TupleUnboxing a) -> do
+            tvs <- mapM (newVar lv) a
+            val <- inferE lv (value defn)
+            constrain val (STuple tvs)
+            return ()
+             
     
 inferE :: Int -> Expression (Maybe Int, Name) -> InferM SType
 inferE lv (Literal l) = do
@@ -360,7 +455,9 @@ inferE lv (Block ((Yield y):s)) = do
     inferE lv y
 
 inferE lv (Block ((Return r):s)) = do
-    error "TODO"
+    rty <- inferE lv r
+    setFnReturnTy (Just rty)
+    return stVoid
 
 inferE lv (Block (b:bs)) = do
     inferS lv b
@@ -402,8 +499,27 @@ inferL lv (StringLiteral l) = return stString
 inferL lv (FunctionLiteral (Plain a) e) = do
     tv <- newVar lv a
     et <- inferE lv e
-    return (SFunc tv et)
-    
+    fnrt <- getFnReturnType
+    case fnrt of
+         Nothing -> return (SFunc tv et)
+         Just et' -> do
+             setFnReturnTy Nothing
+             return (SFunc tv et')
+
+inferL lv (FunctionLiteral (TupleUnboxing ts) e) = do
+    tvs <- forM ts (newVar lv)
+    et <- inferE lv e
+    fnrt <- getFnReturnType
+    case fnrt of
+         Nothing -> return (SFunc (STuple tvs) et)
+         Just et' -> do
+             setFnReturnTy Nothing
+             return (SFunc (STuple tvs) et')
+
+inferL lv (TupleLiteral ts) = do
+    ts' <- forM ts (inferE lv)
+    return $ STuple ts'
+
 inferL lv (RecordLiteral rs) = do
     rs' <- forM rs (\(k, v) -> do
         v' <- inferE lv v
@@ -423,3 +539,8 @@ inferS lv (Assignment (Singleton p []) e) = do
     ety <- inferE lv e
     vl <- inferE lv (Variable p)
     constrain ety vl
+
+inferS lv (Assignment (TupleUnboxingA t) e) = do
+    ety <- inferE lv e
+    vls <- mapM (inferE lv) (map Variable t)
+    constrain ety (STuple vls)
