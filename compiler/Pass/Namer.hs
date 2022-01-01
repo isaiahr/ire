@@ -166,7 +166,11 @@ nameLiteral (BooleanLiteral b) = return (BooleanLiteral b)
 
 nameLiteral (ArrayLiteral xs) =  ArrayLiteral <$> (mapM nameExpr xs)
 nameLiteral (TupleLiteral xs) = TupleLiteral <$> (mapM nameExpr xs)
-
+nameLiteral (RecordLiteral ks) = do
+    ks' <- forM ks (\(k, v) -> do
+        v' <- nameExpr v
+        return (k, v'))
+    return $ RecordLiteral ks'
 
 nameLiteral (FunctionLiteral param expr) = do
     enterScope

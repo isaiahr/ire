@@ -71,6 +71,12 @@ traverseLit t (FunctionLiteral a b) = do
     b' <- (travExpr t) b
     a' <- helper t a
     return $ FunctionLiteral a' b'
+
+traverseLit t (RecordLiteral ks) = do
+    ks' <- forM ks (\(k, v) -> do
+        v' <- (travExpr t) v
+        return (k, v'))
+    return $ RecordLiteral ks'
     
 traverseStmt :: Monad m => (Traveller m a b) -> Statement a -> m (Statement b)
 traverseStmt t (Defn d) = do

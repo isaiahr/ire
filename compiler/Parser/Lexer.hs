@@ -20,7 +20,7 @@ import GHC.Generics
 data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integer Int | Character Char | String String | Identifier String
            | Term | Comma | Equals | Return | Yield | PlusEquals | Pipe | New | Void | Type | Colon | Dot | Arrow | If | Then
            | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals | FSlash | BSlash
-           | Exclamation | Else | GreaterEqual | LesserEqual | Import | Export | Error | Forall | Dollar | DoublePlus deriving (Show, Eq)
+           | Exclamation | Else | GreaterEqual | LesserEqual | Import | Export | Error | Forall | Dollar | DoublePlus | At deriving (Show, Eq)
 
 deriving instance Generic Token
 deriving instance NFData Token
@@ -145,6 +145,7 @@ lexSym ('\\' : str) = Just (BSlash, str)
 lexSym ('/' : str) = Just (FSlash, str)
 lexSym ('$' : str) = Just (Dollar, str)
 lexSym ('∀' : str) = Just (Forall, str)
+lexSym ('@' : str) = Just (At, str)
 lexSym _ = Nothing
 
 lexIdent :: String -> Maybe (Token, String)

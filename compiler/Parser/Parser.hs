@@ -179,7 +179,7 @@ parseTupleLiteral = (parseToken LParen *> (pure (TupleLiteral [])) <* parseToken
                     (fmap TupleLiteral $ parseToken LParen *> collect parseExpressionA (parseToken Comma) <* parseToken RParen)
 
 parseRecordLiteral :: Parser (Literal String)
-parseRecordLiteral = fmap RecordLiteral $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Equals *> parseExpressionA)) (parseToken Comma) <* parseToken RCrParen
+parseRecordLiteral = fmap RecordLiteral $ parseToken At *> parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Equals *> parseExpressionA)) (parseToken Comma) <* parseToken RCrParen
 
 -- \a -> {}
 -- or: \(x,y,z) -> {}
