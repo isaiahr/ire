@@ -46,6 +46,7 @@ import Control.Monad.State
 import Control.Monad.Except
 import Control.Monad.Identity
 import Data.List
+import Data.Maybe
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
@@ -68,6 +69,13 @@ https://okmij.org/ftp/ML/generalization.html
 -}
 data TypeScheme = TypeScheme (Int, SType) deriving (Eq, Show, Ord)
 
+
+{-- 
+"Simple" Types. 
+no meet / join. 
+type variables have bounds recorded in the monad.
+-}
+
 data SType = 
           STyVar TypeVariable 
         | STyCon String 
@@ -75,6 +83,172 @@ data SType =
         | SFunc SType SType 
         | SRec [(String, SType)] deriving (Eq, Show, Ord)
 
+{-
+intermediate representation of a type, for better optimization.
+see the paper for how exactly.
+-}
+data IType = IType {
+        iVars :: Set.Set TypeVariable,
+        iTyCons :: Set.Set String,
+        iRec :: Maybe [(String, IType)],
+        iTuple :: Maybe [IType],
+        iFun :: Maybe (IType, IType)
+} deriving (Eq, Show, Ord)
+
+emptyIType = IType {
+    iVars = Set.empty,
+    iTyCons = Set.empty,
+    iRec = Nothing,
+    iTuple = Nothing,
+    iFun = Nothing
+}
+
+mergeITypes polarity left right = IType {
+    iVars = iVars left <> iVars right,
+    iTyCons = iTyCons left <> iTyCons right,
+    iRec = case (iRec left, iRec right) of 
+                (Just kv1, Just kv2) -> Just $ mergeHelper polarity kv1 kv2
+                (Nothing, Just kv) -> Just kv
+                (j, _) -> j,
+    iFun = case (iFun left, iFun right) of
+                (Just (l0, r0), Just (l1, r1)) -> Just (mergeITypes (invp polarity) l0 l1, mergeITypes polarity r0 r1)
+                (Nothing, Just j) -> Just j
+                (j2, _) -> j2,
+    iTuple = case (iTuple left, iTuple right) of
+                (Just l, Just r) -> Just (mergeTHelper polarity l r)
+                (Nothing, Just r) -> Just r
+                (l, _) -> l
+    }
+    where
+    mergeHelper Negative lhs rhs = let (intersection, rest) = partition lhs rhs in (map (\(s, i1, i2) -> (s, (mergeITypes Negative i1 i2))) intersection) <> rest
+        where 
+            partition :: [(String, IType)] -> [(String, IType)] -> ([(String, IType, IType)], [(String, IType)])
+            partition l1 l2 = (map (\(k1', v') -> (k1', v', fromJust (lookup k1' l2))) (filter (\(k, v) -> k `elem` (map fst l2)) l1), intersectBy (\(k, v) (k2, v2) -> k/=k2) l1 l2)
+    mergeHelper Positive lhs rhs = map (\(k, v) -> fromMaybe (k, v) $ fmap (\x2 -> (k, mergeITypes Positive v x2)) (lookup k rhs)) lhs
+    mergeTHelper pol lhs rhs = map (uncurry (mergeITypes pol)) (zip lhs rhs)
+
+data ITypeScheme = ITypeScheme (IType, [(TypeVariable, IType)]) deriving (Eq, Show, Ord)
+
+-- see ashley's comment on https://lptk.github.io/programming/2020/03/26/demystifying-mlsub.html
+-- to see what this solves. 
+
+compactify :: SType -> InferM ITypeScheme
+compactify ty = do
+    (res, st) <- runStateT (compactify0 ty Positive) (Map.empty, [])
+    (res2, (rec, recv)) <- runStateT (compactify1 res Positive Set.empty) st
+    return $ ITypeScheme (res2, recv)
+
+    where
+        
+    compactify0 :: SType -> Polarity -> StateT (Map.Map (IType, Polarity) TypeVariable, [(TypeVariable, IType)]) (StateT InferCtx Identity) IType
+    compactify0 (STyCon t) pol = return $ emptyIType {iTyCons = Set.singleton t}
+    compactify0 (SFunc l r) pol = do
+        l' <- compactify0 l (invp pol)
+        r' <- compactify0 r pol
+        return $ emptyIType {iFun = Just (l', r')}
+    compactify0 (SRec r) pol = do
+        r' <- forM r (\(k, v) -> do
+            v' <- compactify0 v pol
+            return (k, v'))
+        return $ emptyIType {iRec = Just r'}
+    compactify0 (STuple t) pol = do
+        t' <- forM t (\v -> do
+            v' <- compactify0 v pol
+            return v')
+        return $ emptyIType {iTuple = Just t'}
+    compactify0 (STyVar v) pol = do
+        -- here we want to add the var, all vars in its bounds, all vars in their bounds, 
+        -- etc etc etc.
+        vars <- lift $ evalStateT (magic (Set.singleton v) pol) (Set.singleton v)
+        return $ emptyIType {iVars = vars}
+        where
+        magic :: (Set.Set TypeVariable) -> Polarity -> StateT (Set.Set TypeVariable) (StateT InferCtx Identity) (Set.Set TypeVariable)
+        magic vars pol | vars == Set.empty = return Set.empty
+        magic vars pol = do
+            lb23 <- forM (Set.toList vars) (\v15 -> do
+                (lb15, ub15) <- lift $ getBounds v15
+                return lb15)
+            let lb = foldr (<>) [] lb23
+            ub23 <- forM (Set.toList vars) (\v15 -> do
+                (lb15, ub15) <- lift $ getBounds v15
+                return lb15)
+            let ub = foldr (<>) [] ub23
+            let b = if pol == Positive then lb else ub
+            let b' = map (\y -> case y of 
+                    (STyVar v0) -> Just v0
+                    els3 -> Nothing) b
+            let b'' = catMaybes b'
+            old <- get
+            let new = Set.union (Set.fromList b'') old
+            put new
+            final <- magic (Set.difference new old) pol
+            return $ Set.union final old
+
+    compactify1 :: IType -> Polarity -> Set.Set (IType, Polarity) -> StateT (Map.Map (IType, Polarity) TypeVariable, [(TypeVariable, IType)]) (StateT InferCtx Identity) IType
+    compactify1 ty pol proc | ty == emptyIType = return ty
+    compactify1 ty pol proc = do
+        let pty = (ty, pol)
+        if Set.member pty proc then do
+            (rec, recv) <- get
+            vars <- case Map.lookup pty rec of
+                (Just v) -> return (Set.singleton v)
+                Nothing -> do
+                    frv' <- lift $ fresh 0
+                    let (STyVar frv) = frv'
+                    put $ (Map.insert pty frv rec, recv)
+                    return $ (Set.singleton frv)
+            return $ emptyIType {iVars = vars}
+        else do
+            bounds <- forM (Set.elems (iVars ty)) (\tv -> do
+                (lb, ub) <- lift $ getBounds tv
+                let b = if pol == Positive then lb else ub
+                b' <- forM b (\bd -> do
+                    case bd of 
+                        STyVar v0 -> return $ emptyIType
+                        otherwis3 -> compactify0 otherwis3 pol)
+                return b')
+            let bounds0 = foldl Set.union Set.empty (map Set.fromList bounds)
+            let bounds' = foldl (mergeITypes pol) emptyIType bounds0
+            let res = mergeITypes pol ty bounds'
+            let proc' = Set.insert pty proc
+            rec' <- case iRec res of
+                (Just rs) -> do
+                    rs' <- forM rs (\(k, v) -> do
+                        v' <- compactify1 v pol proc'
+                        return (k, v'))
+                    return $ (Just rs')
+                Nothing -> return Nothing
+            fun' <- case iFun res of
+                (Just (l, r)) -> do
+                    l' <- compactify1 l (invp pol) proc'
+                    r' <- compactify1 r pol proc'
+                    return $ Just (l', r')
+                Nothing -> return Nothing
+            tup' <- case iTuple res of
+                (Just t) -> do
+                    t' <- forM t (\v -> do
+                        v' <- compactify1 v pol proc'
+                        return v')
+                    return $ (Just t')
+                Nothing -> return Nothing
+            let adapt = IType {
+                iVars = iVars res,
+                iTyCons = iTyCons res,
+                iRec = rec',
+                iFun = fun',
+                iTuple = tup'
+            }
+            (rec, recv) <- get
+            case Map.lookup pty rec of
+                Just v0 -> do
+                    let recv' = recv <> [(v0, adapt)]
+                    put (rec, recv')
+                    return $ emptyIType {iVars = Set.singleton v0}
+                Nothing -> return $ adapt
+
+{--
+produced types targeted by the type inference engine.
+-}
 data Typ = 
           Top 
         | Bot 
@@ -119,8 +293,10 @@ infer ast = do
     _ <- forM h (uncurry inferTLD)
     ctx <- get
     msg <- forM (Map.toList (iEnv ctx)) (\(k, v) -> do
-        let (TypeScheme (_, v34)) = v
-        v' <- coalesce v34
+        v34 <- instantiate v 0
+        com <- compactify v34
+        v' <- coalesceI com
+        --v' <- coalesce v34
         return ((disp k) <> ":" <> show v' <> ":" <> show v34 <> "\n"))
     let msg2 = map (\(tv, l, lb, rb) -> printBounds lb <> "<:" <> show tv <> "<:" <> printBounds rb <> "\n") (iBounds ctx)
     error $ "\n" <> (foldl (<>) [] msg2) <> "\n\n" <> (foldl (<>) [] msg)
@@ -330,52 +506,115 @@ exc (STyVar v) pol lv = do
                       lift $ setBounds v' lb' nvup
              return (STyVar v')
     
+{--
+unused.
+this can be used if the main one breaks, to verify mutual subsumption
+with the main pipeline (SType -> IType -> Typ)
+--}
 coalesce :: SType -> InferM Typ
 coalesce sty = do
     modify $ \ctx -> ctx {recHack = Map.empty}
     recC sty Positive Set.empty
+    where
+    recC :: SType -> Polarity -> Set.Set (TypeVariable, Polarity) -> InferM Typ
+    recC (STyCon str) pol proc = return (TyCon str)
+    recC (SFunc l r) pol proc = do
+        lty <- recC l (invp pol) proc
+        rty <- recC r pol proc
+        return (Func lty rty)
 
-recC :: SType -> Polarity -> Set.Set (TypeVariable, Polarity) -> InferM Typ
-recC (STyCon str) pol proc = return (TyCon str)
-recC (SFunc l r) pol proc = do
-    lty <- recC l (invp pol) proc
-    rty <- recC r pol proc
-    return (Func lty rty)
+    recC (SRec kv) pol proc = do
+        kv' <- forM kv (\(k, v) -> do
+            v' <- recC v pol proc
+            return (k, v'))
+        return $ Rec kv'
+        
+    recC (STuple t) pol proc = do
+        t' <- mapM (\a -> recC a pol proc) t
+        return $ Tup t'
 
-recC (SRec kv) pol proc = do
-    kv' <- forM kv (\(k, v) -> do
-        v' <- recC v pol proc
-        return (k, v'))
-    return $ Rec kv'
-    
-recC (STuple t) pol proc = do
-    t' <- mapM (\a -> recC a pol proc) t
-    return $ Tup t'
+    recC (STyVar v) pol proc = do
+        if (v, pol) `Set.member` proc then do
+            -- lookup in rec / add
+            ctx <- get
+            let rh = recHack ctx
+            case Map.lookup (v, pol) rh of 
+                (Just v') -> return $ TyVar v'
+                Nothing -> do
+                    let rh' = Map.insert (v, pol) v rh
+                    put $ ctx{recHack = rh'}
+                    return $ TyVar v
+        else do
+            (b1, b2) <- getBounds v
+            let b = if pol == Positive then b1 else b2
+            let proc' = Set.insert (v, pol) proc
+            tys <- forM b (\x -> recC x pol proc')
+            let merger = if pol == Positive then Join else Meet
+            let r = foldl merger (TyVar v) tys
+            ctx <- get
+            let rh = recHack ctx
+            case Map.lookup (v, pol) rh of
+                Nothing -> return r
+                (Just r2) -> return (Recur r2 r)
 
-recC (STyVar v) pol proc = do
-    if (v, pol) `Set.member` proc then do
-        -- lookup in rec / add
-        ctx <- get
-        let rh = recHack ctx
-        case Map.lookup (v, pol) rh of 
-             (Just v') -> return $ TyVar v'
-             Nothing -> do
-                 let rh' = Map.insert (v, pol) v rh
-                 put $ ctx{recHack = rh'}
-                 return $ TyVar v
-    else do
-        (b1, b2) <- getBounds v
-        let b = if pol == Positive then b1 else b2
-        let proc' = Set.insert (v, pol) proc
-        tys <- forM b (\x -> recC x pol proc')
-        let merger = if pol == Positive then Join else Meet
-        let r = foldl merger (TyVar v) tys
-        ctx <- get
-        let rh = recHack ctx
-        case Map.lookup (v, pol) rh of
-             Nothing -> return r
-             (Just r2) -> return (Recur r2 r)
+coalesceI :: ITypeScheme -> InferM Typ
+coalesceI cty@(ITypeScheme (ty5, rec)) = do
+    resulttyp <- evalStateT (coal (Left ty5) Positive Map.empty) Set.empty
+    return resulttyp
+    where 
 
+    coal :: Either IType TypeVariable -> Polarity -> Map.Map (Either IType TypeVariable, Polarity) TypeVariable -> StateT (Set.Set (Either IType TypeVariable, Polarity)) (StateT InferCtx Identity) Typ
+    coal ty pol proc = do
+        case Map.lookup (ty, pol) proc of
+            Just val -> do 
+                trace "recursive var" (return ())
+                modify $ \st -> Set.union st (Set.singleton (ty, pol))
+                return (TyVar val)
+            Nothing -> do
+                v <- case ty of 
+                    (Right tv) -> return tv
+                    (Left _) -> do
+                        newtv <- lift $ fresh 0 
+                        let (STyVar newtv') = newtv
+                        return newtv'
+                let proc' = Map.insert (ty, pol) v proc
+                res0 <- case ty of
+                    (Right tv) -> do 
+                        case lookup tv rec of
+                            Just ty0 -> coal (Left ty0) pol proc'
+                            Nothing -> return (TyVar tv)
+                    (Left ityp) -> do
+                        let merger = if pol == Positive then Join else Meet
+                        let extreme = if pol == Positive then Bot else Top
+                        vars <- mapM (\v -> coal v pol proc') (map Right (Set.toList (iVars ityp)))
+                        let tycons = map TyCon (Set.toList $ iTyCons ityp)
+                        recs <- case iRec ityp of
+                            Nothing -> return []
+                            Just reco -> do 
+                                reco' <- forM reco (\(k, v) -> do
+                                    v' <- coal (Left v) pol proc'
+                                    return (k, v'))
+                                return [Rec reco']
+                        funs <- case iFun ityp of
+                            Nothing -> return []
+                            Just (l, r) -> do     
+                                l' <- coal (Left l) (invp pol) proc'
+                                r' <- coal (Left r) pol proc'
+                                return $ [Func l' r']
+                        tups <- case (iTuple ityp) of
+                            Nothing -> return []
+                            Just tupl -> do
+                                tup' <- forM tupl (\v -> coal (Left v) pol proc')
+                                return $ [Tup tup']
+                        -- actually below will result in extra top / bottom. todo change this.
+                        let result = (case (vars <> tycons <> recs <> funs <> tups) of
+                                ([]) -> extreme 
+                                xs -> foldl1 merger xs)
+                        return $ result
+                st0 <- get
+                if Set.member (ty, pol) st0 then do
+                    return $ Recur v res0
+                else return res0
 
 newVar lv (mi, name) = do
     tv <- fresh lv
