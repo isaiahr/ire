@@ -32,7 +32,7 @@ Originally, ire did not use subtyping and instead used a standard hindley-milner
 The original typing code has been preserved in HMTyper.hs for posterity.
 
 -}
- 
+
 module Pass.Typer where 
 
 import Common.Common
@@ -129,8 +129,194 @@ mergeITypes polarity left right = IType {
 
 data ITypeScheme = ITypeScheme (IType, [(TypeVariable, IType)]) deriving (Eq, Show, Ord)
 
+data SimplifyCtx = SimplifyCtx {
+    sctxVars :: Set.Set TypeVariable,
+    sctxRecVars :: Map.Map TypeVariable (StateT SimplifyCtx (StateT InferCtx Identity) IType),
+    sctxCooccurs :: Map.Map (TypeVariable, Polarity) (Set.Set SType),
+    sctxVarSubs :: Map.Map TypeVariable (Maybe TypeVariable)
+}
+
+{-- 
+and they call this algorithmn "simple sub" ... what a joke
+--}
+
+simplify :: ITypeScheme -> InferM ITypeScheme
+simplify (ITypeScheme (cty, rec)) = do
+    let ctx = SimplifyCtx {
+        sctxVars = Set.fromList (map fst rec),
+        sctxRecVars = Map.empty,
+        sctxCooccurs = Map.empty,
+        sctxVarSubs = Map.empty
+    }
+    (it, st15) <- runStateT (transform cty) ctx
+    recvars5 <- evalStateT recoverM st15
+    return $ ITypeScheme (it, recvars5)
+    where 
+    recoverM :: StateT SimplifyCtx (StateT InferCtx Identity) [(TypeVariable, IType)]
+    recoverM = do
+        st0 <- get
+        recs <- forM (Map.toList (sctxRecVars st0)) (\(key, value) -> do
+            value' <- value
+            return (key, value'))
+        return recs
+    -- yes this is a real return type. have figuring out what it does!
+    analysis :: IType -> Polarity -> StateT SimplifyCtx (StateT InferCtx Identity) (StateT SimplifyCtx (StateT InferCtx Identity) IType)
+    -- okay but really it just returns a monadic thunk to evaluate to return the itype.
+    analysis ty pol = do
+        _ <- forM (Set.toList (iVars ty)) (\var -> do
+            modify $ \ctx -> ctx {sctxVars = Set.insert var (sctxVars ctx)}
+            let newoccs = (map STyVar (Set.toList $ iVars ty)) <> (map STyCon (Set.toList $ iTyCons ty))
+            st0 <- get
+            case Map.lookup (var, pol) (sctxCooccurs st0) of
+                    (Just stypes) -> do
+                        let i18n = Set.intersection (Set.fromList newoccs) stypes
+                        modify $ \ctx -> ctx {sctxCooccurs = Map.insert (var, pol) i18n (sctxCooccurs ctx)}
+                    (Nothing) -> do
+                        modify $ \ctx -> ctx {sctxCooccurs = Map.insert (var, pol) (Set.fromList newoccs) (sctxCooccurs ctx)}
+            case lookup var rec of
+                    (Nothing) -> return ()
+                    (Just rectys) -> do
+                        _ <- forM [rectys] (\recty -> do
+                            st1 <- get
+                            if Map.member var (sctxRecVars st1) then
+                                return ()
+                            else do
+                                let hack = do
+                                        modify $ \ctx -> ctx {sctxRecVars = Map.insert var hack (sctxRecVars ctx)}
+                                        res3 <- analysis recty pol
+                                        res3
+                                _ <- hack
+                                return ())
+                        return ()
+            return ())
+        -- these types aren't real, the innards are actually just thonks to reconstruct them.
+        rec' <- case iRec ty of
+                (Just r) -> do
+                    r' <- forM r (\(k, v) -> do
+                        v' <- analysis v pol
+                        return (k, v'))
+                    return $ Just r'
+                (Nothing) -> return Nothing
+        fun' <- case iFun ty of
+                (Just (l, r)) -> do
+                    l' <- analysis l (invp pol)
+                    r' <- analysis r pol
+                    return $ Just (l', r')
+                Nothing -> return Nothing
+        tup' <- case iTuple ty of
+                (Just t) -> do
+                    t' <- forM t (\v -> do
+                        v' <- analysis v pol
+                        return v')
+                    return $ Just t'
+                (Nothing) -> return Nothing
+        let thunk = do
+                nv' <- forM (Set.toList (iVars ty)) (\tv -> do
+                    st4 <- get
+                    c <- case Map.lookup tv (sctxVarSubs st4) of
+                        Nothing -> return $ Just tv
+                        (Just b) -> return $ b -- note: may be none. that is ok.
+                    return c)
+                let nv'' = catMaybes nv'
+                rec'' <- case rec' of
+                            Nothing -> return Nothing
+                            (Just r) -> do
+                                r' <- forM r (\(k, vt) -> do
+                                    v <- (vt :: StateT SimplifyCtx (StateT InferCtx Identity) IType)
+                                    return (k :: String, v :: IType))
+                                return $ Just r'
+                tup'' <- case tup' of
+                            Nothing -> return Nothing
+                            (Just t) -> do
+                                t' <- forM t (\vt -> do
+                                    v <- vt
+                                    return v)
+                                return $ Just t'
+                fun'' <- case fun' of 
+                            Nothing -> return Nothing
+                            (Just (l, r)) -> do
+                                l' <- l
+                                r' <- r
+                                return $ Just (l', r')
+                return IType {
+                    iVars = (Set.fromList nv''),
+                    iTyCons = iTyCons ty,
+                    iRec = rec'',
+                    iFun = fun'',
+                    iTuple = tup''
+                }
+        return $ thunk
+    transform :: IType -> StateT SimplifyCtx (StateT InferCtx Identity) IType
+    transform ty = do
+        th0nk <- analysis ty Positive
+        -- print occ / rec here maybe.
+        st0 <- get
+        -- first pass: eliminating (strictly) polar variables
+        forM (Set.toList (sctxVars st0)) (\var -> do
+            if Map.member var (sctxRecVars st0) then
+                return ()
+            else do
+                case (Map.lookup (var, Positive) (sctxCooccurs st0), Map.lookup (var, Negative) (sctxCooccurs st0)) of
+                    (Nothing, Nothing) -> error "shouldnt happen"
+                    (Just _, Just _) -> return ()
+                    otherwis3 -> do
+                        modify $ \ctx -> ctx {sctxVarSubs = Map.insert var Nothing (sctxVarSubs ctx)}
+                        return ()
+            return ())
+        st1 <- get
+        -- second pass: eliminating the so-called "variable sandwiches"
+        -- i like sandwiches
+        forM (Set.toList (sctxVars st1)) (\var -> do
+            st2 <- get
+            if Map.member var (sctxVarSubs st2) then
+                return () -- already replaced with nothing!
+            else do
+                forM [Positive, Negative] (\pol -> do
+                    st3 <- get
+                    let lst0 = Set.toList (fromMaybe Set.empty (Map.lookup (var, pol) (sctxCooccurs st3)))
+                    forM lst0 (\co_oc -> do
+                        case co_oc of
+                            (STyVar tel) -> do
+                                st4 <- get
+                                if tel /= var && not (Map.member tel (sctxVarSubs st4)) && (Map.member tel (sctxRecVars st4) == Map.member var (sctxRecVars st4)) then do
+                                    let lst1 = Map.lookup (tel, pol) (sctxCooccurs st4)
+                                    let bool = foldr (&&) True (map (\xyz -> xyz == STyVar var) (Set.toList (fromMaybe Set.empty lst1)))
+                                    if bool then do
+                                        modify $ \ctx -> ctx {sctxVarSubs = Map.insert tel (Just var) (sctxVarSubs ctx)}
+                                        -- now, merge bounds, and co-ords from invpol
+                                        case Map.lookup tel (sctxRecVars st4) of
+                                            (Just th0nk1) -> do
+                                                modify $ \ctx -> ctx {sctxRecVars = Map.delete tel (sctxRecVars ctx)}
+                                                st6 <- get
+                                                let newth = fromJust (Map.lookup var (sctxRecVars st6))
+                                                let newthonk = do
+                                                        t1 <- th0nk1
+                                                        t2 <- newth
+                                                        return $ mergeITypes pol t1 t2
+                                                modify $ \ctx -> ctx {sctxRecVars = Map.insert var newthonk (sctxRecVars ctx)}
+                                            (Nothing) -> do
+                                                let (Just telco) = (Map.lookup (tel, invp pol) (sctxCooccurs st4))
+                                                let (Just varco) = (Map.lookup (var, invp pol) (sctxCooccurs st4))
+                                                let newvarco = filter (\y -> y == (STyVar var) || Set.member y telco) (Set.toList varco)
+                                                modify $ \ctx -> ctx {sctxCooccurs = Map.insert (var, invp pol) (Set.fromList newvarco) (sctxCooccurs ctx)}
+                                        return ()
+                                    else return ()
+                                else return ()
+                            (STyCon tycn) -> do
+                                st4 <- get
+                                if Set.member (STyCon tycn) (fromMaybe Set.empty (Map.lookup (var, invp pol) (sctxCooccurs st4))) then
+                                    modify $ \ctx -> ctx { sctxVarSubs = Map.insert var Nothing (sctxVarSubs ctx)}
+                                else return ()
+                            otherwis4 -> return ()
+                        return ())
+                    return ())
+                return ()
+            return ()) -- yes I need this return wall for aestetic spacing purposes
+        type' <- th0nk
+        return type'
+
 -- see ashley's comment on https://lptk.github.io/programming/2020/03/26/demystifying-mlsub.html
--- to see what this solves. 
+-- to see what this solves. (as opposed to the simpler compactification alg)
 
 compactify :: SType -> InferM ITypeScheme
 compactify ty = do
@@ -295,7 +481,8 @@ infer ast = do
     msg <- forM (Map.toList (iEnv ctx)) (\(k, v) -> do
         v34 <- instantiate v 0
         com <- compactify v34
-        v' <- coalesceI com
+        com' <- simplify com
+        v' <- coalesceI com'
         --v' <- coalesce v34
         return ((disp k) <> ":" <> show v' <> ":" <> show v34 <> "\n"))
     let msg2 = map (\(tv, l, lb, rb) -> printBounds lb <> "<:" <> show tv <> "<:" <> printBounds rb <> "\n") (iBounds ctx)
