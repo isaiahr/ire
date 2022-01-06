@@ -70,7 +70,7 @@ https://okmij.org/ftp/ML/generalization.html
 data TypeScheme = TypeScheme (Int, SType) deriving (Eq, Show, Ord)
 
 
-{-- 
+{-
 "Simple" Types. 
 no meet / join. 
 type variables have bounds recorded in the monad.
@@ -86,6 +86,9 @@ data SType =
 {-
 intermediate representation of a type, for better optimization.
 see the paper for how exactly.
+The idea here is that records, tuples and functions can be "merged" 
+which amounts to computing the meet or join (depending on polarity), 
+but type variables cannot (immediately) be, until further analysis.
 -}
 data IType = IType {
         iVars :: Set.Set TypeVariable,
@@ -120,6 +123,8 @@ mergeITypes polarity left right = IType {
                 (l, _) -> l
     }
     where
+    -- for records: if polarity is negative, the merge is union of both records, plus merging of repeated values
+    -- if polarity is positive, its the intersection, and of course merge intersecting values.
     mergeHelper Negative lhs rhs = let (intersection, rest) = partition lhs rhs in (map (\(s, i1, i2) -> (s, (mergeITypes Negative i1 i2))) intersection) <> rest
         where 
             partition :: [(String, IType)] -> [(String, IType)] -> ([(String, IType, IType)], [(String, IType)])
@@ -357,7 +362,7 @@ compactify ty = do
             let lb = foldr (<>) [] lb23
             ub23 <- forM (Set.toList vars) (\v15 -> do
                 (lb15, ub15) <- lift $ getBounds v15
-                return lb15)
+                return ub15)
             let ub = foldr (<>) [] ub23
             let b = if pol == Positive then lb else ub
             let b' = map (\y -> case y of 
@@ -484,8 +489,9 @@ infer ast = do
         com' <- simplify com
         v' <- coalesceI com'
         --v' <- coalesce v34
-        return ((disp k) <> ":" <> show v' <> ":" <> show v34 <> "\n"))
-    let msg2 = map (\(tv, l, lb, rb) -> printBounds lb <> "<:" <> show tv <> "<:" <> printBounds rb <> "\n") (iBounds ctx)
+        return ((disp k) <> ":" <> show v <> "\n" <> show v34 <> "\n" <> show com <> "\n" <> show com' <> "\n" <> show v' <> "\n"))
+    ctx' <- get
+    let msg2 = map (\(tv, l, lb, rb) -> printBounds lb <> "<:" <> show tv <> "<:" <> printBounds rb <> "\n") (iBounds ctx')
     error $ "\n" <> (foldl (<>) [] msg2) <> "\n\n" <> (foldl (<>) [] msg)
     
 -- instantiate a type with fresh variables (if there level > lv),
@@ -496,8 +502,8 @@ instantiate (TypeScheme (lv, t)) d = do
     evalStateT (inst2 t) Map.empty
     where
         inst2 :: SType -> StateT (Map.Map TypeVariable TypeVariable) (StateT InferCtx Identity) SType
-        inst2 (STyVar tv) = do
-            tlv <- lift $ getLevel t
+        inst2 t0@(STyVar tv) = do
+            tlv <- lift $ getLevel t0
             if (tlv <= lv) then do
                return t
             else do
@@ -513,29 +519,29 @@ instantiate (TypeScheme (lv, t)) d = do
                         -- okay but according to the paper the order here
                         -- gives better simplification later on. 
                         b1' <- forM (reverse b1) inst2
-                        b2' <- forM (reverse b1) inst2
+                        b2' <- forM (reverse b2) inst2
                         lift $ setBounds v (reverse b1') (reverse b2')
                         return $ STyVar v
         inst2 (STyCon t) = return $ STyCon t
-        inst2 (SFunc t0 t1) = do
-            tlv <- lift $ getLevel t
+        inst2 t01@(SFunc t0 t1) = do
+            tlv <- lift $ getLevel t01
             if (tlv <= lv) then do
                return t
             else do
                 t0' <- inst2 t0 
                 t1' <- inst2 t1
                 return $ SFunc t0' t1'
-        inst2 (SRec r) = do
-            tlv <- lift $ getLevel t
+        inst2 t0@(SRec r) = do
+            tlv <- lift $ getLevel t0
             if (tlv <= lv) then do
                 return t
             else do
                 r' <- forM r (\(k, v) -> do
                     v' <- inst2 v
-                    return (k, v))
+                    return (k, v'))
                 return $ SRec r'
-        inst2 (STuple tp) = do
-            tlv <- lift $ getLevel t
+        inst2 t0@(STuple tp) = do
+            tlv <- lift $ getLevel t0
             if (tlv <= lv) then do
                 return t
             else do
@@ -754,7 +760,6 @@ coalesceI cty@(ITypeScheme (ty5, rec)) = do
     coal ty pol proc = do
         case Map.lookup (ty, pol) proc of
             Just val -> do 
-                trace "recursive var" (return ())
                 modify $ \st -> Set.union st (Set.singleton (ty, pol))
                 return (TyVar val)
             Nothing -> do
@@ -811,6 +816,10 @@ newVar lv (mi, name) = do
 newPVar :: Int -> (Maybe Int, Name) -> TypeScheme -> InferM ()
 newPVar lv (mi, name) typ = do
     modify $ \ctx -> ctx {iEnv = Map.insert (Nothing, name) typ (iEnv ctx)}
+    
+associate :: (Maybe Int, Name) -> SType -> InferM ()
+associate (mi, name) typ = do
+    modify $ \ctx -> ctx {iEnv = Map.insert (mi, name) (TypeScheme (-1, typ)) (iEnv ctx)}
 
 
 getVar :: (Maybe Int, Name) -> InferM TypeScheme
@@ -898,7 +907,9 @@ inferE lv (FunctionCall e1 e2) = do
 
 inferE lv (Variable a) = do
     tysc <- getVar a
-    instantiate tysc lv
+    sty <- instantiate tysc lv
+    associate a sty
+    return sty
     
 inferE lv (Selector e SelDot str) = do
     res <- fresh lv
