@@ -33,7 +33,7 @@ The original typing code has been preserved in HMTyper.hs for posterity.
 
 -}
 
-module Pass.Typer where 
+module Pass.Typer (infer, InferCtx(..)) where 
 
 import Common.Common
 import Common.Pass
@@ -47,6 +47,7 @@ import Control.Monad.Except
 import Control.Monad.Identity
 import Data.List
 import Data.Maybe
+import Data.Either
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
@@ -457,6 +458,28 @@ stInt = STyCon "int"
 stString = STyCon "string"
 stVoid = STuple []
 
+ty2ast :: Typ -> Either Typ MonoType
+ty2ast (Tup ts) = Tuple <$> (mapM ty2ast ts)
+ty2ast (Rec rs) = Record <$> (mapM (\(k, v) -> ty2ast v >>= \x -> return (k, x)) rs)
+ty2ast (Func t1 t2) = liftM2 Function (ty2ast t1) (ty2ast t2)
+ty2ast (TyVar tv) = Right $ General tv
+ty2ast (TyCon "bool") = Right BoolT
+ty2ast (TyCon "string") = Right StringT
+ty2ast (TyCon "int") = Right IntT
+ty2ast (Bot) = Right $ Tuple []
+ty2ast others = Left others
+
+ast2ty :: MonoType -> SType
+ast2ty (Tuple t) = STuple (map ast2ty t)
+ast2ty (Record rs) = SRec (map (\(k, v) -> (k, ast2ty v)) rs)
+ast2ty (IntT) = STyCon "int"
+ast2ty (BoolT) = STyCon "bool"
+ast2ty (StringT) = STyCon "string"
+ast2ty (Function l r) = SFunc (ast2ty l) (ast2ty r)
+ast2ty (Array c) = error "todo"
+ast2ty (General tv) = error "todo2"
+
+
 data Polarity = Negative | Positive deriving (Eq, Show, Ord)
 
 invp Negative = Positive
@@ -470,6 +493,7 @@ data InferCtx = InferCtx {
     iCount :: Int,
     iCache :: Set.Set (SType, SType),
     iFnRetty :: Maybe SType,
+    iErrs :: [String],
     recHack :: Map.Map (TypeVariable, Polarity) TypeVariable
 }
 
@@ -483,16 +507,20 @@ infer ast = do
     let h = zip mgc3 (astDefns ast)
     _ <- forM h (uncurry inferTLD)
     ctx <- get
-    msg <- forM (Map.toList (iEnv ctx)) (\(k, v) -> do
+    solved <- forM (Map.toList (iEnv ctx)) (\(k, v) -> do
         v34 <- instantiate v 0
         com <- compactify v34
         com' <- simplify com
         v' <- coalesceI com'
         --v' <- coalesce v34
-        return ((disp k) <> ":" <> show v <> "\n" <> show v34 <> "\n" <> show com <> "\n" <> show com' <> "\n" <> show v' <> "\n"))
+        trace ((disp k) <> ":" <> show v <> "\n" <> show v34 <> "\n" <> show com <> "\n" <> show com' <> "\n" <> show v' <> "\n") (return ())
+        let v'' = ty2ast v'
+        return $ (\v''' -> (k, v''')) <$> v'')
     ctx' <- get
     let msg2 = map (\(tv, l, lb, rb) -> printBounds lb <> "<:" <> show tv <> "<:" <> printBounds rb <> "\n") (iBounds ctx')
-    error $ "\n" <> (foldl (<>) [] msg2) <> "\n\n" <> (foldl (<>) [] msg)
+    trace ("\n" <> (foldl (<>) [] msg2) <> "\n\n") (return ())
+    modify $ \st -> st {iErrs = iErrs ctx <> (map show $ lefts solved)}
+    return $ (rights solved)
     
 -- instantiate a type with fresh variables (if there level > lv),
 -- at the desired level d.
@@ -505,7 +533,7 @@ instantiate (TypeScheme (lv, t)) d = do
         inst2 t0@(STyVar tv) = do
             tlv <- lift $ getLevel t0
             if (tlv <= lv) then do
-               return t
+               return t0
             else do
                 ctx <- get
                 case Map.lookup tv ctx of
@@ -522,11 +550,11 @@ instantiate (TypeScheme (lv, t)) d = do
                         b2' <- forM (reverse b2) inst2
                         lift $ setBounds v (reverse b1') (reverse b2')
                         return $ STyVar v
-        inst2 (STyCon t) = return $ STyCon t
+        inst2 (STyCon t') = return $ STyCon t'
         inst2 t01@(SFunc t0 t1) = do
             tlv <- lift $ getLevel t01
             if (tlv <= lv) then do
-               return t
+               return t0
             else do
                 t0' <- inst2 t0 
                 t1' <- inst2 t1
@@ -534,7 +562,7 @@ instantiate (TypeScheme (lv, t)) d = do
         inst2 t0@(SRec r) = do
             tlv <- lift $ getLevel t0
             if (tlv <= lv) then do
-                return t
+                return t0
             else do
                 r' <- forM r (\(k, v) -> do
                     v' <- inst2 v
@@ -543,11 +571,11 @@ instantiate (TypeScheme (lv, t)) d = do
         inst2 t0@(STuple tp) = do
             tlv <- lift $ getLevel t0
             if (tlv <= lv) then do
-                return t
+                return t0
             else do
                 t' <- forM tp inst2
                 return (STuple t')
-
+                
 getFnReturnType :: InferM (Maybe SType)
 getFnReturnType = do
     ctx <- get
@@ -636,7 +664,7 @@ constrain lhs rhs = do
                     forM lb (\x -> constrain x rhs)
                     return ()
                  else do
-                    rhs' <- extrude rhs Negative lhslv
+                    rhs' <- extrude rhs lhslv
                     constrain lhs rhs'
                     return ()
                  return ()
@@ -650,54 +678,50 @@ constrain lhs rhs = do
                     forM rb (\x -> constrain lhs x)
                     return ()
                  else do
-                    lhs' <- extrude lhs Positive rhslv
+                    lhs' <- extrude lhs rhslv
                     constrain lhs' rhs
         return ()
 
 -- "fixes" levels of a given type.
-extrude :: SType -> Polarity -> Int -> InferM SType
-extrude ty pol lv = do
-    res <- evalStateT (exc ty pol lv) Map.empty
+extrude :: SType -> Int -> InferM SType
+extrude ty lv = do
+    res <- evalStateT (exc ty lv) Map.empty
     return res
+    where
+    exc :: SType -> Int -> StateT (Map.Map TypeVariable TypeVariable) (StateT InferCtx Identity) SType
+    exc (STyCon str) lv = return $ STyCon str
+    exc (SFunc l r) lv = do
+        l' <- exc l lv
+        r' <- exc r lv
+        return $ SFunc l' r'
 
-exc :: SType -> Polarity -> Int -> StateT (Map.Map TypeVariable TypeVariable) (StateT InferCtx Identity) SType
-exc (STyCon str) pol lv = return $ STyCon str
-exc (SFunc l r) pol lv = do
-    l' <- exc l (invp pol) lv
-    r' <- exc r pol lv
-    return $ SFunc l' r'
+    exc (SRec kv) lv = do
+        kv' <- forM kv (\(k, v) -> do
+            v' <- exc v lv
+            return (k, v'))
+        return $ SRec kv'
 
-exc (SRec kv) pol lv = do
-    kv' <- forM kv (\(k, v) -> do
-        v' <- exc v pol lv
-        return (k, v'))
-    return $ SRec kv'
+    exc (STuple t) lv = do
+        t' <- forM t (\a -> exc a lv)
+        return $ STuple t'
 
-exc (STuple t) pol lv = do
-    t' <- forM t (\a -> exc a pol lv)
-    return $ STuple t'
-
-exc (STyVar v) pol lv = do
-    ctx <- get
-    case Map.lookup v ctx of
-         (Just ans) -> return (STyVar ans)
-         Nothing -> do
-             v3984 <- lift $ fresh lv
-             let (STyVar v') = v3984
-             modify $ \st -> Map.insert v v' st
-             (lb, up) <- lift $ getBounds v
-             case pol of
-                  Positive -> do
-                      lift $ setBounds v lb ((STyVar v'):up)
-                      nvlb <- forM lb (\y -> exc y pol lv)
-                      (lb', up') <- lift $ getBounds v'
-                      lift $ setBounds v' nvlb up'
-                  Negative -> do
-                      lift $ setBounds v ((STyVar v'):lb) up
-                      nvup <- forM up (\y -> exc y pol lv)
-                      (lb', up') <- lift $ getBounds v'
-                      lift $ setBounds v' lb' nvup
-             return (STyVar v')
+    exc (STyVar v) lv = do
+        ctx <- get
+        case Map.lookup v ctx of
+            (Just ans) -> return (STyVar ans)
+            Nothing -> do
+                v3984 <- lift $ fresh lv
+                let (STyVar v') = v3984
+                modify $ \st -> Map.insert v v' st
+                (lb, oup) <- lift $ getBounds v
+                nvlb <- forM lb (\y -> exc y lv)
+                lift $ setBounds v' nvlb oup
+                (olb, up) <- lift $ getBounds v -- i dont think bounds will have changed, but just in case.
+                nvup <- forM up (\y -> exc y lv)
+                lift $ setBounds v' olb nvup
+                (lb', ub') <- lift $ getBounds v
+                lift $ setBounds v ((STyVar v'):lb') ((STyVar v'):ub')
+                return (STyVar v')
     
 {--
 unused.
@@ -824,7 +848,13 @@ associate (mi, name) typ = do
 
 getVar :: (Maybe Int, Name) -> InferM TypeScheme
 getVar (mi, a@(NativeName n)) = do
-    return $ typeofn n
+    let n' = typeofn n
+    st <- get
+    case Map.lookup (Nothing, a) (iEnv st) of
+         (Just _) -> return n'
+         Nothing -> do
+             modify $ \ctx -> ctx {iEnv = Map.insert (Nothing, a) n' (iEnv ctx)}
+             return n'
     where 
     typeofn Native_Exit = TypeScheme (-1, SFunc stInt stVoid)
     typeofn Native_Print = TypeScheme (-1, SFunc stString stVoid)
@@ -841,10 +871,15 @@ getVar (mi, a@(NativeName n)) = do
     typeofn Native_Or = TypeScheme (-1, SFunc (STuple [stBool, stBool]) stBool)
     typeofn Native_And = TypeScheme (-1, SFunc (STuple [stBool, stBool]) stBool)
 
-{--
-getVar (mi, a@(Symbol str ty fi)) = do
-    return $ convTy ty
--} 
+getVar (mi, a@(Symbol str (Poly t mt) fi)) = do
+    let t = (TypeScheme (-1, ast2ty mt))
+    st <- get
+    case Map.lookup (Nothing, a) (iEnv st) of
+         (Just _) -> return t
+         Nothing -> do
+             modify $ \ctx -> ctx {iEnv = Map.insert (Nothing, a) t (iEnv ctx)}
+             return t
+
 getVar (mi, name) = do
     ctx <- get
     case Map.lookup (Nothing, name) (iEnv ctx) of
@@ -908,7 +943,7 @@ inferE lv (FunctionCall e1 e2) = do
 inferE lv (Variable a) = do
     tysc <- getVar a
     sty <- instantiate tysc lv
-    associate a sty
+    -- associate a sty
     return sty
     
 inferE lv (Selector e SelDot str) = do

@@ -49,7 +49,7 @@ data SelectorKind = SelArrow | SelDot deriving Eq
 data AST a = AST {
     astTypes :: [DefinedType],
     astDefns :: [Definition a]
-    }deriving (Eq)
+} deriving (Eq)
 
 
 data Name 

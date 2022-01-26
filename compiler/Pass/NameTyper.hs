@@ -20,4 +20,10 @@ takes a named AST and assigns types to it
 
 passType = Pass {pName = "TypeInfer", pFunc = doType}
     where
-        doType s = evalState (infer s) InferCtx {iEnv = (Map.empty), iBounds = [], iCount = 0, iCache = Set.empty, recHack = Map.empty, iFnRetty = Nothing}
+        doType s = let (v, st) = bindings s in if iErrs st == [] then (mempty, Just $ typeast v s) else (messageNoLn "TypeInfer" (intercalate "\n" (iErrs st)) Error, Nothing)
+        bindings s = runState (infer s) InferCtx {iEnv = (Map.empty), iErrs = [], iBounds = [], iCount = 0, iCache = Set.empty, recHack = Map.empty, iFnRetty = Nothing}
+
+
+typeast env ast = fmap (\a@(mi, x) -> case lookup (Nothing, x) env of
+                                           Just ty -> TypedName (Poly [] ty) x
+                                           Nothing -> error $ "no entry for: " <> disp x) ast
