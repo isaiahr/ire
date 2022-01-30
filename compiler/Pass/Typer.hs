@@ -129,7 +129,7 @@ mergeITypes polarity left right = IType {
     mergeHelper Negative lhs rhs = let (intersection, rest) = partition lhs rhs in (map (\(s, i1, i2) -> (s, (mergeITypes Negative i1 i2))) intersection) <> rest
         where 
             partition :: [(String, IType)] -> [(String, IType)] -> ([(String, IType, IType)], [(String, IType)])
-            partition l1 l2 = (map (\(k1', v') -> (k1', v', fromJust (lookup k1' l2))) (filter (\(k, v) -> k `elem` (map fst l2)) l1), intersectBy (\(k, v) (k2, v2) -> k/=k2) l1 l2)
+            partition l1 l2 = (map (\(k1', v') -> (k1', v', fromJust (lookup k1' l2))) (filter (\(k, v) -> k `elem` (map fst l2)) l1), (l1 <> l2) \\ intersectBy (\(k, v) (k2, v2) -> k==k2) l1 l2)
     mergeHelper Positive lhs rhs = map (\(k, v) -> fromMaybe (k, v) $ fmap (\x2 -> (k, mergeITypes Positive v x2)) (lookup k rhs)) lhs
     mergeTHelper pol lhs rhs = map (uncurry (mergeITypes pol)) (zip lhs rhs)
 
@@ -494,10 +494,14 @@ data InferCtx = InferCtx {
     iCache :: Set.Set (SType, SType),
     iFnRetty :: Maybe SType,
     iErrs :: [String],
+    iMsgs :: [String],
     recHack :: Map.Map (TypeVariable, Polarity) TypeVariable
 }
 
 printBounds b = intercalate "," (map show b)
+
+addMsg :: String -> InferM ()
+addMsg str = modify $ \st -> st {iMsgs = iMsgs st <> [str]}
 
 infer ast = do
     mgc3 <- forM (astDefns ast) (\e -> do
@@ -513,13 +517,15 @@ infer ast = do
         com' <- simplify com
         v' <- coalesceI com'
         --v' <- coalesce v34
-        trace ((disp k) <> ":" <> show v <> "\n" <> show v34 <> "\n" <> show com <> "\n" <> show com' <> "\n" <> show v' <> "\n") (return ())
+        addMsg ((disp k) <> ":" <> show v <> "\n" <> show v34 <> "\n" <> show com <> "\n" <> show com' <> "\n" <> show v' <> "\n")
         let v'' = ty2ast v'
         return $ (\v''' -> (k, v''')) <$> v'')
     ctx' <- get
     let msg2 = map (\(tv, l, lb, rb) -> printBounds lb <> "<:" <> show tv <> "<:" <> printBounds rb <> "\n") (iBounds ctx')
-    trace ("\n" <> (foldl (<>) [] msg2) <> "\n\n") (return ())
-    modify $ \st -> st {iErrs = iErrs ctx <> (map show $ lefts solved)}
+    addMsg ("\n" <> (foldl (<>) [] msg2) <> "\n\n")
+    st0 <- get
+    trace (intercalate "\n" (iMsgs st0)) (return ())
+    modify $ \st -> st {iErrs = iErrs st0 <> (map show $ lefts solved)}
     return $ (rights solved)
     
 -- instantiate a type with fresh variables (if there level > lv),
@@ -554,7 +560,7 @@ instantiate (TypeScheme (lv, t)) d = do
         inst2 t01@(SFunc t0 t1) = do
             tlv <- lift $ getLevel t01
             if (tlv <= lv) then do
-               return t0
+               return t01
             else do
                 t0' <- inst2 t0 
                 t1' <- inst2 t1
@@ -643,8 +649,8 @@ constrain lhs rhs = do
                  constrain l1 l0
                  constrain r0 r1
              (SRec f1, SRec f2) -> do
-                 p <- forM f1 (\(k, v) -> do
-                     case find (\x -> fst x == k) f2 of
+                 p <- forM f2 (\(k, v) -> do
+                     case find (\x -> fst x == k) f1 of
                           Nothing -> error "??? field rec"
                           Just (_, v2) -> constrain v v2)
                  return ()
