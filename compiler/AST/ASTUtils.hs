@@ -24,8 +24,8 @@ deriving instance (NFData a) => NFData (Expression a)
 deriving instance Generic (Statement a)
 deriving instance (NFData a) => NFData (Statement a)
 
-deriving instance Generic (Literal a)
-deriving instance (NFData a) => NFData (Literal a)
+deriving instance Generic (AnnExpr a)
+deriving instance (NFData a) => NFData (AnnExpr a)
 
 deriving instance Generic (PatternMatching a)
 deriving instance (NFData a) => NFData (PatternMatching a)
@@ -55,27 +55,27 @@ instance Functor AST where
     fmap fn ast = ast {astDefns = (map (mapdefn fn) (astDefns ast))}
 
 mapdefn :: (a -> b) -> Definition a -> Definition b
-mapdefn fn d = d { identifier = mappat fn (identifier d), value = mapexpr fn (value d) }
+mapdefn fn d = d { identifier = mappat fn (identifier d), value = mapaexpr fn (value d) }
 
 mapstmt fn (Defn d) = Defn (mapdefn fn d)
-mapstmt fn (Expr e) = Expr (mapexpr fn e)
-mapstmt fn (Assignment a e) = Assignment (maplhs fn a) (mapexpr fn e)
-mapstmt fn (Return r) = Return (mapexpr fn r)
-mapstmt fn (Yield y) = Yield (mapexpr fn y)
+mapstmt fn (Expr e) = Expr (mapaexpr fn e)
+mapstmt fn (Assignment a e) = Assignment (maplhs fn a) (mapaexpr fn e)
+mapstmt fn (Return r) = Return (mapaexpr fn r)
+mapstmt fn (Yield y) = Yield (mapaexpr fn y)
 
 mapexpr :: (a -> b) -> Expression a -> Expression b
 mapexpr fn (Variable a) = Variable (fn a)
-mapexpr fn (FunctionCall a b) = FunctionCall (mapexpr fn a) (mapexpr fn b)
-mapexpr fn (Literal l) = Literal $ mapliteral fn l
-mapexpr fn (IfStmt i t e) = IfStmt (mapexpr fn i) (mapexpr fn t) (mapexpr fn e)
+mapexpr fn (FunctionCall a b) = FunctionCall (mapaexpr fn a) (mapaexpr fn b)
+mapexpr fn (IfStmt i t e) = IfStmt (mapaexpr fn i) (mapaexpr fn t) (mapaexpr fn e)
 mapexpr fn (Block ss) = Block (map (mapstmt fn) ss)
+mapexpr fn (ArrayLiteral a) = ArrayLiteral (map (mapaexpr fn) a)
+mapexpr fn (TupleLiteral a) = TupleLiteral (map (mapaexpr fn) a)
+mapexpr fn (FunctionLiteral a b) = FunctionLiteral (mappat fn a) (mapaexpr fn b)
+mapexpr fn (Constant nt) = Constant nt
+mapexpr fn (StringLiteral n) = StringLiteral n
+mapexpr fn (BooleanLiteral b) = BooleanLiteral b
 
-mapliteral fn (ArrayLiteral a) = ArrayLiteral (map (mapexpr fn) a)
-mapliteral fn (TupleLiteral a) = TupleLiteral (map (mapexpr fn) a)
-mapliteral fn (FunctionLiteral a b) = FunctionLiteral (mappat fn a) (mapexpr fn b)
-mapliteral fn (Constant nt) = Constant nt
-mapliteral fn (StringLiteral n) = StringLiteral n
-mapliteral fn (BooleanLiteral b) = BooleanLiteral b
+mapaexpr fn ae = ae {aExpr = mapexpr fn (aExpr ae)}
 
 maplhs fn (Singleton a rs) = Singleton (fn a) rs
 maplhs fn (TupleUnboxingA a) = TupleUnboxingA (map fn a)
@@ -89,61 +89,47 @@ instance Foldable AST where
               foldMap2 f [] = mempty
     
 foldmd :: Monoid m => (a -> m) -> Definition a -> m
-foldmd f defn = foldpat f (identifier defn) <> (foldme f (value defn))
+foldmd f defn = foldpat f (identifier defn) <> (foldmae f (value defn))
 
 foldme :: Monoid m => (a -> m) -> Expression a -> m
 foldme f (Variable a) = f a
-foldme f (FunctionCall a b) = foldme f a <> foldme f b
-foldme f (Literal l) = foldml f l
+foldme f (FunctionCall a b) = foldmae f a <> foldmae f b
 foldme f (Block (s:ss)) = foldms f s <> foldme f (Block ss)
 foldme f (Block []) = mempty
-foldme f (IfStmt i t e) = foldme f i <> foldme f t <> foldme f e
-
-foldml :: Monoid m => (a -> m) -> Literal a -> m
-foldml f (ArrayLiteral a) = foldMap (\x -> foldme f x) a
-foldml f (TupleLiteral a) = foldMap (\x -> foldme f x) a
-foldml f (FunctionLiteral a b) = foldpat f a <> (foldme f b)
-foldml f (Constant nt) = mempty
-foldml f (StringLiteral s) = mempty
-foldml f (BooleanLiteral b) = mempty
+foldme f (IfStmt i t e) = foldmae f i <> foldmae f t <> foldmae f e
+foldme f (ArrayLiteral a) = foldMap (\x -> foldmae f x) a
+foldme f (TupleLiteral a) = foldMap (\x -> foldmae f x) a
+foldme f (FunctionLiteral a b) = foldpat f a <> (foldmae f b)
+foldme f (Constant nt) = mempty
+foldme f (StringLiteral s) = mempty
+foldme f (BooleanLiteral b) = mempty
 
 foldms :: Monoid m => (a -> m) -> Statement a -> m
 foldms f (Defn d) = foldmd f d
-foldms f (Expr e) = foldme f e
-foldms f (Assignment a e) = foldalhs f a <> foldme f e
-foldms f (Return e) = foldme f e
-foldms f (Yield e) = foldme f e
+foldms f (Expr e) = foldmae f e
+foldms f (Assignment a e) = foldalhs f a <> foldmae f e
+foldms f (Return e) = foldmae f e
+foldms f (Yield e) = foldmae f e
 
--- NOTE: can use foldr here as this is associative, so idk which has best performance? 
+foldmae :: Monoid m => (a -> m) -> AnnExpr a -> m
+foldmae f ae = foldme f (aExpr ae)
+
 foldpat f (Plain a) = f a
 foldpat f (TupleUnboxing as) = foldMap f as
 
 foldalhs f (Singleton a rs) = f a
 foldalhs f (TupleUnboxingA as) = foldMap f as
-{-
-astType (Variable (TypedName t n)) = t
-astType (FunctionCall e1 e2) = case astType e1 of 
-                                    Function p r -> r
-astType (IfStmt cond e1 e2) = astType e1
-astType (Literal (Constant n)) = IntT
-astType (Literal (BooleanLiteral l)) = BoolT
-astType (Literal (ArrayLiteral ea)) = Array (map astType ea)
--}
+
 instance (Disp a) => Disp (Definition a) where
     disp def = disp (identifier def) ++ ": " ++ shw (typeof def) ++ " = " ++ disp (value def)
         where shw (Just a) = disp a
               shw Nothing = ""
 
 instance (Disp a) => Disp (Expression a) where
-    disp (Literal l) = disp l
     disp (Block s) = "{" ++ (intercalate "\n" (map disp s)) ++ "}"
     disp (FunctionCall e1 e2) = disp e1 ++ " " ++ disp e2
     disp (Variable a) = disp a
     disp (IfStmt e1 e2 e3) = "if " ++ disp e1 ++ " then " ++ disp e2 ++ " else " ++ disp e3 
-
-
-
-instance (Disp a) => Disp (Literal a) where
     disp (Constant i) = disp i
     disp (StringLiteral l) = disp l
     disp (BooleanLiteral b) = if b then "true" else "false"
@@ -152,6 +138,8 @@ instance (Disp a) => Disp (Literal a) where
     disp (RecordLiteral r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ " = " ++ disp y) r) ++ "}"
     disp (FunctionLiteral p b) = '\\' : (disp p) ++ " -> " ++ disp b
 
+instance (Disp a) => Disp (AnnExpr a) where
+    disp ae = disp (aExpr ae)
 
 instance (Disp a) => Disp (Statement a) where
     disp (Defn s) = disp s

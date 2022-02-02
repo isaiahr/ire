@@ -5,35 +5,42 @@ import Common.Natives
 import Common.Common
 
 
-data Definition a = Definition {identifier :: PatternMatching a,  typeof :: Maybe Type, value :: Expression a} deriving (Eq)
+data Definition a = Definition {
+    identifier :: PatternMatching a,
+    typeof :: Maybe Type,
+    value :: AnnExpr a
+} deriving (Eq)
 
 data Expression a = 
                     -- allowed ast entry nodes 
-                    Literal (Literal a) | -- literal, like 34, or [4,5,6]
                     Block  [Statement a] | -- block, like {stmt1;stmt2;yield expr}
-                    FunctionCall (Expression a) (Expression a) | -- FunctionCall, like print "hello world"
+                    FunctionCall (AnnExpr a) (AnnExpr a) | -- FunctionCall, like print "hello world"
                     Variable a | -- variable, like i
-                    Selector (Expression a) SelectorKind String |
-                    Initialize a (Literal a) |
-                    IfStmt (Expression a) (Expression a) (Expression a) deriving (Eq) -- if, like if 1==2 then expr1 else expr2
+                    Selector (AnnExpr a) SelectorKind String |
+                    Initialize a (AnnExpr a) |
+                    IfStmt (AnnExpr a) (AnnExpr a) (AnnExpr a) | -- if, like if 1==2 then expr1 else expr2
+                    Constant Int |
+                    BooleanLiteral Bool |
+                    StringLiteral String | 
+                    ArrayLiteral [AnnExpr a] |
+                    TupleLiteral [AnnExpr a] |
+                    RecordLiteral [(String, AnnExpr a)] |
+                    FunctionLiteral (PatternMatching a) (AnnExpr a) deriving (Eq)
 
--- a literal
-data Literal a = 
-                 Constant Int |
-                 BooleanLiteral Bool |
-                 StringLiteral String | 
-                 ArrayLiteral [Expression a] |
-                 TupleLiteral [Expression a] |
-                 RecordLiteral [(String, Expression a)] |
-                 FunctionLiteral (PatternMatching a) (Expression a) deriving (Eq)
-
+-- an expression annotated with a type, and a unique id for associating it with other data
+-- as passes may choose to.
+data AnnExpr a = AnnExpr {
+    aExpr :: Expression a,
+    aId :: Int,
+    aType :: Maybe Type
+} deriving (Eq)
 
 data Statement a = 
                    Defn (Definition a) | -- a := expr
-                   Expr (Expression a) | -- expr
-                   Assignment (AssignLHS a) (Expression a) | -- a = expr
-                   Return (Expression a) | -- return expr
-                   Yield (Expression a) deriving (Eq) -- yield expr
+                   Expr (AnnExpr a) | -- expr
+                   Assignment (AssignLHS a) (AnnExpr a) | -- a = expr
+                   Return (AnnExpr a) | -- return expr
+                   Yield (AnnExpr a) deriving (Eq) -- yield expr
 
 
 data AssignLHS a = 

@@ -3,22 +3,29 @@ AST/Traversal.hs : tools for reducing boilerplate for ast traversals (walks)
 
 --}
 
-module AST.Traversal (Traveller(..), traverseExpr, traverseLit, traverseStmt, traverseDefn) where
+module AST.Traversal (Traveller(..), traverseExpr, traverseAExpr, traverseStmt, traverseDefn, runTraversal) where
 
 import AST.Syntax
 import Control.Monad
 
+runTraversal t ast = do 
+    defns <- mapM (travDefn t) (astDefns ast)
+    return $ ast {astDefns = defns}
 
 -- the travellers, who are functions, traverse the ast.
 -- should place monad constraint on m, not sure how though (or even if haskell supports it)
 data Traveller m a b = Traveller {
     travExpr :: Expression a -> m (Expression b),
-    travLit  :: Literal a -> m (Literal b),
+    travAExpr :: AnnExpr a -> m (AnnExpr b),
     travStmt :: Statement a -> m (Statement b),
     travDefn :: Definition a -> m (Definition b),
     travMapper :: a -> m b
 }
+
 -- for empty map, use: return.
+traverseAExpr t ae = do
+    e <- (travExpr t) (aExpr ae)
+    return $ ae {aExpr = e}
 
 traverseExpr :: Monad m => (Traveller m a b) -> Expression a -> m (Expression b)
 traverseExpr t (Variable a) = do
@@ -26,55 +33,50 @@ traverseExpr t (Variable a) = do
     return (Variable b)
 
 traverseExpr t (FunctionCall a b) = do
-    a' <- (travExpr t) a
-    b' <- (travExpr t) b
+    a' <- (travAExpr t) a
+    b' <- (travAExpr t) b
     return $ FunctionCall a' b'
     
 traverseExpr t (Selector e sk a) = do
-    e' <- (travExpr t) e
+    e' <- (travAExpr t) e
     return (Selector e' sk a)
 
 traverseExpr t (Initialize a l) = do
     a' <- (travMapper t) a
-    l' <- (travLit t) l
+    l' <- (travAExpr t) l
     return (Initialize a' l')
 
-traverseExpr t (Literal l) = do
-    l' <- (travLit t) l
-    return $ Literal l'
-
 traverseExpr t (IfStmt a b c) = do
-    a' <- (travExpr t) a
-    b' <- (travExpr t) b
-    c' <- (travExpr t) c
+    a' <- (travAExpr t) a
+    b' <- (travAExpr t) b
+    c' <- (travAExpr t) c
     return $ IfStmt a' b' c'
 
 traverseExpr t (Block ss) = do
     ss' <- forM ss (travStmt t)
     return $ Block ss'
     
-traverseLit :: Monad m => (Traveller m a b) -> Literal a -> m (Literal b)
-traverseLit t (Constant c) = return $ Constant c
+traverseExpr t (Constant c) = return $ Constant c
 
-traverseLit t (StringLiteral s) = return $ StringLiteral s
-traverseLit t (BooleanLiteral b) = return $ BooleanLiteral b
+traverseExpr t (StringLiteral s) = return $ StringLiteral s
+traverseExpr t (BooleanLiteral b) = return $ BooleanLiteral b
 
-traverseLit t (ArrayLiteral ls) = do
-    ls' <- forM ls (travExpr t)
+traverseExpr t (ArrayLiteral ls) = do
+    ls' <- forM ls (travAExpr t)
     return $ ArrayLiteral ls'
 
-traverseLit t (TupleLiteral ls) = do
-    ls' <- forM ls (travExpr t)
+traverseExpr t (TupleLiteral ls) = do
+    ls' <- forM ls (travAExpr t)
     return $ TupleLiteral ls'
 
-traverseLit t (FunctionLiteral a b) = do
-    b' <- (travExpr t) b
+traverseExpr t (FunctionLiteral a b) = do
+    b' <- (travAExpr t) b
     a' <- helper t a
     return $ FunctionLiteral a' b'
 
-traverseLit t (RecordLiteral ks) = do
+traverseExpr t (RecordLiteral ks) = do
     ks' <- forM ks (\(k, v) -> do
-        v' <- (travExpr t) v
+        v' <- (travAExpr t) v
         return (k, v'))
     return $ RecordLiteral ks'
     
@@ -84,24 +86,24 @@ traverseStmt t (Defn d) = do
     return $ Defn d'
 
 traverseStmt t (Expr e) = do
-    e' <- (travExpr t) e
+    e' <- (travAExpr t) e
     return $ Expr e'
     
 traverseStmt t (Assignment a e) = do
-    e' <- (travExpr t) e
+    e' <- (travAExpr t) e
     a' <- helper2 t a
     return $ Assignment a' e'
     
 traverseStmt t (Yield e) = do
-    e' <- (travExpr t) e
+    e' <- (travAExpr t) e
     return $ Yield e'
 
 traverseStmt t (Return e) = do
-    e' <- (travExpr t) e
+    e' <- (travAExpr t) e
     return $ Return e'
     
 traverseDefn t d = do
-    ne <- (travExpr t) (value d)
+    ne <- (travAExpr t) (value d)
     ident <- helper t (identifier d)
     return $ d {value = ne, identifier=ident}
 

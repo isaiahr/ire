@@ -89,7 +89,7 @@ nameAST2 [] = return []
 -- defns occuring later (nonsequential)
 nameDefnS :: Definition String -> State (SymbolTable, Int) (Definition Name)
 nameDefnS d = do
-    v <- nameExpr (value d)
+    v <- nameAExpr (value d)
     case (identifier d) of
          (Plain n) -> do
              n' <- findSym n
@@ -107,12 +107,12 @@ nameDefn d = do
                (TupleUnboxing nn) -> do
                    nn' <- newSyms nn
                    return $ TupleUnboxing nn'
-    v <- nameExpr (value d)
+    v <- nameAExpr (value d)
     return $ Definition {value=v, typeof=typeof d, identifier=ni}
 
 nameStmt (Defn d) = Defn <$> (nameDefn d)
 
-nameStmt (Expr e) = Expr <$> (nameExpr e)
+nameStmt (Expr e) = Expr <$> (nameAExpr e)
 
 nameStmt (Assignment a e) = do
     na <- case a of 
@@ -122,29 +122,29 @@ nameStmt (Assignment a e) = do
                (TupleUnboxingA nn) -> do
                    nn' <- findSyms nn
                    return $ TupleUnboxingA nn'
-    ne <- nameExpr e
+    ne <- nameAExpr e
     return $ Assignment na ne
 
-nameStmt (Return e) = Return <$> (nameExpr e)
-nameStmt (Yield e) = Yield <$> (nameExpr e)
+nameStmt (Return e) = Return <$> (nameAExpr e)
+nameStmt (Yield e) = Yield <$> (nameAExpr e)
+
+nameAExpr ae = do
+    e <- nameExpr (aExpr ae)
+    return $ ae {aExpr = e}
 
 nameExpr (FunctionCall a b) = do
-    na <- nameExpr a
-    nb <- nameExpr b
+    na <- nameAExpr a
+    nb <- nameAExpr b
     return $ FunctionCall na nb
 
 nameExpr (Selector e1 sel nm) = do
-    e1' <- nameExpr e1
+    e1' <- nameAExpr e1
     return $ Selector e1' sel nm
 
 nameExpr (Initialize a lit) = do
     a' <- findSym a
-    lit' <- nameLiteral lit
+    lit' <- nameAExpr lit
     return $ Initialize a' lit'
-
-nameExpr (Literal l) = do
-    l2 <- nameLiteral l
-    return $ Literal l2
 
 nameExpr (Variable v) = do
     nv <- findSym v
@@ -152,27 +152,27 @@ nameExpr (Variable v) = do
     
 -- liftM3 instead
 nameExpr (IfStmt cond thn els) = do
-    cond2 <- nameExpr cond
-    thn2 <- nameExpr thn
-    els2 <- nameExpr els
+    cond2 <- nameAExpr cond
+    thn2 <- nameAExpr thn
+    els2 <- nameAExpr els
     return $ IfStmt cond2 thn2 els2
 
 nameExpr (Block s) = Block <$> (mapM nameStmt s)
 
-nameLiteral (Constant c) = return (Constant c)
+nameExpr (Constant c) = return (Constant c)
 
-nameLiteral (StringLiteral s) = return (StringLiteral s)
-nameLiteral (BooleanLiteral b) = return (BooleanLiteral b)
+nameExpr (StringLiteral s) = return (StringLiteral s)
+nameExpr (BooleanLiteral b) = return (BooleanLiteral b)
 
-nameLiteral (ArrayLiteral xs) =  ArrayLiteral <$> (mapM nameExpr xs)
-nameLiteral (TupleLiteral xs) = TupleLiteral <$> (mapM nameExpr xs)
-nameLiteral (RecordLiteral ks) = do
+nameExpr (ArrayLiteral xs) =  ArrayLiteral <$> (mapM nameAExpr xs)
+nameExpr (TupleLiteral xs) = TupleLiteral <$> (mapM nameAExpr xs)
+nameExpr (RecordLiteral ks) = do
     ks' <- forM ks (\(k, v) -> do
-        v' <- nameExpr v
+        v' <- nameAExpr v
         return (k, v'))
     return $ RecordLiteral ks'
 
-nameLiteral (FunctionLiteral param expr) = do
+nameExpr (FunctionLiteral param expr) = do
     enterScope
     np <- case param of
                (Plain n) -> do
@@ -181,7 +181,7 @@ nameLiteral (FunctionLiteral param expr) = do
                (TupleUnboxing nn) -> do
                    nn' <- newSyms nn
                    return $ TupleUnboxing nn'
-    ne <- nameExpr expr
+    ne <- nameAExpr expr
     exitScope
     return (FunctionLiteral np ne)
 

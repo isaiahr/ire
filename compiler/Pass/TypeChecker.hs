@@ -21,8 +21,8 @@ data Ctx = Ctx {
 }
 
 passTypeCheck = Pass {pName = "TypeCheck", pFunc = checkType}
-    where checkType x = let msgs = typechk x in if msgs == mempty then (mempty, Just x) else (msgs, Nothing)
-          
+    where checkType x = (mempty, Just x)
+{-
           -- note: DO NOT pattern match on mempty, it will bind the val to mempty instead of pattern matching. 
 
 errStr (TypedName t tn, ti) = messageNoLn "TypeCheck" (disp tn <> " declared type " <> disp ti <> ", but inferred type is " <> disp t) Common.Pass.Error
@@ -98,3 +98,4 @@ applyBindings (IntT) b = IntT
 applyBindings (BoolT) b = BoolT
 applyBindings (StringT) b = StringT
 applyBindings (Tuple mt) b = Tuple (map (\y -> applyBindings y b) mt)
+-}

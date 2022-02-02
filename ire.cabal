@@ -42,6 +42,7 @@ library
       Pass.YieldInjection
       Pass.UnSubScript
       Pass.SubScript
+      Pass.Identify
       Pipeline.Target
       Pipeline.Relations
       Pipeline.Pipeline

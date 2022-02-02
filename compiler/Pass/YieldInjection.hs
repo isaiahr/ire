@@ -26,7 +26,7 @@ passYieldInj = Pass {pName = "YieldInjection", pFunc = yieldInj}
 traversal :: (Traveller Identity String String)
 traversal = Traveller {
     travExpr = yExpr traversal,
-    travLit = traverseLit traversal,
+    travAExpr = traverseAExpr traversal,
     travStmt = traverseStmt traversal,
     travDefn = traverseDefn traversal,
     travMapper = return
@@ -37,14 +37,20 @@ unid (Identity a) = a
 yExpr t (Block ss) = return $ Block (insertYield t ss)
 yExpr t others = (traverseExpr t) others
 
+void2 = AnnExpr {
+    aExpr = TupleLiteral [],
+    aId = 0,
+    aType = Just (Poly [] (Tuple []))
+}
+
 -- block ends with yield. do not insert.
 insertYield :: (Traveller Identity String String) -> [Statement String] -> [Statement String]
-insertYield t [(Yield s)] = [Yield $ unid (yExpr t s)]
+insertYield t [(Yield s)] = [Yield $ unid ((travAExpr t) s)]
 -- block ends with return. do not insert.
-insertYield t [(Return s)] = [Return $ unid (yExpr t s)]
+insertYield t [(Return s)] = [Return $ unid ((travAExpr t) s)]
 -- block does not end with yield or return. insert.
-insertYield t [s] = [unid ((traverseStmt t) s), Yield (Literal (TupleLiteral []))]
+insertYield t [s] = [unid ((traverseStmt t) s), Yield void2]
 -- empty block. insert
-insertYield t [] = [Yield (Literal (TupleLiteral []))]
+insertYield t [] = [Yield void2]
 -- otherwise (2 or more elem in list, recurse)
 insertYield t (s:ss) = (unid ((traverseStmt t) s)):(insertYield t ss)

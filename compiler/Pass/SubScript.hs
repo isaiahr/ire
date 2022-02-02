@@ -35,7 +35,7 @@ passSubScript = Pass {pName = "Name Subscripting", pFunc = subscript}
 traversal :: (Traveller (State Int) (Name) (Maybe Int, Name))
 traversal = Traveller {
     travExpr = (sube traversal),
-    travLit = traverseLit traversal,
+    travAExpr = traverseAExpr traversal,
     travStmt = traverseStmt traversal,
     travDefn = traverseDefn traversal,
     travMapper = empty 

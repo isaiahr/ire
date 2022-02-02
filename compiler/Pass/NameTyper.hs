@@ -4,27 +4,56 @@ import Common.Common
 import Common.Pass
 import Pass.Namer
 import Pass.Typer
+import Pass.Identify
 import AST.AST
+import AST.Traversal
 
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
 import Data.List
 import Control.Monad.State
+import Control.Monad.Reader
 
 {--
 NameTyper.hs:
 takes a named AST and assigns types to it
 --}
 
+type InferResult = ([((Maybe Int, Name), MonoType)], [(Int, MonoType)])
 
 passType = Pass {pName = "TypeInfer", pFunc = doType}
     where
-        doType s = let (v, st) = bindings s in if iErrs st == [] then (msgs st, Just $ typeast v s) else (msgs st, Nothing)
+        doType s2 = let s = identify s2 in let (v, st) = bindings s in if iErrs st == [] then (msgs st, Just $ runReader (runTraversal traversal s) v) else (msgs st, Nothing)
         msgs st = messageNoLn "TypeInfer" (intercalate "\n" $ iMsgs st) Debug <> messageNoLn "TypeInfer" (intercalate "\n" (iErrs st)) Error
-        bindings s = runState (infer s) InferCtx {iEnv = (Map.empty), iErrs = [], iMsgs = [], iBounds = [], iCount = 0, iCache = Set.empty, recHack = Map.empty, iFnRetty = Nothing}
+        bindings s = runState (infer s) InferCtx {iExEnv = Map.empty, iEnv = (Map.empty), iErrs = [], iMsgs = [], iBounds = [], iCount = 0, iCache = Set.empty, recHack = Map.empty, iFnRetty = Nothing}
 
 
 typeast env ast = fmap (\a@(mi, x) -> case lookup (Nothing, x) env of
                                            Just ty -> TypedName (Poly [] ty) x
                                            Nothing -> error $ "no entry for: " <> disp x) ast
+
+traversal = Traveller {
+    travExpr = traverseExpr traversal,
+    travAExpr = typeAExpr traversal,
+    travStmt = traverseStmt traversal,
+    travDefn = traverseDefn traversal,
+    travMapper = typeIdent
+}
+
+typeIdent :: (Maybe Int, Name) -> Reader InferResult TypedName
+typeIdent (mi, x) = do
+    env <- ask
+    case lookup (Nothing, x) (fst env) of
+        Just ty -> return $ TypedName (Poly [] ty) x
+        Nothing -> error $ "no entry for: " <> disp x
+
+
+typeAExpr :: (Traveller (Reader InferResult) (Maybe Int, Name) (TypedName)) -> (AnnExpr (Maybe Int, Name)) -> Reader InferResult (AnnExpr TypedName)
+typeAExpr t ae = do
+    e <- (traverseExpr t) (aExpr ae)
+    env <- ask
+    ty <- case lookup (aId ae) (snd env) of
+         Just ty0 -> return ty0
+         Nothing -> error $ "infer missing type for: " <> (show $ aId ae)
+    return ae {aExpr = e, aType = Just (Poly [] ty)}

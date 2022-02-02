@@ -45,7 +45,7 @@ lower fi x ast = let a = evalState (lowerAll (astDefns ast)) (Context {nameTbl =
             name <- registerEName (case identifier d of 
                                        TupleUnboxing t -> error "not allowed to use tuple in tldefns"
                                        Plain t -> t)
-            newval <- lexp (value d)
+            newval <- laexp (value d)
             let result = case newval of
                             Abs params expr -> (TLFunction name [] params expr)
                             _ -> error "invariant bad"
@@ -162,24 +162,20 @@ magic2 [] tupleexpr tty indx restexpr = do
     restexpr' <- lexp (Block restexpr)
     return $ restexpr'
     
-astType e = Record [("x", IntT), ("y", IntT), ("z", IntT), ("str", StringT)]
-    
-lexp (Literal l) = do
-    nexp <- llit l
-    return nexp
+laexp ep = lexp (aExpr ep)
 
 lexp (Block ((Defn d):bs)) = do
     case identifier d of
          (Plain name) -> do     
              newname <- registerName name
-             newexpr <- lexp (value d)
+             newexpr <- laexp (value d)
              nb <- lexp (Block bs)             
              return $ Let newname newexpr nb
          (TupleUnboxing tu) -> do
              let tuplety = (AST.AST.Tuple (map (\(TypedName (Poly [] t) n) -> t) tu))
              dummy <- newName (Poly [] tuplety)
              forM tu registerName
-             newexpr <- lexp (value d)
+             newexpr <- laexp (value d)
              untple <- buildMagic tu (IR.Syntax.Var dummy) (convTy tuplety) 0 bs
              return $ Let dummy newexpr untple
             -- important function. dont ask.
@@ -194,15 +190,15 @@ lexp (Block ((Defn d):bs)) = do
         return $ restexpr'
 
 lexp (Block ((Yield y):bs)) = do
-    ny <- lexp y
+    ny <- laexp y
     return ny
 
 lexp (Block ((Return r):bs)) = do
-    nr <- lexp r
+    nr <- laexp r
     return $ Ret nr
 
 lexp (Block ((Assignment a e):bs)) = do
-    ne <- lexp e
+    ne <- laexp e
     case a of
          (Singleton name@(TypedName (Poly [] t) _) sels) -> do
              na <- registerEName name
@@ -245,7 +241,7 @@ lexp (Block ((Assignment a e):bs)) = do
             return $ expr0
 
 lexp (Block ((Expr b):bs)) = do
-    nb <- lexp b
+    nb <- laexp b
     nbs <- lexp (Block bs)
     return $ Seq nb nbs
 
@@ -254,30 +250,30 @@ lexp (Block []) = error "Block must terminate in yield or return"
 
 
 lexp (Selector ex SelDot a) = do
-    ex' <- lexp ex
-    let (Record ty) = astType ex
+    ex' <- laexp ex
+    let (Record ty) = error "todo"
     let (Just idx) = elemIndex a (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
     return $ App (Prim $ GetTupleElem (convTy (rec2tuple (Record ty))) idx) [ex']
 
 lexp (Selector ex SelArrow a) = do
-    ex' <- lexp ex
-    let (DType _ (Record ty)) = astType ex
+    ex' <- laexp ex
+    let (DType _ (Record ty)) = error "todo2"
     let (Just idx) = elemIndex a (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
     return $ App (Prim $ GetPtrTupleElem (convTy (rec2tuple (Record ty))) idx) [ex']
 
 lexp (IfStmt cond thn els) = do
-    cond' <- lexp cond
-    thn' <- lexp thn
-    els' <- lexp els
+    cond' <- laexp cond
+    thn' <- laexp thn
+    els' <- laexp els
     return $ IR.Syntax.If cond' thn' els'
 
 lexp (FunctionCall e1 e2) = do
-    ne1 <- lexp e1
-    ne2 <- lexp e2
+    ne1 <- laexp e1
+    ne2 <- laexp e2
     return $ App ne1 [ne2]
 
 lexp (Initialize (TypedName t n) lit) = do
-    lit' <- llit lit
+    lit' <- laexp lit
     let t' = snd $ convTyScheme t
     return $ App (Prim $ CreatePtr t') [lit']
 
@@ -291,26 +287,26 @@ lexp (Variable a) = do
     na <- registerEName a
     return $ Var na
                  
-llit (Constant nt) = do
+lexp (Constant nt) = do
     return (Lit (IntL nt))
 
-llit (StringLiteral s) = do
+lexp (StringLiteral s) = do
     return (Lit (StringL s))
     
-llit (BooleanLiteral b) = do
+lexp (BooleanLiteral b) = do
     return (Lit (BoolL b))
 
-llit (TupleLiteral ea) = do
-    nm <- mapM lexp ea
+lexp (TupleLiteral ea) = do
+    nm <- mapM laexp ea
     return $ App (Prim (MkTuple (map (\x -> exprType x) nm))) nm
 
-llit (ArrayLiteral []) = do
+lexp (ArrayLiteral []) = do
     -- not an easy problem to solve
     return (error "TODO: typing the empty array")
     
 -- nonempty, all elements have same type. 
-llit (ArrayLiteral ea) = do
-    nm <- mapM lexp ea
+lexp (ArrayLiteral ea) = do
+    nm <- mapM laexp ea
     return $ App (Prim (MkArray (exprType (nm!!0)))) nm
 
 {--
@@ -322,15 +318,15 @@ this also simplifies llvm codegen.
 clang also does this. 
 -}
     
-llit (FunctionLiteral (Plain a@(TypedName ty _)) ex) = do
+lexp (FunctionLiteral (Plain a@(TypedName ty _)) ex) = do
     newname <- registerName a
-    nex <- lexp ex
+    nex <- laexp ex
     newparam <- newName ty
     return $ Abs [newparam] (Let newname (Var newparam) nex)
 
-llit (FunctionLiteral (TupleUnboxing params) ex) = do
+lexp (FunctionLiteral (TupleUnboxing params) ex) = do
     newnames <- forM params registerName 
-    nex <- lexp ex
+    nex <- laexp ex
     let tty = (AST.AST.Tuple (map (\(TypedName (Poly [] t) n) -> t) params))
     newparam <- newName (Poly [] tty)
     rest <- magic3 newnames (Var newparam) (convTy tty) 0 nex
