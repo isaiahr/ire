@@ -53,7 +53,7 @@ import qualified Data.Set as Set
 
 import Debug.Trace
 
-type Env = (Map.Map (Maybe Int, Name) TypeScheme)
+type Env = (Map.Map Name TypeScheme)
 
 type ExEnv = (Map.Map Int SType)
 
@@ -860,32 +860,27 @@ coalesceI cty@(ITypeScheme (ty5, rec)) = do
                     return $ Recur v res0
                 else return res0
 
-newVar lv (mi, name) = do
+newVar lv name = do
     tv <- fresh lv
-    modify $ \ctx -> ctx {iEnv = Map.insert (Nothing, name) (TypeScheme (-1, tv)) (iEnv ctx)}
+    modify $ \ctx -> ctx {iEnv = Map.insert name (TypeScheme (-1, tv)) (iEnv ctx)}
     return tv
 
-setExprTy :: AnnExpr (Maybe Int, Name) -> SType -> InferM ()
+setExprTy :: AnnExpr Name -> SType -> InferM ()
 setExprTy ae ty = do
     modify $ \ctx -> ctx {iExEnv = Map.insert (aId ae) ty (iExEnv ctx)}
 
-newPVar :: Int -> (Maybe Int, Name) -> TypeScheme -> InferM ()
-newPVar lv (mi, name) typ = do
-    modify $ \ctx -> ctx {iEnv = Map.insert (Nothing, name) typ (iEnv ctx)}
-    
-associate :: (Maybe Int, Name) -> SType -> InferM ()
-associate (mi, name) typ = do
-    modify $ \ctx -> ctx {iEnv = Map.insert (mi, name) (TypeScheme (-1, typ)) (iEnv ctx)}
+newPVar :: Int -> Name -> TypeScheme -> InferM ()
+newPVar lv name typ = do
+    modify $ \ctx -> ctx {iEnv = Map.insert name typ (iEnv ctx)}
 
-
-getVar :: (Maybe Int, Name) -> InferM TypeScheme
-getVar (mi, a@(NativeName n)) = do
+getVar :: Name -> InferM TypeScheme
+getVar a@(NativeName n) = do
     let n' = typeofn n
     st <- get
-    case Map.lookup (Nothing, a) (iEnv st) of
+    case Map.lookup a (iEnv st) of
          (Just _) -> return n'
          Nothing -> do
-             modify $ \ctx -> ctx {iEnv = Map.insert (Nothing, a) n' (iEnv ctx)}
+             modify $ \ctx -> ctx {iEnv = Map.insert a n' (iEnv ctx)}
              return n'
     where 
     typeofn Native_Exit = TypeScheme (-1, stFunc stInt stVoid)
@@ -903,22 +898,22 @@ getVar (mi, a@(NativeName n)) = do
     typeofn Native_Or = TypeScheme (-1, stFunc (STuple [stBool, stBool]) stBool)
     typeofn Native_And = TypeScheme (-1, stFunc (STuple [stBool, stBool]) stBool)
 
-getVar (mi, a@(Symbol str (Poly t mt) fi)) = do
+getVar a@(Symbol str (Poly t mt) fi) = do
     let t = (TypeScheme (-1, ast2ty mt))
     st <- get
-    case Map.lookup (Nothing, a) (iEnv st) of
+    case Map.lookup a (iEnv st) of
          (Just _) -> return t
          Nothing -> do
-             modify $ \ctx -> ctx {iEnv = Map.insert (Nothing, a) t (iEnv ctx)}
+             modify $ \ctx -> ctx {iEnv = Map.insert a t (iEnv ctx)}
              return t
 
-getVar (mi, name) = do
+getVar name = do
     ctx <- get
-    case Map.lookup (Nothing, name) (iEnv ctx) of
+    case Map.lookup name (iEnv ctx) of
          (Just sty) -> return sty
          Nothing -> error "use-before-defn; namer should have caught this."
 
-inferTLD :: SType -> Definition (Maybe Int, Name) -> InferM ()
+inferTLD :: SType -> Definition Name -> InferM ()
 inferTLD sty defn = do
     -- invariants (for now)
     let (Plain a) = identifier defn
@@ -928,7 +923,7 @@ inferTLD sty defn = do
     -- note: this should overwrite the current var.
     newPVar 0 a (TypeScheme (0, sty))
 
-inferD :: Int -> Definition (Maybe Int, Name) -> InferM ()
+inferD :: Int -> Definition Name -> InferM ()
 inferD lv defn = do
     case identifier defn of
         (Plain a) -> case (aExpr $ value defn) of
@@ -948,13 +943,13 @@ inferD lv defn = do
             return ()
              
     
-inferAE :: Int -> AnnExpr (Maybe Int, Name) -> InferM SType
+inferAE :: Int -> AnnExpr Name -> InferM SType
 inferAE lv ae = do
     e <- inferE lv (aExpr ae)
     setExprTy ae e
     return $ e
     
-inferE :: Int -> Expression (Maybe Int, Name) -> InferM SType
+inferE :: Int -> Expression Name -> InferM SType
 inferE lv (Block ((Yield y):s)) = do
     inferAE lv y
 

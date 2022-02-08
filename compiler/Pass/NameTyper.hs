@@ -20,7 +20,7 @@ NameTyper.hs:
 takes a named AST and assigns types to it
 --}
 
-type InferResult = ([((Maybe Int, Name), MonoType)], [(Int, MonoType)])
+type InferResult = ([(Name, MonoType)], [(Int, MonoType)])
 
 passType = Pass {pName = "TypeInfer", pFunc = doType}
     where
@@ -29,7 +29,7 @@ passType = Pass {pName = "TypeInfer", pFunc = doType}
         bindings s = runState (infer s) InferCtx {iExEnv = Map.empty, iEnv = (Map.empty), iErrs = [], iMsgs = [], iBounds = [], iCount = 0, iCache = Set.empty, recHack = Map.empty, iFnRetty = Nothing}
 
 
-typeast env ast = fmap (\a@(mi, x) -> case lookup (Nothing, x) env of
+typeast env ast = fmap (\a@(mi, x) -> case lookup x env of
                                            Just ty -> TypedName (Poly [] ty) x
                                            Nothing -> error $ "no entry for: " <> disp x) ast
 
@@ -41,15 +41,15 @@ traversal = Traveller {
     travMapper = typeIdent
 }
 
-typeIdent :: (Maybe Int, Name) -> Reader InferResult TypedName
-typeIdent (mi, x) = do
+typeIdent :: Name -> Reader InferResult TypedName
+typeIdent x = do
     env <- ask
-    case lookup (Nothing, x) (fst env) of
+    case lookup x (fst env) of
         Just ty -> return $ TypedName (Poly [] ty) x
         Nothing -> error $ "no entry for: " <> disp x
 
 
-typeAExpr :: (Traveller (Reader InferResult) (Maybe Int, Name) (TypedName)) -> (AnnExpr (Maybe Int, Name)) -> Reader InferResult (AnnExpr TypedName)
+typeAExpr :: (Traveller (Reader InferResult) (Name) (TypedName)) -> (AnnExpr Name) -> Reader InferResult (AnnExpr TypedName)
 typeAExpr t ae = do
     e <- (traverseExpr t) (aExpr ae)
     env <- ask

@@ -144,7 +144,6 @@ pipeline1 x pr = (pr >>>>
               passParse >>>=
               passYieldInj >>>=
               passName x >>>=
-              passSubScript >>>=
               passType) -- >>>
 
 -- hack kind of 
