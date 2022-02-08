@@ -72,18 +72,23 @@ https://okmij.org/ftp/ML/generalization.html
 -}
 data TypeScheme = TypeScheme (Int, SType) deriving (Eq, Show, Ord)
 
+-- invariance not supported; see the papers above for how to handle mutation
+-- covariant - standard relation, decomposed types are subtypes of the other
+-- contravariant - subtyping gets reversed relation on subtypes.
+data Variance = Covariant | Contravariant deriving (Eq, Show, Ord)
 
 {-
 "Simple" Types. 
 no meet / join. 
 type variables have bounds recorded in the monad.
+many types are encoded via a type constructor; for example,
+functions are STyCon "func" [(Contravariant, paramty), (Covariant, returnty)]
 -}
 
 data SType = 
           STyVar TypeVariable 
-        | STyCon String 
+        | STyCon String [(Variance, SType)]
         | STuple [SType]
-        | SFunc SType SType 
         | SRec [(String, SType)] deriving (Eq, Show, Ord)
 
 {-
@@ -95,31 +100,25 @@ but type variables cannot (immediately) be, until further analysis.
 -}
 data IType = IType {
         iVars :: Set.Set TypeVariable,
-        iTyCons :: Set.Set String,
+        iTyCons :: Set.Set (String, [(Variance, IType)]),
         iRec :: Maybe [(String, IType)],
-        iTuple :: Maybe [IType],
-        iFun :: Maybe (IType, IType)
+        iTuple :: Maybe [IType]
 } deriving (Eq, Show, Ord)
 
 emptyIType = IType {
     iVars = Set.empty,
     iTyCons = Set.empty,
     iRec = Nothing,
-    iTuple = Nothing,
-    iFun = Nothing
+    iTuple = Nothing
 }
 
 mergeITypes polarity left right = IType {
     iVars = iVars left <> iVars right,
-    iTyCons = iTyCons left <> iTyCons right,
+    iTyCons = Set.fromList $ mergeTCs polarity ((Set.toList (iTyCons left)) <> (Set.toList (iTyCons right))),
     iRec = case (iRec left, iRec right) of 
                 (Just kv1, Just kv2) -> Just $ mergeHelper polarity kv1 kv2
                 (Nothing, Just kv) -> Just kv
                 (j, _) -> j,
-    iFun = case (iFun left, iFun right) of
-                (Just (l0, r0), Just (l1, r1)) -> Just (mergeITypes (invp polarity) l0 l1, mergeITypes polarity r0 r1)
-                (Nothing, Just j) -> Just j
-                (j2, _) -> j2,
     iTuple = case (iTuple left, iTuple right) of
                 (Just l, Just r) -> Just (mergeTHelper polarity l r)
                 (Nothing, Just r) -> Just r
@@ -134,6 +133,13 @@ mergeITypes polarity left right = IType {
             partition l1 l2 = (map (\(k1', v') -> (k1', v', fromJust (lookup k1' l2))) (filter (\(k, v) -> k `elem` (map fst l2)) l1), (nubBy (\(k, v) (k2, v2) -> k == k2) (l1 <> l2)) \\ intersectBy (\(k, v) (k2, v2) -> k==k2) l1 l2)
     mergeHelper Positive lhs rhs = map (\(k, v) -> fromMaybe (k, v) $ fmap (\x2 -> (k, mergeITypes Positive v x2)) (lookup k rhs)) lhs
     mergeTHelper pol lhs rhs = map (uncurry (mergeITypes pol)) (zip lhs rhs)
+    mergeTCs pol (l:hs) = case filter (\(k, v) -> k == fst l) hs of
+                                   [l2] -> (fst l2, mergeOne pol (snd l) (snd l2)) : mergeTCs pol (hs \\ [l2])
+                                   [] -> l:mergeTCs pol hs
+    mergeTCs pol [] = []
+    mergeOne pol ((Covariant, i):is) ((_, i2):i2s) = (Covariant, mergeITypes pol i i2):(mergeOne pol is i2s)
+    mergeOne pol ((Contravariant, i):is) ((_, i2):i2s) = (Contravariant, mergeITypes (invp pol) i i2):(mergeOne pol is i2s)
+    mergeOne pol [] [] = []
 
 data ITypeScheme = ITypeScheme (IType, [(TypeVariable, IType)]) deriving (Eq, Show, Ord)
 
@@ -173,7 +179,7 @@ simplify (ITypeScheme (cty, rec)) = do
     analysis ty pol = do
         _ <- forM (Set.toList (iVars ty)) (\var -> do
             modify $ \ctx -> ctx {sctxVars = Set.insert var (sctxVars ctx)}
-            let newoccs = (map STyVar (Set.toList $ iVars ty)) <> (map STyCon (Set.toList $ iTyCons ty))
+            let newoccs = (map STyVar (Set.toList $ iVars ty)) <> (map (\(k, v) -> STyCon k []) (filter (\(k, v) -> v == []) (Set.toList $ iTyCons ty)))
             st0 <- get
             case Map.lookup (var, pol) (sctxCooccurs st0) of
                     (Just stypes) -> do
@@ -198,6 +204,13 @@ simplify (ITypeScheme (cty, rec)) = do
                         return ()
             return ())
         -- these types aren't real, the innards are actually just thonks to reconstruct them.
+        con' <- forM (Set.toList (iTyCons ty)) (\(k, lst) -> do
+            lst' <- forM lst (\(c, v) -> do
+                v' <- case c of
+                           Covariant -> analysis v pol
+                           Contravariant -> analysis v (invp pol)
+                return (c, v'))
+            return (k, lst'))
         rec' <- case iRec ty of
                 (Just r) -> do
                     r' <- forM r (\(k, v) -> do
@@ -205,12 +218,6 @@ simplify (ITypeScheme (cty, rec)) = do
                         return (k, v'))
                     return $ Just r'
                 (Nothing) -> return Nothing
-        fun' <- case iFun ty of
-                (Just (l, r)) -> do
-                    l' <- analysis l (invp pol)
-                    r' <- analysis r pol
-                    return $ Just (l', r')
-                Nothing -> return Nothing
         tup' <- case iTuple ty of
                 (Just t) -> do
                     t' <- forM t (\v -> do
@@ -226,6 +233,11 @@ simplify (ITypeScheme (cty, rec)) = do
                         (Just b) -> return $ b -- note: may be none. that is ok.
                     return c)
                 let nv'' = catMaybes nv'
+                con'' <- forM con' (\(k, lst) -> do
+                    lst' <- forM lst (\(c, v) -> do
+                        v' <- v
+                        return (c, v'))
+                    return (k, lst'))
                 rec'' <- case rec' of
                             Nothing -> return Nothing
                             (Just r) -> do
@@ -240,17 +252,10 @@ simplify (ITypeScheme (cty, rec)) = do
                                     v <- vt
                                     return v)
                                 return $ Just t'
-                fun'' <- case fun' of 
-                            Nothing -> return Nothing
-                            (Just (l, r)) -> do
-                                l' <- l
-                                r' <- r
-                                return $ Just (l', r')
                 return IType {
-                    iVars = (Set.fromList nv''),
-                    iTyCons = iTyCons ty,
+                    iVars = Set.fromList nv'',
+                    iTyCons = Set.fromList con'',
                     iRec = rec'',
-                    iFun = fun'',
                     iTuple = tup''
                 }
         return $ thunk
@@ -310,9 +315,9 @@ simplify (ITypeScheme (cty, rec)) = do
                                         return ()
                                     else return ()
                                 else return ()
-                            (STyCon tycn) -> do
+                            (STyCon tycn []) -> do
                                 st4 <- get
-                                if Set.member (STyCon tycn) (fromMaybe Set.empty (Map.lookup (var, invp pol) (sctxCooccurs st4))) then
+                                if Set.member (STyCon tycn []) (fromMaybe Set.empty (Map.lookup (var, invp pol) (sctxCooccurs st4))) then
                                     modify $ \ctx -> ctx { sctxVarSubs = Map.insert var Nothing (sctxVarSubs ctx)}
                                 else return ()
                             otherwis4 -> return ()
@@ -335,11 +340,14 @@ compactify ty = do
     where
         
     compactify0 :: SType -> Polarity -> StateT (Map.Map (IType, Polarity) TypeVariable, [(TypeVariable, IType)]) (StateT InferCtx Identity) IType
-    compactify0 (STyCon t) pol = return $ emptyIType {iTyCons = Set.singleton t}
-    compactify0 (SFunc l r) pol = do
-        l' <- compactify0 l (invp pol)
-        r' <- compactify0 r pol
-        return $ emptyIType {iFun = Just (l', r')}
+    compactify0 (STyCon t lst) pol = do
+        res <- forM lst (\(var, val) -> do
+            val' <- case var of 
+                          Covariant -> compactify0 val pol
+                          Contravariant -> compactify0 val (invp pol)
+            return (var, val')
+            )
+        return $ emptyIType {iTyCons = Set.singleton (t, res)}
     compactify0 (SRec r) pol = do
         r' <- forM r (\(k, v) -> do
             v' <- compactify0 v pol
@@ -405,18 +413,19 @@ compactify ty = do
             let bounds' = foldl (mergeITypes pol) emptyIType bounds0
             let res = mergeITypes pol ty bounds'
             let proc' = Set.insert pty proc
+            con' <- forM (Set.toList (iTyCons res)) (\(k, lst) -> do
+                lst' <- forM lst (\(c, v) -> do
+                    v' <- case c of
+                               Covariant -> compactify1 v pol proc'
+                               Contravariant -> compactify1 v (invp pol) proc'
+                    return (c, v'))
+                return (k, lst'))
             rec' <- case iRec res of
                 (Just rs) -> do
                     rs' <- forM rs (\(k, v) -> do
                         v' <- compactify1 v pol proc'
                         return (k, v'))
                     return $ (Just rs')
-                Nothing -> return Nothing
-            fun' <- case iFun res of
-                (Just (l, r)) -> do
-                    l' <- compactify1 l (invp pol) proc'
-                    r' <- compactify1 r pol proc'
-                    return $ Just (l', r')
                 Nothing -> return Nothing
             tup' <- case iTuple res of
                 (Just t) -> do
@@ -427,9 +436,8 @@ compactify ty = do
                 Nothing -> return Nothing
             let adapt = IType {
                 iVars = iVars res,
-                iTyCons = iTyCons res,
+                iTyCons = Set.fromList con',
                 iRec = rec',
-                iFun = fun',
                 iTuple = tup'
             }
             (rec, recv) <- get
@@ -448,36 +456,36 @@ data Typ =
         | Bot 
         | Meet Typ Typ
         | Join Typ Typ 
-        | Func Typ Typ 
         | Tup [Typ]
         | Rec [(String, Typ)] 
         | Recur TypeVariable Typ -- mu
         | TyVar TypeVariable 
-        | TyCon String deriving (Eq, Show, Ord)
+        | TyCon String [Typ] deriving (Eq, Show, Ord)
 
-stBool = STyCon "bool"
-stInt = STyCon "int"
-stString = STyCon "string"
+stBool = STyCon "bool" []
+stInt = STyCon "int" []
+stString = STyCon "string" []
+stFunc l r = STyCon "func" [(Contravariant, l), (Covariant, r)]
 stVoid = STuple []
 
 ty2ast :: Typ -> Either Typ MonoType
 ty2ast (Tup ts) = Tuple <$> (mapM ty2ast ts)
 ty2ast (Rec rs) = Record <$> (mapM (\(k, v) -> ty2ast v >>= \x -> return (k, x)) rs)
-ty2ast (Func t1 t2) = liftM2 Function (ty2ast t1) (ty2ast t2)
+ty2ast (TyCon "func" [t1, t2]) = liftM2 Function (ty2ast t1) (ty2ast t2)
 ty2ast (TyVar tv) = Right $ General tv
-ty2ast (TyCon "bool") = Right BoolT
-ty2ast (TyCon "string") = Right StringT
-ty2ast (TyCon "int") = Right IntT
+ty2ast (TyCon "bool" []) = Right BoolT
+ty2ast (TyCon "string" []) = Right StringT
+ty2ast (TyCon "int" []) = Right IntT
 ty2ast (Bot) = Right $ Tuple []
 ty2ast others = Left others
 
 ast2ty :: MonoType -> SType
 ast2ty (Tuple t) = STuple (map ast2ty t)
 ast2ty (Record rs) = SRec (map (\(k, v) -> (k, ast2ty v)) rs)
-ast2ty (IntT) = STyCon "int"
-ast2ty (BoolT) = STyCon "bool"
-ast2ty (StringT) = STyCon "string"
-ast2ty (Function l r) = SFunc (ast2ty l) (ast2ty r)
+ast2ty (IntT) = STyCon "int" []
+ast2ty (BoolT) = STyCon "bool" []
+ast2ty (StringT) = STyCon "string" []
+ast2ty (Function l r) = stFunc (ast2ty l) (ast2ty r)
 ast2ty (Array c) = error "todo"
 ast2ty (General tv) = error "todo2"
 
@@ -566,15 +574,15 @@ instantiate (TypeScheme (lv, t)) d = do
                         b2' <- forM (reverse b2) inst2
                         lift $ setBounds v (reverse b1') (reverse b2')
                         return $ STyVar v
-        inst2 (STyCon t') = return $ STyCon t'
-        inst2 t01@(SFunc t0 t1) = do
-            tlv <- lift $ getLevel t01
+        inst2 t0@(STyCon kind vals) = do
+            tlv <- lift $ getLevel t0
             if (tlv <= lv) then do
-               return t01
+                return t0
             else do
-                t0' <- inst2 t0 
-                t1' <- inst2 t1
-                return $ SFunc t0' t1'
+                vals' <- forM vals (\(k, v) -> do
+                    v' <- inst2 v
+                    return $ (k, v'))
+                return $ (STyCon kind vals')
         inst2 t0@(SRec r) = do
             tlv <- lift $ getLevel t0
             if (tlv <= lv) then do
@@ -608,11 +616,9 @@ getLevel (STyVar tv) = do
          Just (tv, l2, lhs, rhs) -> return l2
          Nothing -> error "no typevar!"
 
-getLevel (STyCon t) = return 0
-getLevel (SFunc t0 t1) = do
-    t0l <- getLevel t0
-    t1l <- getLevel t1
-    return $ max t0l t1l
+getLevel (STyCon t s) = do
+    lvs <- forM s (\(_, v) -> getLevel v)
+    return $ foldr max 0 lvs
 
 getLevel (SRec s) = do
     lvs <- forM s (\(k, v) -> getLevel v)
@@ -654,10 +660,14 @@ constrain lhs rhs = do
         let newcache = Set.insert (lhs, rhs) (iCache ctx)
         put $ ctx {iCache = newcache}
         case (lhs, rhs) of
-             (STyCon t1, STyCon t2) -> if t1 == t2 then return () else error "fixme"
-             (SFunc l0  r0, SFunc l1 r1) -> do
-                 constrain l1 l0
-                 constrain r0 r1
+             (STyCon t1 rs1, STyCon t2 rs2) -> do 
+                 if t1 == t2 then return () else error "fixme"
+                 forM (zip rs1 rs2) (\((c, v1), (_, v2)) -> do
+                     case c of
+                          Covariant -> constrain v1 v2
+                          Contravariant -> constrain v2 v1
+                     return ())
+                 return ()
              (SRec f1, SRec f2) -> do
                  p <- forM f2 (\(k, v) -> do
                      case find (\x -> fst x == k) f1 of
@@ -707,12 +717,13 @@ extrude ty lv polarity = do
     return res
     where
     exc :: SType -> Int -> Polarity -> StateT (Map.Map (Polarity, TypeVariable) TypeVariable) (StateT InferCtx Identity) SType
-    exc (STyCon str) lv pol = return $ STyCon str
-    exc (SFunc l r) lv pol = do
-        l' <- exc l lv (invp pol)
-        r' <- exc r lv pol
-        return $ SFunc l' r'
-
+    exc (STyCon str lst) lv pol = do
+        lst' <- forM lst (\(c, v) -> do
+            v' <- case c of
+                       Covariant -> exc v lv pol
+                       Contravariant -> exc v lv (invp pol)
+            return (c, v'))
+        return $ STyCon str lst'
     exc (SRec kv) lv pol = do
         kv' <- forM kv (\(k, v) -> do
             v' <- exc v lv pol
@@ -756,12 +767,8 @@ coalesce sty = do
     recC sty Positive Set.empty
     where
     recC :: SType -> Polarity -> Set.Set (TypeVariable, Polarity) -> InferM Typ
-    recC (STyCon str) pol proc = return (TyCon str)
-    recC (SFunc l r) pol proc = do
-        lty <- recC l (invp pol) proc
-        rty <- recC r pol proc
-        return (Func lty rty)
-
+    recC (STyCon str lst) pol proc = do 
+        error "todo"
     recC (SRec kv) pol proc = do
         kv' <- forM kv (\(k, v) -> do
             v' <- recC v pol proc
@@ -825,7 +832,13 @@ coalesceI cty@(ITypeScheme (ty5, rec)) = do
                         let merger = if pol == Positive then Join else Meet
                         let extreme = if pol == Positive then Bot else Top
                         vars <- mapM (\v -> coal v pol proc') (map Right (Set.toList (iVars ityp)))
-                        let tycons = map TyCon (Set.toList $ iTyCons ityp)
+                        tycons <- forM (Set.toList (iTyCons ityp)) (\(k, lst) -> do
+                            lst' <- forM lst (\(c, v) -> do
+                                v' <- case c of
+                                     Covariant -> coal (Left v) pol proc'
+                                     Contravariant -> coal (Left v) (invp pol) proc'
+                                return v')
+                            return $ TyCon k lst')
                         recs <- case iRec ityp of
                             Nothing -> return []
                             Just reco -> do 
@@ -833,19 +846,12 @@ coalesceI cty@(ITypeScheme (ty5, rec)) = do
                                     v' <- coal (Left v) pol proc'
                                     return (k, v'))
                                 return [Rec reco']
-                        funs <- case iFun ityp of
-                            Nothing -> return []
-                            Just (l, r) -> do     
-                                l' <- coal (Left l) (invp pol) proc'
-                                r' <- coal (Left r) pol proc'
-                                return $ [Func l' r']
                         tups <- case (iTuple ityp) of
                             Nothing -> return []
                             Just tupl -> do
                                 tup' <- forM tupl (\v -> coal (Left v) pol proc')
                                 return $ [Tup tup']
-                        -- actually below will result in extra top / bottom. todo change this.
-                        let result = (case (vars <> tycons <> recs <> funs <> tups) of
+                        let result = (case (vars <> tycons <> recs <> tups) of
                                 ([]) -> extreme 
                                 xs -> foldl1 merger xs)
                         return $ result
@@ -882,20 +888,20 @@ getVar (mi, a@(NativeName n)) = do
              modify $ \ctx -> ctx {iEnv = Map.insert (Nothing, a) n' (iEnv ctx)}
              return n'
     where 
-    typeofn Native_Exit = TypeScheme (-1, SFunc stInt stVoid)
-    typeofn Native_Print = TypeScheme (-1, SFunc stString stVoid)
-    typeofn Native_Panic = TypeScheme (-1, SFunc stVoid stVoid)
-    typeofn Native_IntToString = TypeScheme (-1, SFunc stInt stString)
-    typeofn Native_Addition = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stInt)
-    typeofn Native_Subtraction = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stInt)
-    typeofn Native_Multiplication = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stInt)
-    typeofn Native_Equal = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_Greater = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_Less = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_GreaterEqual = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_LesserEqual = TypeScheme (-1, SFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_Or = TypeScheme (-1, SFunc (STuple [stBool, stBool]) stBool)
-    typeofn Native_And = TypeScheme (-1, SFunc (STuple [stBool, stBool]) stBool)
+    typeofn Native_Exit = TypeScheme (-1, stFunc stInt stVoid)
+    typeofn Native_Print = TypeScheme (-1, stFunc stString stVoid)
+    typeofn Native_Panic = TypeScheme (-1, stFunc stVoid stVoid)
+    typeofn Native_IntToString = TypeScheme (-1, stFunc stInt stString)
+    typeofn Native_Addition = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
+    typeofn Native_Subtraction = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
+    typeofn Native_Multiplication = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
+    typeofn Native_Equal = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_Greater = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_Less = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_GreaterEqual = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_LesserEqual = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_Or = TypeScheme (-1, stFunc (STuple [stBool, stBool]) stBool)
+    typeofn Native_And = TypeScheme (-1, stFunc (STuple [stBool, stBool]) stBool)
 
 getVar (mi, a@(Symbol str (Poly t mt) fi)) = do
     let t = (TypeScheme (-1, ast2ty mt))
@@ -965,7 +971,7 @@ inferE lv (FunctionCall e1 e2) = do
     res <- fresh lv
     e1ty <- inferAE lv e1
     e2ty <- inferAE lv e2
-    constrain e1ty (SFunc e2ty res)
+    constrain e1ty (stFunc e2ty res)
     return res
 
 inferE lv (Variable a) = do
@@ -1001,20 +1007,20 @@ inferE lv (FunctionLiteral (Plain a) e) = do
     et <- inferAE lv e
     fnrt <- getFnReturnType
     case fnrt of
-         Nothing -> return (SFunc tv et)
+         Nothing -> return (stFunc tv et)
          Just et' -> do
              setFnReturnTy Nothing
-             return (SFunc tv et')
+             return (stFunc tv et')
 
 inferE lv (FunctionLiteral (TupleUnboxing ts) e) = do
     tvs <- forM ts (newVar lv)
     et <- inferAE lv e
     fnrt <- getFnReturnType
     case fnrt of
-         Nothing -> return (SFunc (STuple tvs) et)
+         Nothing -> return (stFunc (STuple tvs) et)
          Just et' -> do
              setFnReturnTy Nothing
-             return (SFunc (STuple tvs) et')
+             return (stFunc (STuple tvs) et')
 
 inferE lv (TupleLiteral ts) = do
     ts' <- forM ts (inferAE lv)
