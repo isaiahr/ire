@@ -5,11 +5,14 @@
 module AST.ASTUtils where 
 
 import AST.Syntax
+import AST.Traversal
 import AST.TypeSystem
-import Data.List
 import Common.Common
+
+import Data.List
 import GHC.Generics
 import Control.DeepSeq
+import Control.Monad.Identity
 
 
 deriving instance Generic (AST a)
@@ -52,36 +55,16 @@ instance (Disp a) => Disp (AST a) where
     disp ast = intercalate "\n" (map disp (astTypes ast)) <> "\n" <>  intercalate "\n" (map disp (astDefns ast))
     
 instance Functor AST where
-    fmap fn ast = ast {astDefns = (map (mapdefn fn) (astDefns ast))}
-
-mapdefn :: (a -> b) -> Definition a -> Definition b
-mapdefn fn d = d { identifier = mappat fn (identifier d), value = mapaexpr fn (value d) }
-
-mapstmt fn (Defn d) = Defn (mapdefn fn d)
-mapstmt fn (Expr e) = Expr (mapaexpr fn e)
-mapstmt fn (Assignment a e) = Assignment (maplhs fn a) (mapaexpr fn e)
-mapstmt fn (Return r) = Return (mapaexpr fn r)
-mapstmt fn (Yield y) = Yield (mapaexpr fn y)
-
-mapexpr :: (a -> b) -> Expression a -> Expression b
-mapexpr fn (Variable a) = Variable (fn a)
-mapexpr fn (FunctionCall a b) = FunctionCall (mapaexpr fn a) (mapaexpr fn b)
-mapexpr fn (IfStmt i t e) = IfStmt (mapaexpr fn i) (mapaexpr fn t) (mapaexpr fn e)
-mapexpr fn (Block ss) = Block (map (mapstmt fn) ss)
-mapexpr fn (ArrayLiteral a) = ArrayLiteral (map (mapaexpr fn) a)
-mapexpr fn (TupleLiteral a) = TupleLiteral (map (mapaexpr fn) a)
-mapexpr fn (FunctionLiteral a b) = FunctionLiteral (mappat fn a) (mapaexpr fn b)
-mapexpr fn (Constant nt) = Constant nt
-mapexpr fn (StringLiteral n) = StringLiteral n
-mapexpr fn (BooleanLiteral b) = BooleanLiteral b
-
-mapaexpr fn ae = ae {aExpr = mapexpr fn (aExpr ae)}
-
-maplhs fn (Singleton a rs) = Singleton (fn a) rs
-maplhs fn (TupleUnboxingA a) = TupleUnboxingA (map fn a)
-
-mappat fn (Plain a) = Plain (fn a)
-mappat fn (TupleUnboxing a) = TupleUnboxing (map fn a)
+    fmap fn ast = unid $ runTraversal fmapT ast
+        where  
+        unid (Identity a) = a
+        fmapT = Traveller {
+            travExpr = traverseExpr fmapT,
+            travAExpr = traverseAExpr fmapT,
+            travStmt = traverseStmt fmapT,
+            travDefn = traverseDefn fmapT,
+            travMapper = \x -> return $ fn x
+        }
 
 instance Foldable AST where
     foldMap f ast = foldMap2 f (astDefns ast)
@@ -130,6 +113,8 @@ instance (Disp a) => Disp (Expression a) where
     disp (FunctionCall e1 e2) = disp e1 ++ " " ++ disp e2
     disp (Variable a) = disp a
     disp (IfStmt e1 e2 e3) = "if " ++ disp e1 ++ " then " ++ disp e2 ++ " else " ++ disp e3 
+    disp (Selector e SelArrow str) = disp e <> "->" <> str
+    disp (Selector e SelDot str) = disp e <> "." <> str
     disp (Constant i) = disp i
     disp (StringLiteral l) = disp l
     disp (BooleanLiteral b) = if b then "true" else "false"
@@ -139,7 +124,7 @@ instance (Disp a) => Disp (Expression a) where
     disp (FunctionLiteral p b) = '\\' : (disp p) ++ " -> " ++ disp b
 
 instance (Disp a) => Disp (AnnExpr a) where
-    disp ae = disp (aExpr ae)
+    disp ae = "[" <> (show $ aId ae) <> "%" <> disp (aExpr ae) <> "]"
 
 instance (Disp a) => Disp (Statement a) where
     disp (Defn s) = disp s

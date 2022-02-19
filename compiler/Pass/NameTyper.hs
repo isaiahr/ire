@@ -1,4 +1,4 @@
-module Pass.NameTyper (TypedName(..), passType) where
+module Pass.NameTyper (TypedName(..), passType, inferAST, typeAST) where
 
 import Common.Common
 import Common.Pass
@@ -22,16 +22,30 @@ takes a named AST and assigns types to it
 
 type InferResult = ([(Name, MonoType)], [(Int, MonoType)])
 
+newICtx = InferCtx {
+    iExEnv = Map.empty,
+    iEnv = (Map.empty),
+    iErrs = [], 
+    iMsgs = [],
+    iBounds = [],
+    iCount = 0,
+    iCache = Set.empty,
+    recHack = Map.empty,
+    iFnRetty = Nothing
+}
+
 passType = Pass {pName = "TypeInfer", pFunc = doType}
     where
         doType s2 = let s = identify s2 in let (v, st) = bindings s in if iErrs st == [] then (msgs st, Just $ runReader (runTraversal traversal s) v) else (msgs st, Nothing)
-        msgs st = messageNoLn "TypeInfer" (intercalate "\n" $ iMsgs st) Debug <> messageNoLn "TypeInfer" (intercalate "\n" (iErrs st)) Error
-        bindings s = runState (infer s) InferCtx {iExEnv = Map.empty, iEnv = (Map.empty), iErrs = [], iMsgs = [], iBounds = [], iCount = 0, iCache = Set.empty, recHack = Map.empty, iFnRetty = Nothing}
+        bindings s = runState (infer s) newICtx
 
+msgs st = messageNoLn "TypeInfer" (intercalate "\n" $ iMsgs st) Debug <> messageNoLn "TypeInfer" (intercalate "\n" (iErrs st)) Error
 
-typeast env ast = fmap (\a@(mi, x) -> case lookup x env of
-                                           Just ty -> TypedName (Poly [] ty) x
-                                           Nothing -> error $ "no entry for: " <> disp x) ast
+inferAST :: AST Name -> InferCtx
+inferAST ast = execState (inferC ast) newICtx
+
+typeAST :: InferCtx -> AST Name -> Either Messages (AST TypedName)
+typeAST ctx ast = let (v, st) = runState solve ctx in if iErrs st /= [] then Left (msgs st) else Right $ runReader (runTraversal traversal ast) v
 
 traversal = Traveller {
     travExpr = traverseExpr traversal,

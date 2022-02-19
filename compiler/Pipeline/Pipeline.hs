@@ -29,6 +29,7 @@ import Pass.UnSubScript
 import Pass.Namer
 import Pass.NameTyper
 import Pass.TypeChecker
+import Pass.Specialization
 import IR.Monomorphization
 import qualified IR.Syntax as IR.Syntax
 import IR.DirectCall
@@ -144,7 +145,7 @@ pipeline1 x pr = (pr >>>>
               passParse >>>=
               passYieldInj >>>=
               passName x >>>=
-              passType) -- >>>
+              passSpecialize) -- >>>
 
 -- hack kind of 
 instance Disp (IR.Syntax.IR, [IR.Syntax.TLFunction], [IR.Syntax.Name]) where

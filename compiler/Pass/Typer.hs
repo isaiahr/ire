@@ -33,7 +33,7 @@ The original typing code has been preserved in HMTyper.hs for posterity.
 
 -}
 
-module Pass.Typer (infer, InferCtx(..)) where 
+module Pass.Typer (infer, solve, inferC, InferCtx(..), InferM(..)) where 
 
 import Common.Common
 import Common.Pass
@@ -477,6 +477,8 @@ ty2ast (TyCon "bool" []) = Right BoolT
 ty2ast (TyCon "string" []) = Right StringT
 ty2ast (TyCon "int" []) = Right IntT
 ty2ast (Bot) = Right $ Tuple []
+ty2ast (Meet (TyVar _) e) = ty2ast e
+ty2ast (Meet e (TyVar _)) = ty2ast e
 ty2ast others = Left others
 
 ast2ty :: MonoType -> SType
@@ -514,13 +516,22 @@ printBounds b = intercalate "," (map show b)
 addMsg :: String -> InferM ()
 addMsg str = modify $ \st -> st {iMsgs = iMsgs st <> [str]}
 
-infer ast = do
+-- inferC: infers constraints from the ast
+inferC ast = do
     mgc3 <- forM (astDefns ast) (\e -> do
         let (Plain ev) = identifier e
         st <- newVar 1 ev
         return $ st)
     let h = zip mgc3 (astDefns ast)
     _ <- forM h (uncurry inferTLD)
+    return ()
+
+infer ast = do
+    inferC ast
+    solve
+
+-- solve: solves the constrain graph given
+solve = do
     ctx <- get
     solved <- forM (Map.toList (iEnv ctx)) (\(k, v) -> do
         v34 <- instantiate v 0
@@ -528,13 +539,14 @@ infer ast = do
         com' <- simplify com
         v' <- coalesceI com'
         --v' <- coalesce v34
-        addMsg ((disp k) <> ":" <> show v <> "\n" <> show v34 <> "\n" <> show com <> "\n" <> show com' <> "\n" <> show v' <> "\n")
+        addMsg ((disp k) <> "=" <> show v34 <> ":" <> show v')
         let v'' = ty2ast v'
         return $ (\v''' -> (k, v''')) <$> v'')
     solvedex <- forM (Map.toList (iExEnv ctx)) (\(k, v) -> do
         com <- compactify v
         com' <- simplify com
         v' <- coalesceI com'
+        addMsg ((disp k) <> "=" <> show v <> ":" <> show v')
         let res = ty2ast v'
         return $ (\v'' -> (k, v'')) <$> res
         )

@@ -21,9 +21,9 @@ traversal = Traveller {
 
 idAExpr :: (Traveller (State Int) (a) (a)) -> (AnnExpr a) -> State Int (AnnExpr a)
 idAExpr t ae = do
-    e <- (traverseExpr t) (aExpr ae)
     c <- get
-    let r = ae {aId = c, aExpr = e}
     modify (+1)
+    e <- (traverseExpr t) (aExpr ae)
+    let r = ae {aId = c, aExpr = e}
     return r
     

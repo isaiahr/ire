@@ -43,6 +43,7 @@ library
       Pass.UnSubScript
       Pass.SubScript
       Pass.Identify
+      Pass.Specialization
       Pipeline.Target
       Pipeline.Relations
       Pipeline.Pipeline
