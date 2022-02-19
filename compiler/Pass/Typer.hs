@@ -684,7 +684,7 @@ constrain lhs rhs = do
                  p <- forM f2 (\(k, v) -> do
                      case find (\x -> fst x == k) f1 of
                           Nothing -> error "??? field rec"
-                          Just (_, v2) -> constrain v v2)
+                          Just (_, v2) -> constrain v2 v)
                  return ()
              (STuple t1, STuple t2) -> do
                  if (length t1 /= length t2) then
