@@ -54,7 +54,8 @@ lower fi x ast = let a = evalState (lowerAll (astDefns ast)) (Context {nameTbl =
         lowerC [] = do
             return []
         
-    
+
+convTy (AST.AST.Record r) = IR.Syntax.Tuple (map (convTy . snd) (sortBy (\x y -> compare (fst x) (fst y)) r))
 convTy (AST.AST.Array ty) = IR.Syntax.Array (convTy ty)
 convTy (AST.AST.DType _ mts) = IR.Syntax.Ptr (convTy mts)
 convTy (AST.AST.StringT) = IR.Syntax.StringIRT
@@ -248,10 +249,9 @@ lexp (Block ((Expr b):bs)) = do
 lexp (Block []) = error "Block must terminate in yield or return"
 
 
-
 lexp (Selector ex SelDot a) = do
     ex' <- laexp ex
-    let (Record ty) = error "todo"
+    let (Just (Poly _ (Record ty))) = aType ex
     let (Just idx) = elemIndex a (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
     return $ App (Prim $ GetTupleElem (convTy (rec2tuple (Record ty))) idx) [ex']
 
@@ -308,6 +308,11 @@ lexp (ArrayLiteral []) = do
 lexp (ArrayLiteral ea) = do
     nm <- mapM laexp ea
     return $ App (Prim (MkArray (exprType (nm!!0)))) nm
+    
+lexp (RecordLiteral r) = do
+    let r' = (sortBy (\x y -> compare (fst x) (fst y)) r)
+    r'' <- mapM (laexp . snd) r'
+    return $ App (Prim (MkTuple (map (\x -> exprType x) r''))) r''
 
 {--
 N.B. (FunctionLiteral lowering): 

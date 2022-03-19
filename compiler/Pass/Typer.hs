@@ -33,7 +33,7 @@ The original typing code has been preserved in HMTyper.hs for posterity.
 
 -}
 
-module Pass.Typer (infer, solve, inferC, InferCtx(..), InferM(..)) where 
+module Pass.Typer (SType, getVar, instantiate, stFunc, stTuple, stRec, stInt, stString, infer, solve, constrain, simplify, coalesceI, compactify, lookupID, inferC, InferCtx(..), InferM(..)) where 
 
 import Common.Common
 import Common.Pass
@@ -466,6 +466,8 @@ stBool = STyCon "bool" []
 stInt = STyCon "int" []
 stString = STyCon "string" []
 stFunc l r = STyCon "func" [(Contravariant, l), (Covariant, r)]
+stTuple l = STuple l
+stRec rs = SRec rs
 stVoid = STuple []
 
 ty2ast :: Typ -> Either Typ MonoType
@@ -479,6 +481,8 @@ ty2ast (TyCon "int" []) = Right IntT
 ty2ast (Bot) = Right $ Tuple []
 ty2ast (Meet (TyVar _) e) = ty2ast e
 ty2ast (Meet e (TyVar _)) = ty2ast e
+ty2ast (Join (TyVar _) e) = ty2ast e
+ty2ast (Join e (TyVar _)) = ty2ast e
 ty2ast others = Left others
 
 ast2ty :: MonoType -> SType
@@ -612,6 +616,12 @@ instantiate (TypeScheme (lv, t)) d = do
                 t' <- forM tp inst2
                 return (STuple t')
                 
+
+lookupID :: Int -> InferM SType
+lookupID id_ = do
+    ctx <- get
+    return $ fromJust $ Map.lookup id_ (iExEnv ctx)
+
 getFnReturnType :: InferM (Maybe SType)
 getFnReturnType = do
     ctx <- get
@@ -665,8 +675,9 @@ fresh lv = do
 -- constrain: lhs <: rhs
 constrain :: SType -> SType -> InferM ()
 constrain lhs rhs = do
+    trace ("Constrain = " <> show lhs <> " <: " <> show rhs <> "\n") (return ())
     ctx <- get
-    if ((lhs, rhs) `Set.member` iCache ctx) then
+    if ((lhs, rhs) `Set.member` iCache ctx) || lhs == rhs then
         return ()
     else do
         let newcache = Set.insert (lhs, rhs) (iCache ctx)
@@ -929,8 +940,8 @@ inferTLD :: SType -> Definition Name -> InferM ()
 inferTLD sty defn = do
     -- invariants (for now)
     let (Plain a) = identifier defn
-    
-    val <- inferE 1 (aExpr (value defn))
+    -- note: ALWAYS do inferAE, not inferE on aExpr, so inferAE will associate id for example.
+    val <- inferAE 1 (value defn)
     constrain val sty
     -- note: this should overwrite the current var.
     newPVar 0 a (TypeScheme (0, sty))
@@ -940,7 +951,7 @@ inferD lv defn = do
     case identifier defn of
         (Plain a) -> case (aExpr $ value defn) of
             (fl@(FunctionLiteral _ _)) -> do
-                val <- inferE (lv+1) fl
+                val <- inferAE (lv+1) (value defn)
                 newPVar lv a (TypeScheme (lv, val))
                 -- ?constrain tv
             other -> do
