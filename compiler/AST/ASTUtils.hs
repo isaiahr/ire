@@ -13,6 +13,7 @@ import Data.List
 import GHC.Generics
 import Control.DeepSeq
 import Control.Monad.Identity
+import Control.Monad.State
 
 
 deriving instance Generic (AST a)
@@ -48,8 +49,23 @@ deriving instance NFData TypedName
 nextName :: AST TypedName -> Int
 nextName ast = 1 + numof (foldr largest (TypedName (Poly [] (General 0)) (Name "" 0)) ast)
     where numof (TypedName _ (Name _ i)) = i
+          numof (TypedName _ otherwis3) = 0 -- symbols, natives, etc dont have nums
           largest :: TypedName -> TypedName -> TypedName
           largest x y = if numof x > numof y then x else y
+          
+nextId :: AST TypedName -> Int
+nextId ast = execState (runTraversal nidt ast) 0
+    where
+    nidt = Traveller {
+        travExpr = traverseExpr nidt,
+        travAExpr = (\y -> do
+            modify (\st -> max st (1+(aId y)))
+            return y),
+        travStmt = traverseStmt nidt,
+        travDefn = traverseDefn nidt,
+        travMapper = return
+    }
+    
 
 instance (Disp a) => Disp (AST a) where
     disp ast = intercalate "\n" (map disp (astTypes ast)) <> "\n" <>  intercalate "\n" (map disp (astDefns ast))

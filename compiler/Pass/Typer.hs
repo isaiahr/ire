@@ -33,7 +33,7 @@ The original typing code has been preserved in HMTyper.hs for posterity.
 
 -}
 
-module Pass.Typer (SType, getVar, instantiate, stFunc, stTuple, stRec, stInt, stString, infer, solve, constrain, simplify, coalesceI, compactify, lookupID, inferC, InferCtx(..), InferM(..)) where 
+module Pass.Typer (SType, TypeVariable, TypeScheme(..), setID, newPVar, copy, getVar, instantiate, stFunc, stTuple, stRec, stInt, stString, infer, solve, constrain, simplify, coalesceI, compactify, lookupID, inferC, InferCtx(..), InferM(..)) where 
 
 import Common.Common
 import Common.Pass
@@ -328,125 +328,123 @@ simplify (ITypeScheme (cty, rec)) = do
         type' <- th0nk
         return type'
 
+
 -- see ashley's comment on https://lptk.github.io/programming/2020/03/26/demystifying-mlsub.html
 -- to see what this solves. (as opposed to the simpler compactification alg)
-
 compactify :: SType -> InferM ITypeScheme
 compactify ty = do
     (res, st) <- runStateT (compactify0 ty Positive) (Map.empty, [])
     (res2, (rec, recv)) <- runStateT (compactify1 res Positive Set.empty) st
     return $ ITypeScheme (res2, recv)
 
+compactify0 :: SType -> Polarity -> StateT (Map.Map (IType, Polarity) TypeVariable, [(TypeVariable, IType)]) (StateT InferCtx Identity) IType
+compactify0 (STyCon t lst) pol = do
+    res <- forM lst (\(var, val) -> do
+        val' <- case var of 
+                        Covariant -> compactify0 val pol
+                        Contravariant -> compactify0 val (invp pol)
+        return (var, val')
+        )
+    return $ emptyIType {iTyCons = Set.singleton (t, res)}
+compactify0 (SRec r) pol = do
+    r' <- forM r (\(k, v) -> do
+        v' <- compactify0 v pol
+        return (k, v'))
+    return $ emptyIType {iRec = Just r'}
+compactify0 (STuple t) pol = do
+    t' <- forM t (\v -> do
+        v' <- compactify0 v pol
+        return v')
+    return $ emptyIType {iTuple = Just t'}
+compactify0 (STyVar v) pol = do
+    -- here we want to add the var, all vars in its bounds, all vars in their bounds, 
+    -- etc etc etc.
+    vars <- lift $ evalStateT (magic (Set.singleton v) pol) (Set.singleton v)
+    return $ emptyIType {iVars = vars}
     where
-        
-    compactify0 :: SType -> Polarity -> StateT (Map.Map (IType, Polarity) TypeVariable, [(TypeVariable, IType)]) (StateT InferCtx Identity) IType
-    compactify0 (STyCon t lst) pol = do
-        res <- forM lst (\(var, val) -> do
-            val' <- case var of 
-                          Covariant -> compactify0 val pol
-                          Contravariant -> compactify0 val (invp pol)
-            return (var, val')
-            )
-        return $ emptyIType {iTyCons = Set.singleton (t, res)}
-    compactify0 (SRec r) pol = do
-        r' <- forM r (\(k, v) -> do
-            v' <- compactify0 v pol
-            return (k, v'))
-        return $ emptyIType {iRec = Just r'}
-    compactify0 (STuple t) pol = do
-        t' <- forM t (\v -> do
-            v' <- compactify0 v pol
-            return v')
-        return $ emptyIType {iTuple = Just t'}
-    compactify0 (STyVar v) pol = do
-        -- here we want to add the var, all vars in its bounds, all vars in their bounds, 
-        -- etc etc etc.
-        vars <- lift $ evalStateT (magic (Set.singleton v) pol) (Set.singleton v)
-        return $ emptyIType {iVars = vars}
-        where
-        magic :: (Set.Set TypeVariable) -> Polarity -> StateT (Set.Set TypeVariable) (StateT InferCtx Identity) (Set.Set TypeVariable)
-        magic vars pol | vars == Set.empty = return Set.empty
-        magic vars pol = do
-            lb23 <- forM (Set.toList vars) (\v15 -> do
-                (lb15, ub15) <- lift $ getBounds v15
-                return lb15)
-            let lb = foldr (<>) [] lb23
-            ub23 <- forM (Set.toList vars) (\v15 -> do
-                (lb15, ub15) <- lift $ getBounds v15
-                return ub15)
-            let ub = foldr (<>) [] ub23
-            let b = if pol == Positive then lb else ub
-            let b' = map (\y -> case y of 
-                    (STyVar v0) -> Just v0
-                    els3 -> Nothing) b
-            let b'' = catMaybes b'
-            old <- get
-            let new = Set.union (Set.fromList b'') old
-            put new
-            final <- magic (Set.difference new old) pol
-            return $ Set.union final old
+    magic :: (Set.Set TypeVariable) -> Polarity -> StateT (Set.Set TypeVariable) (StateT InferCtx Identity) (Set.Set TypeVariable)
+    magic vars pol | vars == Set.empty = return Set.empty
+    magic vars pol = do
+        lb23 <- forM (Set.toList vars) (\v15 -> do
+            (lb15, ub15) <- lift $ getBounds v15
+            return lb15)
+        let lb = foldr (<>) [] lb23
+        ub23 <- forM (Set.toList vars) (\v15 -> do
+            (lb15, ub15) <- lift $ getBounds v15
+            return ub15)
+        let ub = foldr (<>) [] ub23
+        let b = if pol == Positive then lb else ub
+        let b' = map (\y -> case y of 
+                (STyVar v0) -> Just v0
+                els3 -> Nothing) b
+        let b'' = catMaybes b'
+        old <- get
+        let new = Set.union (Set.fromList b'') old
+        put new
+        final <- magic (Set.difference new old) pol
+        return $ Set.union final old
 
-    compactify1 :: IType -> Polarity -> Set.Set (IType, Polarity) -> StateT (Map.Map (IType, Polarity) TypeVariable, [(TypeVariable, IType)]) (StateT InferCtx Identity) IType
-    compactify1 ty pol proc | ty == emptyIType = return ty
-    compactify1 ty pol proc = do
-        let pty = (ty, pol)
-        if Set.member pty proc then do
-            (rec, recv) <- get
-            vars <- case Map.lookup pty rec of
-                (Just v) -> return (Set.singleton v)
-                Nothing -> do
-                    frv' <- lift $ fresh 0
-                    let (STyVar frv) = frv'
-                    put $ (Map.insert pty frv rec, recv)
-                    return $ (Set.singleton frv)
-            return $ emptyIType {iVars = vars}
-        else do
-            bounds <- forM (Set.elems (iVars ty)) (\tv -> do
-                (lb, ub) <- lift $ getBounds tv
-                let b = if pol == Positive then lb else ub
-                b' <- forM b (\bd -> do
-                    case bd of 
-                        STyVar v0 -> return $ emptyIType
-                        otherwis3 -> compactify0 otherwis3 pol)
-                return b')
-            let bounds0 = foldl Set.union Set.empty (map Set.fromList bounds)
-            let bounds' = foldl (mergeITypes pol) emptyIType bounds0
-            let res = mergeITypes pol ty bounds'
-            let proc' = Set.insert pty proc
-            con' <- forM (Set.toList (iTyCons res)) (\(k, lst) -> do
-                lst' <- forM lst (\(c, v) -> do
-                    v' <- case c of
-                               Covariant -> compactify1 v pol proc'
-                               Contravariant -> compactify1 v (invp pol) proc'
-                    return (c, v'))
-                return (k, lst'))
-            rec' <- case iRec res of
-                (Just rs) -> do
-                    rs' <- forM rs (\(k, v) -> do
-                        v' <- compactify1 v pol proc'
-                        return (k, v'))
-                    return $ (Just rs')
-                Nothing -> return Nothing
-            tup' <- case iTuple res of
-                (Just t) -> do
-                    t' <- forM t (\v -> do
-                        v' <- compactify1 v pol proc'
-                        return v')
-                    return $ (Just t')
-                Nothing -> return Nothing
-            let adapt = IType {
-                iVars = iVars res,
-                iTyCons = Set.fromList con',
-                iRec = rec',
-                iTuple = tup'
-            }
-            (rec, recv) <- get
-            case Map.lookup pty rec of
-                Just v0 -> do
-                    let recv' = recv <> [(v0, adapt)]
-                    put (rec, recv')
-                    return $ emptyIType {iVars = Set.singleton v0}
-                Nothing -> return $ adapt
+compactify1 :: IType -> Polarity -> Set.Set (IType, Polarity) -> StateT (Map.Map (IType, Polarity) TypeVariable, [(TypeVariable, IType)]) (StateT InferCtx Identity) IType
+compactify1 ty pol proc | ty == emptyIType = return ty
+compactify1 ty pol proc = do
+    let pty = (ty, pol)
+    if Set.member pty proc then do
+        (rec, recv) <- get
+        vars <- case Map.lookup pty rec of
+            (Just v) -> return (Set.singleton v)
+            Nothing -> do
+                frv' <- lift $ fresh 0
+                let (STyVar frv) = frv'
+                put $ (Map.insert pty frv rec, recv)
+                return $ (Set.singleton frv)
+        return $ emptyIType {iVars = vars}
+    else do
+        bounds <- forM (Set.elems (iVars ty)) (\tv -> do
+            (lb, ub) <- lift $ getBounds tv
+            let b = if pol == Positive then lb else ub
+            b' <- forM b (\bd -> do
+                case bd of 
+                    STyVar v0 -> return $ emptyIType
+                    otherwis3 -> compactify0 otherwis3 pol)
+            return b')
+        let bounds0 = foldl Set.union Set.empty (map Set.fromList bounds)
+        let bounds' = foldl (mergeITypes pol) emptyIType bounds0
+        let res = mergeITypes pol ty bounds'
+        let proc' = Set.insert pty proc
+        con' <- forM (Set.toList (iTyCons res)) (\(k, lst) -> do
+            lst' <- forM lst (\(c, v) -> do
+                v' <- case c of
+                            Covariant -> compactify1 v pol proc'
+                            Contravariant -> compactify1 v (invp pol) proc'
+                return (c, v'))
+            return (k, lst'))
+        rec' <- case iRec res of
+            (Just rs) -> do
+                rs' <- forM rs (\(k, v) -> do
+                    v' <- compactify1 v pol proc'
+                    return (k, v'))
+                return $ (Just rs')
+            Nothing -> return Nothing
+        tup' <- case iTuple res of
+            (Just t) -> do
+                t' <- forM t (\v -> do
+                    v' <- compactify1 v pol proc'
+                    return v')
+                return $ (Just t')
+            Nothing -> return Nothing
+        let adapt = IType {
+            iVars = iVars res,
+            iTyCons = Set.fromList con',
+            iRec = rec',
+            iTuple = tup'
+        }
+        (rec, recv) <- get
+        case Map.lookup pty rec of
+            Just v0 -> do
+                let recv' = recv <> [(v0, adapt)]
+                put (rec, recv')
+                return $ emptyIType {iVars = Set.singleton v0}
+            Nothing -> return $ adapt
 
 {--
 produced types targeted by the type inference engine.
@@ -616,11 +614,47 @@ instantiate (TypeScheme (lv, t)) d = do
                 t' <- forM tp inst2
                 return (STuple t')
                 
+-- performs a deep copy of the given type; i.e copies lhs, rhs vars and their vars etc.
+copy :: SType -> [(TypeVariable, TypeVariable)] -> InferM (SType, [(TypeVariable, TypeVariable)])
+copy sty tvmap = (runStateT (go sty) tvmap)
+    where
+    go :: SType -> StateT ([(TypeVariable, TypeVariable)]) (State InferCtx) SType
+    go (STyVar s) = do
+        b <- get
+        case lookup s b of
+             Just t -> return (STyVar t)
+             Nothing -> do
+                 (lb, ub) <- lift $ getBounds s
+                 lvl <- lift $ getLevel (STyVar s)
+                 s'' <- lift $ fresh lvl
+                 let (STyVar s') = s''
+                 modify $ \st -> (s, s'):st
+                 lb' <- forM lb go
+                 ub' <- forM ub go
+                 lift $ setBounds s' lb' ub'
+                 return (STyVar s')
+    go (STyCon kind vals) = do
+        vals' <- forM vals (\(k, v) -> do
+            v' <- go v
+            return (k, v'))
+        return (STyCon kind vals')
+    go (SRec r) = do
+        r' <- forM r (\(k, v) -> do
+            v' <- go v
+            return (k, v'))
+        return $ SRec r'
+    go (STuple t) = do
+        t' <- forM t go
+        return $ STuple t'
 
 lookupID :: Int -> InferM SType
 lookupID id_ = do
     ctx <- get
     return $ fromJust $ Map.lookup id_ (iExEnv ctx)
+
+setID :: Int -> SType -> InferM ()
+setID id_ sty = do
+    modify $ \ctx -> ctx {iExEnv = Map.insert id_ sty (iExEnv ctx)}
 
 getFnReturnType :: InferM (Maybe SType)
 getFnReturnType = do
@@ -675,7 +709,7 @@ fresh lv = do
 -- constrain: lhs <: rhs
 constrain :: SType -> SType -> InferM ()
 constrain lhs rhs = do
-    trace ("Constrain = " <> show lhs <> " <: " <> show rhs <> "\n") (return ())
+    -- trace ("Constrain = " <> show lhs <> " <: " <> show rhs <> "\n") (return ())
     ctx <- get
     if ((lhs, rhs) `Set.member` iCache ctx) || lhs == rhs then
         return ()
@@ -892,8 +926,8 @@ setExprTy :: AnnExpr Name -> SType -> InferM ()
 setExprTy ae ty = do
     modify $ \ctx -> ctx {iExEnv = Map.insert (aId ae) ty (iExEnv ctx)}
 
-newPVar :: Int -> Name -> TypeScheme -> InferM ()
-newPVar lv name typ = do
+newPVar :: Name -> TypeScheme -> InferM ()
+newPVar name typ = do
     modify $ \ctx -> ctx {iEnv = Map.insert name typ (iEnv ctx)}
 
 getVar :: Name -> InferM TypeScheme
@@ -944,7 +978,7 @@ inferTLD sty defn = do
     val <- inferAE 1 (value defn)
     constrain val sty
     -- note: this should overwrite the current var.
-    newPVar 0 a (TypeScheme (0, sty))
+    newPVar a (TypeScheme (0, sty))
 
 inferD :: Int -> Definition Name -> InferM ()
 inferD lv defn = do
@@ -952,7 +986,7 @@ inferD lv defn = do
         (Plain a) -> case (aExpr $ value defn) of
             (fl@(FunctionLiteral _ _)) -> do
                 val <- inferAE (lv+1) (value defn)
-                newPVar lv a (TypeScheme (lv, val))
+                newPVar a (TypeScheme (lv, val))
                 -- ?constrain tv
             other -> do
                 tv <- newVar lv a

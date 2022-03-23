@@ -70,6 +70,36 @@ then; check constraints on to see if they have propogated
 to other tlfunctions (that are perhaps not realized in fcall)
 
 
+newer idea.
+consider each function has 4 things; 
+ - the actual definition (f)
+ - the use of the definition (g)
+ - the function in the call of the use (h)
+ - the constructed function produced by calling h (x -> a)
+example:
+id := \z -> z
+id2 := \y -> y
+value := (if true then id else id2) 3
+
+here f is id (top defn), g is id in the (if true then id ...) 
+h is (if true then id else id2), and x->a is x int a int, so (int->int)
+
+the problem becomes 
+ 1) determining which identifier represents what instantiation;
+ 2) monomorphizing id for this. 
+ 
+ we have;
+ f <: g <: h <: (x->a)
+
+ so one solution to the problem is monomorphize with x->a.
+ however, identifying the correct (x->a) for g can be difficult.
+ 
+ if (x->a) <: g, then g = x->a is okay.
+ lb(g) <: g <: ub(g)
+ if x->a <: ub(g), then g = x->a is okay also (i think?)
+ 
+ recures RHS?
+ 
 -}
 
 module Pass.Specialization (passSpecialize) where
@@ -93,23 +123,30 @@ import Debug.Trace
 
 passSpecialize = Pass {pName = "Specialization", pFunc = \a -> doSpec (identify a)}
     where doSpec ast = trace (disp ast) (let ctx = inferAST ast in magic ctx (typeAST ctx ast))
-          magic ctx = either (\l -> (l, Nothing)) (\r -> (mempty, Just $ specOne r ctx))
+          magic ctx = either (\l -> (l, Nothing)) (\r -> either (\m -> (m, Nothing)) (\ok -> (mempty, Just ok)) (specOne r ctx))
 
 
 unm (Identity m) = m
 
-specOne :: AST TypedName -> InferCtx -> AST TypedName
+specOne :: AST TypedName -> InferCtx -> Either Messages (AST TypedName)
 specOne ast ictx = reinfer $ unm (runStateT (evalStateT (spec_all ast) []) ictx)
 
-reinfer (ast, ctx) = fromRight (error "todo2") (typeAST ctx (untype ast))
+reinfer (ast, ctx) = (typeAST ctx (untype ast))
 
 untype ast = fmap un ast 
     where un (TypedName t n) = n
           
 spec_all ast = do
     runTraversal traversal ast
-    forM (astDefns ast) traverseTLD
-    return ast
+    e <- spec_all2 (astDefns ast) (astDefns ast)
+    return $ ast {astDefns = e}
+    
+spec_all2 ds (p:ps) = do
+    ds' <- traverseTLD ds p
+    ds'' <- spec_all2 ds' ps
+    return $ ds''
+    
+spec_all2 ds [] = return ds
 
 traversal = Traveller {
     travExpr = traverseExpr traversal,
@@ -119,81 +156,93 @@ traversal = Traveller {
     travMapper = return
 }
 
-
-
-
+{-
 specAE t aexpr@(AnnExpr {aExpr=(FunctionCall f x)}) = do
     f' <- specAE t f
     x' <- specAE t x
-    specialize f' (aId x') (aId aexpr)
-    return $ aexpr{aExpr = FunctionCall f' x'}
+    fty <- lift $ lookupID (aId f)
+    xty <- lift $ lookupID (aId x)
+    aty <- lift $ lookupID (aId aexpr)
+   -- lift $ constrain fty (stFunc xty aty)
+    addSpec2 
+    return $ aexpr {aExpr = FunctionCall f' x'}
+    -}
+specAE t aexpr@(AnnExpr {aExpr=(Variable (TypedName ty n))}) = do
+    fty <- lift $ lookupID (aId aexpr)
+    addSpec n fty
+    return $ aexpr{aExpr = Variable (TypedName ty n)}
     
 specAE t rest = traverseAExpr t rest
 
 
-addSpec :: Name -> SType -> SType -> StateT [(Name, SType, SType)] (State InferCtx) ()
-addSpec name a b = do
-    modify $ \ctx -> (name, a, b):ctx
+addSpec :: Name -> SType -> StateT [(Name, SType)] (State InferCtx) ()
+addSpec name f = do
+    modify $ \ctx -> (name, f):ctx
     
-requestSpec :: Name -> StateT [(Name, SType, SType)] (State InferCtx) [(Name, SType, SType)]
+requestSpec :: Name -> StateT [(Name, SType)] (State InferCtx) [(Name, SType)]
 requestSpec name = do
     ctx <- get
     --trace (intercalate " " (map (disp . fst3) ctx)) (return ())
-    return $ filter (\(a,b,c) -> a == name) ctx
+    return $ filter (\(a,b) -> a == name) ctx
 
-fst3 (a, b, c) = a
--- record; 
--- a request of x and a into the monad. for the spec pass to deal with.
-specialize :: AnnExpr TypedName -> Int -> Int -> StateT [(Name, SType, SType)] (State InferCtx) (AnnExpr TypedName)
-specialize fex@(AnnExpr {aExpr=f@(Variable (TypedName t n))}) a b = do
-    fty <- lift $ lookupID (aId fex)
-    aty <- lift $ lookupID a
-    bty <- lift $ lookupID b
-    -- old: lift $ constrain (stFunc thinga thingb) fty
-    addSpec n aty bty
-    trace ("SPECIALIZE " <> disp n <> ": " <> (show fty) <> " TO: " <> (show aty) <> " -> " <> (show bty) <> "\n") (return ())
-    return $ fex
-    
-specialized _ _ _ = error "todo; general case"
-    
 
-traverseTLD d = case (value d) of
-                          AnnExpr{aExpr = FunctionLiteral (Plain (TypedName _ e)) val} -> do 
-                              -- constrain the identifier
-                              let (Plain (TypedName _ ident2)) = identifier d
-                              datum <- requestSpec ident2
-                              forM datum (\(_, pty, exty) -> do
-                                  trace ("Constrained " <> (disp e) <> "\n") (return ())
-                                  lift $ constrainIdent e pty
-                                  lift $ constrainValue val exty
-                                  return ())
-                              return ()
-                          AnnExpr{aExpr = FunctionLiteral (TupleUnboxing r) val} -> do
-                              let (Plain (TypedName _ ident2)) = identifier d
-                              datum <- requestSpec ident2
-                              forM datum(\(_, pty, exty) -> do
-                                  lift $ constrainIdents r pty
-                                  lift $ constrainValue val exty
-                                  return ())
-                              return ()
-                          othr -> error "top-level function lit invariant not respected"
-                          
-                          
--- cons <: a -- LHS constrain
-constrainIdent a cons = do
-    tysc <- getVar a
-    ty <- instantiate tysc 1
-    constrain cons ty
+traverseTLD prexisting d = do
+    -- constrain the identifier
+    let (Plain (TypedName _ ident2)) = identifier d
+    datum <- requestSpec ident2
+    travTLD2 prexisting d datum
     
--- same as above but for \(a,b,c) -> ex
-constrainIdents as cons = do
-    ts <- forM as (\(TypedName _ a) -> do
-        tysc <- getVar a
-        ty <- instantiate tysc 1
-        return ty)
-    constrain cons (stTuple ts)
+travTLD2 tot d ((_, f):datum) = do
+    d' <- lift $ duplicate d tot
+    me <- lift $ lookupID (aId (value d'))
+    trace ("Constrained " <> (show me) <> " :< " <> (show f) <> "\n") (return ())
+    lift $ constrain me f
+    travTLD2 (d':tot) d datum
 
--- perhaps traverse and place constraints on return stmt?
-constrainValue aexpr cons = do
-    aty <- lookupID (aId aexpr)
-    constrain cons aty
+travTLD2 tot _ [] = return tot
+
+duplicate d dfs = (evalStateT (dupl d) (filter (\y -> y /= (idnt d)) (map idnt dfs), nextName (AST{astTypes=[], astDefns = dfs}), nextId(AST{astTypes=[], astDefns = dfs}), [], []))
+    where idnt d = let (Plain id_) = (identifier d) in id_
+
+dupl d = do
+    d' <- (travDefn (duplT)) d
+    return d'
+
+duplT = Traveller {
+    travExpr = traverseExpr duplT,
+    travAExpr = identer,
+    travStmt = traverseStmt duplT,
+    travDefn = traverseDefn duplT,
+    travMapper = mapper
+}
+
+identer :: AnnExpr TypedName -> StateT ([TypedName], Int, Int, [(Name, Name)], [(TypeVariable, TypeVariable)]) (State InferCtx) (AnnExpr TypedName)
+identer ae = do
+    (defns, c, c2, mapp, abc_) <- get
+    put $ (defns, c, c2+1, mapp, abc_)
+    e' <- (traverseExpr duplT) (aExpr ae)
+    (a1, a2, a3, a4, tvmap) <- get
+    ty0 <- lift $ lookupID (aId ae)
+    (ty0', tvmap') <- lift $ copy ty0 tvmap
+    put (a1, a2, a3, a4, tvmap')
+    lift $ setID c2 ty0'
+    return $ ae {aExpr = e', aId = c2}
+
+mapper :: TypedName -> StateT ([TypedName], Int, Int, [(Name, Name)], [(TypeVariable, TypeVariable)]) (State InferCtx) TypedName
+mapper tn@(TypedName t n@(Name s i)) = do
+    (defns, c, c2, mapp, _) <- get
+    if tn `elem` defns then do
+        return tn
+    else do
+        case lookup n mapp of
+            Just nn -> return (TypedName t nn)
+            Nothing -> do
+                let n' = (Name s c)
+                let nn = (TypedName t n')
+                (_, _, _, _, tvmap) <- get
+                (TypeScheme (lv, val)) <- lift $ getVar n
+                (val', tvmap') <- lift $ copy val tvmap
+                lift $ newPVar n' (TypeScheme (lv, val'))
+                put $ (defns, c+1, c2, (n, n'):mapp, tvmap')
+                return nn
+mapper other = return other
