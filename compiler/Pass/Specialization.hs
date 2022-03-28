@@ -122,14 +122,15 @@ import Debug.Trace
 
 
 passSpecialize = Pass {pName = "Specialization", pFunc = \a -> doSpec (identify a)}
-    where doSpec ast = trace (disp ast) (let ctx = inferAST ast in magic ctx (typeAST ctx ast))
+    where doSpec ast = trace (disp ast) (let ctx = inferAST ast in magic ctx (Right (hack ast)))
           magic ctx = either (\l -> (l, Nothing)) (\r -> either (\m -> (m, Nothing)) (\ok -> (mempty, Just ok)) (specOne r ctx))
+          hack ast = fmap (\n -> TypedName (Poly [] (General 3)) n) ast
 
 
 unm (Identity m) = m
 
 specOne :: AST TypedName -> InferCtx -> Either Messages (AST TypedName)
-specOne ast ictx = reinfer $ unm (runStateT (evalStateT (spec_all ast) []) ictx)
+specOne ast ictx = reinfer $ unm (runStateT (evalStateT (spec_all ast) ([], [])) ictx)
 
 reinfer (ast, ctx) = (typeAST ctx (untype ast))
 
@@ -139,14 +140,42 @@ untype ast = fmap un ast
 spec_all ast = do
     runTraversal traversal ast
     e <- spec_all2 (astDefns ast) (astDefns ast)
-    return $ ast {astDefns = e}
-    
+    re <- getRepls
+    let ast' = mapAExpr (ast {astDefns = e}) (magicfunc re)
+    trace (disp $ ast') (return ())
+    lift $ runTraversal cfuncs $ (untype $ ast')
+    return $ ast'
+
+magicfunc uuu a = case lookup (aId a) uuu of 
+                       Nothing -> (aExpr a)
+                       (Just b) -> Variable (TypedName (Poly [] (General 30)) b)
+
 spec_all2 ds (p:ps) = do
     ds' <- traverseTLD ds p
     ds'' <- spec_all2 ds' ps
     return $ ds''
     
 spec_all2 ds [] = return ds
+
+cfuncs = Traveller {
+    travExpr = traverseExpr cfuncs,
+    travAExpr = (\aexpr -> do
+        ty <- lookupID (aId aexpr)
+        ty' <- cfuncize ty
+        setID (aId aexpr) ty'
+        (travExpr cfuncs) (aExpr aexpr)
+        return aexpr
+        ),
+    travStmt = traverseStmt cfuncs,
+    travDefn = traverseDefn cfuncs,
+    travMapper = (\m -> do
+        (TypeScheme (lv, val)) <- getVar m
+        val' <- cfuncize val
+        newPVar m (TypeScheme (lv, val'))
+        return m
+    )
+}
+    
 
 traversal = Traveller {
     travExpr = traverseExpr traversal,
@@ -169,22 +198,30 @@ specAE t aexpr@(AnnExpr {aExpr=(FunctionCall f x)}) = do
     -}
 specAE t aexpr@(AnnExpr {aExpr=(Variable (TypedName ty n))}) = do
     fty <- lift $ lookupID (aId aexpr)
-    addSpec n fty
+    addSpec n fty (aId aexpr)
     return $ aexpr{aExpr = Variable (TypedName ty n)}
     
 specAE t rest = traverseAExpr t rest
 
 
-addSpec :: Name -> SType -> StateT [(Name, SType)] (State InferCtx) ()
-addSpec name f = do
-    modify $ \ctx -> (name, f):ctx
+addSpec :: Name -> SType -> Int -> StateT ([(Name, Int, SType)], [(Int, Name)]) (State InferCtx) ()
+addSpec name f id0 = do
+    modify $ \(ctx, c0) -> ((name, id0, f):ctx, c0)
     
-requestSpec :: Name -> StateT [(Name, SType)] (State InferCtx) [(Name, SType)]
+requestSpec :: Name -> StateT ([(Name, Int, SType)], [(Int, Name)]) (State InferCtx) [(Name, Int, SType)]
 requestSpec name = do
-    ctx <- get
+    (ctx, _) <- get
     --trace (intercalate " " (map (disp . fst3) ctx)) (return ())
-    return $ filter (\(a,b) -> a == name) ctx
+    return $ filter (\(a,b,c) -> a == name) ctx
 
+addRepl :: Int -> Name -> StateT ([(Name, Int, SType)], [(Int, Name)]) (State InferCtx) ()
+addRepl lnt nam = do
+    modify $ \(ctx, ctx2) -> (ctx, (lnt, nam):ctx2)
+    
+getRepls :: StateT ([(Name, Int, SType)], [(Int, Name)]) (State InferCtx) [(Int, Name)]
+getRepls = do
+    (_, ctx) <- get
+    return ctx
 
 traverseTLD prexisting d = do
     -- constrain the identifier
@@ -192,9 +229,11 @@ traverseTLD prexisting d = do
     datum <- requestSpec ident2
     travTLD2 prexisting d datum
     
-travTLD2 tot d ((_, f):datum) = do
+travTLD2 tot d ((_, fid, f):datum) = do
     d' <- lift $ duplicate d tot
     me <- lift $ lookupID (aId (value d'))
+    let (Plain (TypedName _ myname)) = identifier d'
+    addRepl fid myname
     trace ("Constrained " <> (show me) <> " :< " <> (show f) <> "\n") (return ())
     lift $ constrain me f
     travTLD2 (d':tot) d datum

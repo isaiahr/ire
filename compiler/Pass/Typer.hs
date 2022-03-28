@@ -33,7 +33,7 @@ The original typing code has been preserved in HMTyper.hs for posterity.
 
 -}
 
-module Pass.Typer (SType, TypeVariable, TypeScheme(..), setID, newPVar, copy, getVar, instantiate, stFunc, stTuple, stRec, stInt, stString, infer, solve, constrain, simplify, coalesceI, compactify, lookupID, inferC, InferCtx(..), InferM(..)) where 
+module Pass.Typer (SType, TypeVariable, TypeScheme(..), Typ, ty2ast, cfuncize, setID, newPVar, copy, getVar, instantiate, stFunc, stTuple, stRec, stInt, stString, infer, solve, constrain, simplify, coalesceI, compactify, lookupID, inferC, InferCtx(..), InferM(..)) where 
 
 import Common.Common
 import Common.Pass
@@ -460,6 +460,7 @@ data Typ =
         | TyVar TypeVariable 
         | TyCon String [Typ] deriving (Eq, Show, Ord)
 
+
 stBool = STyCon "bool" []
 stInt = STyCon "int" []
 stString = STyCon "string" []
@@ -471,16 +472,11 @@ stVoid = STuple []
 ty2ast :: Typ -> Either Typ MonoType
 ty2ast (Tup ts) = Tuple <$> (mapM ty2ast ts)
 ty2ast (Rec rs) = Record <$> (mapM (\(k, v) -> ty2ast v >>= \x -> return (k, x)) rs)
-ty2ast (TyCon "func" [t1, t2]) = liftM2 Function (ty2ast t1) (ty2ast t2)
+ty2ast (TyCon "cfunc" [t1, t2]) = liftM2 Function (ty2ast t1) (ty2ast t2)
 ty2ast (TyVar tv) = Right $ General tv
 ty2ast (TyCon "bool" []) = Right BoolT
 ty2ast (TyCon "string" []) = Right StringT
 ty2ast (TyCon "int" []) = Right IntT
-ty2ast (Bot) = Right $ Tuple []
-ty2ast (Meet (TyVar _) e) = ty2ast e
-ty2ast (Meet e (TyVar _)) = ty2ast e
-ty2ast (Join (TyVar _) e) = ty2ast e
-ty2ast (Join e (TyVar _)) = ty2ast e
 ty2ast others = Left others
 
 ast2ty :: MonoType -> SType
@@ -542,23 +538,21 @@ solve = do
         v' <- coalesceI com'
         --v' <- coalesce v34
         addMsg ((disp k) <> "=" <> show v34 <> ":" <> show v')
-        let v'' = ty2ast v'
-        return $ (\v''' -> (k, v''')) <$> v'')
+        return $ (k, v'))
     solvedex <- forM (Map.toList (iExEnv ctx)) (\(k, v) -> do
         com <- compactify v
         com' <- simplify com
         v' <- coalesceI com'
         addMsg ((disp k) <> "=" <> show v <> ":" <> show v')
-        let res = ty2ast v'
-        return $ (\v'' -> (k, v'')) <$> res
+        return $ (k, v')
         )
     ctx' <- get
     let msg2 = map (\(tv, l, lb, rb) -> printBounds lb <> "<:" <> show tv <> "<:" <> printBounds rb <> "\n") (iBounds ctx')
     addMsg ("\n" <> (foldl (<>) [] msg2) <> "\n\n")
     st0 <- get
     trace (intercalate "\n" (iMsgs st0)) (return ())
-    modify $ \st -> st {iErrs = iErrs st0 <> (map show $ lefts solved) <> (map show $ lefts solvedex)}
-    return $ (rights solved, rights solvedex)
+    --modify $ \st -> st {iErrs = iErrs st0 <> (map show $ lefts solved) <> (map show $ lefts solvedex)}
+    return $ (solved, solvedex)
     
 -- instantiate a type with fresh variables (if there level > lv),
 -- at the desired level d.
@@ -706,6 +700,37 @@ fresh lv = do
     put $ ctx {iCount = iCount ctx + 1, iBounds = iBounds ctx <> [((iCount ctx), lv, [], [])]}
     return ret
     
+cfuncize (STyCon "func" [(Contravariant, l), (Covariant, r)]) = do
+    l' <- cfuncize l
+    r' <- cfuncize r
+    return $ STyCon "cfunc" [(Covariant, l), (Covariant, r)]
+    
+cfuncize (STyCon o u) = do
+    u' <- forM u (\(k, v) -> do
+        v' <- cfuncize v
+        return (k, v'))
+    return $ STyCon o u'
+
+cfuncize (SRec r) = do
+    r' <- forM r (\(k, v) -> do
+        v' <- cfuncize v
+        return (k, v'))
+    return $ SRec r'
+
+cfuncize (STuple r) = do
+    r' <- forM r (\v -> do
+        v' <- cfuncize v
+        return v')
+    return $ STuple r' 
+    
+cfuncize (STyVar v) = do
+    -- todo loop detect
+    (lb, ub) <- getBounds v
+    lb' <- forM lb cfuncize
+    ub' <- forM ub cfuncize
+    setBounds v lb' ub'
+    return (STyVar v)
+    
 -- constrain: lhs <: rhs
 constrain :: SType -> SType -> InferM ()
 constrain lhs rhs = do
@@ -763,6 +788,7 @@ constrain lhs rhs = do
                  else do
                     lhs' <- extrude lhs rhslv Positive
                     constrain lhs' rhs
+             (other, wise) -> error $ "todo: error on: " <> (show other) <> " <: " <> (show wise)
         return ()
 
 -- "fixes" levels of a given type.

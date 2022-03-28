@@ -60,13 +60,26 @@ nextId ast = execState (runTraversal nidt ast) 0
         travExpr = traverseExpr nidt,
         travAExpr = (\y -> do
             modify (\st -> max st (1+(aId y)))
+            _ <- traverseExpr nidt (aExpr y)
             return y),
         travStmt = traverseStmt nidt,
         travDefn = traverseDefn nidt,
         travMapper = return
     }
     
-
+-- note: applies function BEFORE recursion.
+mapAExpr :: AST a -> (AnnExpr a -> Expression a) -> AST a
+mapAExpr ast f = unid $ runTraversal go ast 
+    where 
+        unid (Identity a) = a
+        go = Traveller {
+            travExpr = traverseExpr go,
+            travAExpr = \y -> (traverseAExpr go) (y {aExpr = f y}),
+            travStmt = traverseStmt go,
+            travDefn = traverseDefn go,
+            travMapper = return
+        }
+    
 instance (Disp a) => Disp (AST a) where
     disp ast = intercalate "\n" (map disp (astTypes ast)) <> "\n" <>  intercalate "\n" (map disp (astDefns ast))
     
@@ -97,8 +110,10 @@ foldme f (Block (s:ss)) = foldms f s <> foldme f (Block ss)
 foldme f (Block []) = mempty
 foldme f (IfStmt i t e) = foldmae f i <> foldmae f t <> foldmae f e
 foldme f (ArrayLiteral a) = foldMap (\x -> foldmae f x) a
+foldme f (RecordLiteral r) = foldMap (\x -> foldmae f (snd x)) r
 foldme f (TupleLiteral a) = foldMap (\x -> foldmae f x) a
 foldme f (FunctionLiteral a b) = foldpat f a <> (foldmae f b)
+foldme f (Selector a _ _) = foldmae f a
 foldme f (Constant nt) = mempty
 foldme f (StringLiteral s) = mempty
 foldme f (BooleanLiteral b) = mempty

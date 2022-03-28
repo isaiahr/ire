@@ -210,7 +210,7 @@ compile monoTLF monoN stage opt target file processed idx mout = do
              if allsyms /= nub allsyms then
                  ioError (userError "Conflicting symbols")
                                        else 
-                 return ()
+                                       return ()
              if (filter (\s -> s `elem` (map (\(s2, t2) -> s2) allsyms)) (uExports file)) == (uExports file) then
                  return () -- ok, all exports are imported
                                                                                           else 
