@@ -465,6 +465,7 @@ stBool = STyCon "bool" []
 stInt = STyCon "int" []
 stString = STyCon "string" []
 stFunc l r = STyCon "func" [(Contravariant, l), (Covariant, r)]
+stArray a = STyCon "array" [(Covariant, a)]
 stTuple l = STuple l
 stRec rs = SRec rs
 stVoid = STuple []
@@ -610,7 +611,7 @@ instantiate (TypeScheme (lv, t)) d = do
                 
 -- performs a deep copy of the given type; i.e copies lhs, rhs vars and their vars etc.
 copy :: SType -> [(TypeVariable, TypeVariable)] -> InferM (SType, [(TypeVariable, TypeVariable)])
-copy sty tvmap = (runStateT (go sty) tvmap)
+copy sty tvmap = runStateT (go sty) tvmap
     where
     go :: SType -> StateT ([(TypeVariable, TypeVariable)]) (State InferCtx) SType
     go (STyVar s) = do
@@ -700,36 +701,44 @@ fresh lv = do
     put $ ctx {iCount = iCount ctx + 1, iBounds = iBounds ctx <> [((iCount ctx), lv, [], [])]}
     return ret
     
-cfuncize (STyCon "func" [(Contravariant, l), (Covariant, r)]) = do
-    l' <- cfuncize l
-    r' <- cfuncize r
-    return $ STyCon "cfunc" [(Covariant, l), (Covariant, r)]
-    
-cfuncize (STyCon o u) = do
-    u' <- forM u (\(k, v) -> do
-        v' <- cfuncize v
-        return (k, v'))
-    return $ STyCon o u'
 
-cfuncize (SRec r) = do
-    r' <- forM r (\(k, v) -> do
-        v' <- cfuncize v
-        return (k, v'))
-    return $ SRec r'
+cfuncize sty = evalStateT (go sty) []
+    where
+    go :: SType -> StateT [TypeVariable] (State InferCtx) SType
+    go (STyCon "func" [(Contravariant, l), (Covariant, r)]) = do
+        l' <- go l
+        r' <- go r
+        return $ STyCon "cfunc" [(Covariant, l), (Covariant, r)]
+        
+    go (STyCon o u) = do
+        u' <- forM u (\(k, v) -> do
+            v' <- go v
+            return (k, v'))
+        return $ STyCon o u'
 
-cfuncize (STuple r) = do
-    r' <- forM r (\v -> do
-        v' <- cfuncize v
-        return v')
-    return $ STuple r' 
-    
-cfuncize (STyVar v) = do
-    -- todo loop detect
-    (lb, ub) <- getBounds v
-    lb' <- forM lb cfuncize
-    ub' <- forM ub cfuncize
-    setBounds v lb' ub'
-    return (STyVar v)
+    go (SRec r) = do
+        r' <- forM r (\(k, v) -> do
+            v' <- go v
+            return (k, v'))
+        return $ SRec r'
+
+    go (STuple r) = do
+        r' <- forM r (\v -> do
+            v' <- go v
+            return v')
+        return $ STuple r' 
+        
+    go (STyVar v) = do
+        st <- get
+        if v `elem` st then
+            return (STyVar v)
+        else do
+            modify $ \ctx -> v:ctx
+            (lb, ub) <- lift $ getBounds v
+            lb' <- forM lb go
+            ub' <- forM ub go
+            lift $ setBounds v lb' ub'
+            return (STyVar v)
     
 -- constrain: lhs <: rhs
 constrain :: SType -> SType -> InferM ()
@@ -958,7 +967,7 @@ newPVar name typ = do
 
 getVar :: Name -> InferM TypeScheme
 getVar a@(NativeName n) = do
-    let n' = typeofn n
+    n' <- typeofn n
     st <- get
     case Map.lookup a (iEnv st) of
          (Just _) -> return n'
@@ -966,20 +975,26 @@ getVar a@(NativeName n) = do
              modify $ \ctx -> ctx {iEnv = Map.insert a n' (iEnv ctx)}
              return n'
     where 
-    typeofn Native_Exit = TypeScheme (-1, stFunc stInt stVoid)
-    typeofn Native_Print = TypeScheme (-1, stFunc stString stVoid)
-    typeofn Native_Panic = TypeScheme (-1, stFunc stVoid stVoid)
-    typeofn Native_IntToString = TypeScheme (-1, stFunc stInt stString)
-    typeofn Native_Addition = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
-    typeofn Native_Subtraction = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
-    typeofn Native_Multiplication = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
-    typeofn Native_Equal = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_Greater = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_Less = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_GreaterEqual = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_LesserEqual = TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_Or = TypeScheme (-1, stFunc (STuple [stBool, stBool]) stBool)
-    typeofn Native_And = TypeScheme (-1, stFunc (STuple [stBool, stBool]) stBool)
+    typeofn Native_Exit = return $ TypeScheme (-1, stFunc stInt stVoid)
+    typeofn Native_Print = return $ TypeScheme (-1, stFunc stString stVoid)
+    typeofn Native_Panic = return $ TypeScheme (-1, stFunc stVoid stVoid)
+    typeofn Native_IntToString = return $ TypeScheme (-1, stFunc stInt stString)
+    typeofn Native_Addition = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
+    typeofn Native_Subtraction = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
+    typeofn Native_Multiplication = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
+    typeofn Native_Equal = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_Greater = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_Less = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_GreaterEqual = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_LesserEqual = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
+    typeofn Native_Or = return $ TypeScheme (-1, stFunc (STuple [stBool, stBool]) stBool)
+    typeofn Native_And = return $ TypeScheme (-1, stFunc (STuple [stBool, stBool]) stBool)
+    typeofn Native_ArrayGet = do 
+        a <- fresh 1 
+        return $ TypeScheme (0, stFunc (STuple [(stArray a), stInt]) a)
+    typeofn Native_ArraySet = do
+        a <- fresh 1
+        return $ TypeScheme (0, stFunc (STuple [(stArray a), stInt, a]) stVoid)
 
 getVar a@(Symbol str (Poly t mt) fi) = do
     let t = (TypeScheme (-1, ast2ty mt))
@@ -1109,6 +1124,15 @@ inferE lv (RecordLiteral rs) = do
         v' <- inferAE lv v
         return (k, v'))
     return $ SRec rs'
+
+inferE lv (ArrayLiteral l) = do
+    a <- fresh lv
+    let ty = stArray a
+    l' <- forM l (\v -> do 
+        r <- inferAE lv v
+        constrain r a
+        )
+    return ty
 
 inferE lv the_rest = error "todo"
 
