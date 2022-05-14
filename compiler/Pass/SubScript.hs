@@ -30,8 +30,7 @@ import Control.Monad.State
 passSubScript = Pass {pName = "Name Subscripting", pFunc = subscript}
     where subscript ast = (mempty, Just $ ast {astDefns = evalState (mapM (travDefn traversal) (astDefns ast)) 0})
           
-          
--- Note; this would be a lot easier with a traversable inst for ast.
+
 traversal :: (Traveller (State Int) (Name) (Maybe Int, Name))
 traversal = Traveller {
     travExpr = (sube traversal),

@@ -102,7 +102,9 @@ the problem becomes
  
 -}
 
-module Pass.Specialization (passSpecialize) where
+module Pass.Specialization where
+
+{-
 
 import Pass.Typer
 import Pass.NameTyper
@@ -285,3 +287,4 @@ mapper tn@(TypedName t n@(Name s i)) = do
                 put $ (defns, c+1, c2, (n, n'):mapp, tvmap')
                 return nn
 mapper other = return other
+-}

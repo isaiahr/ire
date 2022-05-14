@@ -145,7 +145,8 @@ pipeline1 x pr = (pr >>>>
               passParse >>>=
               passYieldInj >>>=
               passName x >>>=
-              passSpecialize) -- >>>
+              passSubScript >>>=
+              passType) -- >>>
 
 -- hack kind of 
 instance Disp (IR.Syntax.IR, [IR.Syntax.TLFunction], [IR.Syntax.Name]) where

@@ -1,39 +1,62 @@
-{- 
+{--
+Typer.hs - type inference engine for ire.
 
-Typer.hs - Type inference engine for ire
+This is the type inference code.
 
-This uses subtyping to infer types for identifiers on an ast.
-Type inference with subtyping and (parametric) polymorphism has been a difficult problem for many years;
-however, in recent years, there has been some great progress made.
+This is based off of the HM rules for type inference https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system
 
-Research papers used here: 
-"Type Inference in the Presence of Subtyping: from Theory to Practice" - François Pottier
-url: https://hal.inria.fr/inria-00073205/document
-This is an accessible, comprehensive document that details a type system and an efficient 
-type inference algorithmn based on "constraint graphs" (inequalities between variables, and
-inequalities between variables and types). Although this algorithmn and type system is not used here,
-there are some very important ideas from this paper, like polarity of variables, that are.
-Still, it is a good paper for an introduction to subtype inference.
+significant change: to support "bidirectional let-polymorphism" (basically, use-before defn), 
+ - first assign top-level names (the ones that can be used before defn) a type of forall 1 . $1 
+   this ensures they create fresh tvs when used. then, after actually processing the defn, we instantiate the
+   new type, and create constraints with all uses. this ensures the correct type is inferred.
 
-"Algebraic Subtyping" - Stephen Dolan
-url: https://www.cs.tufts.edu/~nr/cs257/archive/stephen-dolan/thesis.pdf
-This paper represents a large leap forward in subtype inference progress.
-This is the main paper which the type inference alg is based on, although we don't specifically
-use the algorithmns described here. However it is more difficult to understand than the above paper.
 
-"The Simple Essence of Algebraic Subtyping" - Lionel Parreaux
-url: https://dl.acm.org/doi/pdf/10.1145/3409006
-This takes dolan's thesis and details a new inference algorithmn for it.
-This is the algorithmn used here. There are some parts that are (more-or-less) copied from it, but
-others require significant changes to work with the perculiarities of Ire's type system.
-The author of the paper notes that the paper is ideal for programming language designers
+Originally, this code was written without support for parametric polymorphism. 
+(original: https://github.com/isaiahr/ire/blob/e1f632fa9fa5d717d5ff105366f97eacde323d31/compiler/Pass/Typer.hs)
 
-Originally, ire did not use subtyping and instead used a standard hindley-milner style inference algorithmn.
-The original typing code has been preserved in HMTyper.hs for posterity.
+The code for constraint generation is the same, but the representation of types is different now. 
+(this is to make type inference support new types easier). to handle this a isomorphism between AST types and Typer types is established.
 
--}
+there is still some more work to be done by supporting mutual recursion (untested)
 
-module Pass.Typer (SType, TypeVariable, TypeScheme(..), Typ, ty2ast, cfuncize, setID, newPVar, copy, getVar, instantiate, stFunc, stTuple, stRec, stInt, stString, infer, solve, constrain, simplify, coalesceI, compactify, lookupID, inferC, InferCtx(..), InferM(..)) where 
+note some of the code is from this link: http://dev.stephendiehl.com/fun/ (
+This is mostly the Substitutable typeclass, which I copied because I thought it was a good idea,
+and the constraint solving code. (although I already had a working constraint solver - see above)
+
+here is the copyright notice for the bits of code that are included: 
+
+Copyright (c) 2014-2016, Stephen Diehl
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to
+deal in the Software without restriction, including without limitation the
+rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
+sell copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
+IN THE SOFTWARE.
+
+
+
+
+
+--}
+
+
+
+-- should probably clean this up and remove it
+{-# LANGUAGE GeneralizedNewtypeDeriving #-}
+
+module Pass.Typer where 
 
 import Common.Common
 import Common.Pass
@@ -46,1109 +69,625 @@ import Control.Monad.State
 import Control.Monad.Except
 import Control.Monad.Identity
 import Data.List
-import Data.Maybe
 import Data.Either
 import qualified Data.Map as Map
 import qualified Data.Set as Set
 
-import Debug.Trace
+newtype TVar = TVar String deriving (Show, Eq, Ord)
 
-type Env = (Map.Map Name TypeScheme)
+instance Disp TVar where 
+    disp (TVar s) = "$" <> s
+    
+-- environment. this holds 
+-- specific inst of polymorphic functions.
+newtype Env = Env (Map.Map (Either (Maybe Int, Name) Int) TyScheme) deriving (Show, Eq)
 
-type ExEnv = (Map.Map Int SType)
+instance Disp Env where
+    disp (Env e) = Map.foldrWithKey (\k v acc -> case k of
+                                                     Left (k1, k2) -> acc <> "\n" <>  ("(" <> show k1 <> ", " <> disp k2 <> ")" <> " : " <> disp v) 
+                                                     Right k3 -> acc <> "\n" <>  ("(" <> show k3 <> ")" <> " : " <> disp v) ) "" e
 
-type TypeVariable = Int
-
-{-
-
-TypeSchemes here are encoded differently than the standard list of 
-universally quantified variables. instead, every variable gets a "depth", 
-and so the generalized vars (that need to be instantiated) are ones with depths higher
-than the specified depth. since unification (or constrainment in this case), can lower depth, 
-this ensures that the variables uses / values are dominated by the generalized expression.
-for more detail on how this works exactly, see:
-https://okmij.org/ftp/ML/generalization.html
-
--}
-data TypeScheme = TypeScheme (Int, SType) deriving (Eq, Show, Ord)
-
--- invariance not supported; see the papers above for how to handle mutation
--- covariant - standard relation, decomposed types are subtypes of the other
--- contravariant - subtyping gets reversed relation on subtypes.
-data Variance = Covariant | Contravariant deriving (Eq, Show, Ord)
-
-{-
-"Simple" Types. 
-no meet / join. 
-type variables have bounds recorded in the monad.
-many types are encoded via a type constructor; for example,
-functions are STyCon "func" [(Contravariant, paramty), (Covariant, returnty)]
--}
-
-data SType = 
-          STyVar TypeVariable 
-        | STyCon String [(Variance, SType)]
-        | STuple [SType]
-        | SRec [(String, SType)] deriving (Eq, Show, Ord)
-
-{-
-intermediate representation of a type, for better optimization.
-see the paper for how exactly.
-The idea here is that records, tuples and functions can be "merged" 
-which amounts to computing the meet or join (depending on polarity), 
-but type variables cannot (immediately) be, until further analysis.
--}
-data IType = IType {
-        iVars :: Set.Set TypeVariable,
-        iTyCons :: Set.Set (String, [(Variance, IType)]),
-        iRec :: Maybe [(String, IType)],
-        iTuple :: Maybe [IType]
-} deriving (Eq, Show, Ord)
-
-emptyIType = IType {
-    iVars = Set.empty,
-    iTyCons = Set.empty,
-    iRec = Nothing,
-    iTuple = Nothing
-}
-
-mergeITypes polarity left right = IType {
-    iVars = iVars left <> iVars right,
-    iTyCons = Set.fromList $ mergeTCs polarity ((Set.toList (iTyCons left)) <> (Set.toList (iTyCons right))),
-    iRec = case (iRec left, iRec right) of 
-                (Just kv1, Just kv2) -> Just $ mergeHelper polarity kv1 kv2
-                (Nothing, Just kv) -> Just kv
-                (j, _) -> j,
-    iTuple = case (iTuple left, iTuple right) of
-                (Just l, Just r) -> Just (mergeTHelper polarity l r)
-                (Nothing, Just r) -> Just r
-                (l, _) -> l
-    }
-    where
-    -- for records: if polarity is negative, the merge is union of both records, plus merging of repeated values
-    -- if polarity is positive, its the intersection, and of course merge intersecting values.
-    mergeHelper Negative lhs rhs = let (intersection, rest) = partition lhs rhs in (map (\(s, i1, i2) -> (s, (mergeITypes Negative i1 i2))) intersection) <> rest
-        where 
-            partition :: [(String, IType)] -> [(String, IType)] -> ([(String, IType, IType)], [(String, IType)])
-            partition l1 l2 = (map (\(k1', v') -> (k1', v', fromJust (lookup k1' l2))) (filter (\(k, v) -> k `elem` (map fst l2)) l1), (nubBy (\(k, v) (k2, v2) -> k == k2) (l1 <> l2)) \\ intersectBy (\(k, v) (k2, v2) -> k==k2) l1 l2)
-    mergeHelper Positive lhs rhs = map (\(k, v) -> fromMaybe (k, v) $ fmap (\x2 -> (k, mergeITypes Positive v x2)) (lookup k rhs)) lhs
-    mergeTHelper pol lhs rhs = map (uncurry (mergeITypes pol)) (zip lhs rhs)
-    mergeTCs pol (l:hs) = case filter (\(k, v) -> k == fst l) hs of
-                                   [l2] -> (fst l2, mergeOne pol (snd l) (snd l2)) : mergeTCs pol (hs \\ [l2])
-                                   [] -> l:mergeTCs pol hs
-    mergeTCs pol [] = []
-    mergeOne pol ((Covariant, i):is) ((_, i2):i2s) = (Covariant, mergeITypes pol i i2):(mergeOne pol is i2s)
-    mergeOne pol ((Contravariant, i):is) ((_, i2):i2s) = (Contravariant, mergeITypes (invp pol) i i2):(mergeOne pol is i2s)
-    mergeOne pol [] [] = []
-
-data ITypeScheme = ITypeScheme (IType, [(TypeVariable, IType)]) deriving (Eq, Show, Ord)
-
-data SimplifyCtx = SimplifyCtx {
-    sctxVars :: Set.Set TypeVariable,
-    sctxRecVars :: Map.Map TypeVariable (StateT SimplifyCtx (StateT InferCtx Identity) IType),
-    sctxCooccurs :: Map.Map (TypeVariable, Polarity) (Set.Set SType),
-    sctxVarSubs :: Map.Map TypeVariable (Maybe TypeVariable)
-}
-
-{-- 
-and they call this algorithmn "simple sub" ... what a joke
---}
-
-simplify :: ITypeScheme -> InferM ITypeScheme
-simplify (ITypeScheme (cty, rec)) = do
-    let ctx = SimplifyCtx {
-        sctxVars = Set.fromList (map fst rec),
-        sctxRecVars = Map.empty,
-        sctxCooccurs = Map.empty,
-        sctxVarSubs = Map.empty
-    }
-    (it, st15) <- runStateT (transform cty) ctx
-    recvars5 <- evalStateT recoverM st15
-    return $ ITypeScheme (it, recvars5)
-    where 
-    recoverM :: StateT SimplifyCtx (StateT InferCtx Identity) [(TypeVariable, IType)]
-    recoverM = do
-        st0 <- get
-        recs <- forM (Map.toList (sctxRecVars st0)) (\(key, value) -> do
-            value' <- value
-            return (key, value'))
-        return recs
-    -- yes this is a real return type. have figuring out what it does!
-    analysis :: IType -> Polarity -> StateT SimplifyCtx (StateT InferCtx Identity) (StateT SimplifyCtx (StateT InferCtx Identity) IType)
-    -- okay but really it just returns a monadic thunk to evaluate to return the itype.
-    analysis ty pol = do
-        _ <- forM (Set.toList (iVars ty)) (\var -> do
-            modify $ \ctx -> ctx {sctxVars = Set.insert var (sctxVars ctx)}
-            let newoccs = (map STyVar (Set.toList $ iVars ty)) <> (map (\(k, v) -> STyCon k []) (filter (\(k, v) -> v == []) (Set.toList $ iTyCons ty)))
-            st0 <- get
-            case Map.lookup (var, pol) (sctxCooccurs st0) of
-                    (Just stypes) -> do
-                        let i18n = Set.intersection (Set.fromList newoccs) stypes
-                        modify $ \ctx -> ctx {sctxCooccurs = Map.insert (var, pol) i18n (sctxCooccurs ctx)}
-                    (Nothing) -> do
-                        modify $ \ctx -> ctx {sctxCooccurs = Map.insert (var, pol) (Set.fromList newoccs) (sctxCooccurs ctx)}
-            case lookup var rec of
-                    (Nothing) -> return ()
-                    (Just rectys) -> do
-                        _ <- forM [rectys] (\recty -> do
-                            st1 <- get
-                            if Map.member var (sctxRecVars st1) then
-                                return ()
-                            else do
-                                let hack = do
-                                        modify $ \ctx -> ctx {sctxRecVars = Map.insert var hack (sctxRecVars ctx)}
-                                        res3 <- analysis recty pol
-                                        res3
-                                _ <- hack
-                                return ())
-                        return ()
-            return ())
-        -- these types aren't real, the innards are actually just thonks to reconstruct them.
-        con' <- forM (Set.toList (iTyCons ty)) (\(k, lst) -> do
-            lst' <- forM lst (\(c, v) -> do
-                v' <- case c of
-                           Covariant -> analysis v pol
-                           Contravariant -> analysis v (invp pol)
-                return (c, v'))
-            return (k, lst'))
-        rec' <- case iRec ty of
-                (Just r) -> do
-                    r' <- forM r (\(k, v) -> do
-                        v' <- analysis v pol
-                        return (k, v'))
-                    return $ Just r'
-                (Nothing) -> return Nothing
-        tup' <- case iTuple ty of
-                (Just t) -> do
-                    t' <- forM t (\v -> do
-                        v' <- analysis v pol
-                        return v')
-                    return $ Just t'
-                (Nothing) -> return Nothing
-        let thunk = do
-                nv' <- forM (Set.toList (iVars ty)) (\tv -> do
-                    st4 <- get
-                    c <- case Map.lookup tv (sctxVarSubs st4) of
-                        Nothing -> return $ Just tv
-                        (Just b) -> return $ b -- note: may be none. that is ok.
-                    return c)
-                let nv'' = catMaybes nv'
-                con'' <- forM con' (\(k, lst) -> do
-                    lst' <- forM lst (\(c, v) -> do
-                        v' <- v
-                        return (c, v'))
-                    return (k, lst'))
-                rec'' <- case rec' of
-                            Nothing -> return Nothing
-                            (Just r) -> do
-                                r' <- forM r (\(k, vt) -> do
-                                    v <- (vt :: StateT SimplifyCtx (StateT InferCtx Identity) IType)
-                                    return (k :: String, v :: IType))
-                                return $ Just r'
-                tup'' <- case tup' of
-                            Nothing -> return Nothing
-                            (Just t) -> do
-                                t' <- forM t (\vt -> do
-                                    v <- vt
-                                    return v)
-                                return $ Just t'
-                return IType {
-                    iVars = Set.fromList nv'',
-                    iTyCons = Set.fromList con'',
-                    iRec = rec'',
-                    iTuple = tup''
-                }
-        return $ thunk
-    transform :: IType -> StateT SimplifyCtx (StateT InferCtx Identity) IType
-    transform ty = do
-        th0nk <- analysis ty Positive
-        -- print occ / rec here maybe.
-        st0 <- get
-        -- first pass: eliminating (strictly) polar variables
-        forM (Set.toList (sctxVars st0)) (\var -> do
-            if Map.member var (sctxRecVars st0) then
-                return ()
-            else do
-                case (Map.lookup (var, Positive) (sctxCooccurs st0), Map.lookup (var, Negative) (sctxCooccurs st0)) of
-                    (Nothing, Nothing) -> error "shouldnt happen"
-                    (Just _, Just _) -> return ()
-                    otherwis3 -> do
-                        modify $ \ctx -> ctx {sctxVarSubs = Map.insert var Nothing (sctxVarSubs ctx)}
-                        return ()
-            return ())
-        st1 <- get
-        -- second pass: eliminating the so-called "variable sandwiches"
-        -- i like sandwiches
-        forM (Set.toList (sctxVars st1)) (\var -> do
-            st2 <- get
-            if Map.member var (sctxVarSubs st2) then
-                return () -- already replaced with nothing!
-            else do
-                forM [Positive, Negative] (\pol -> do
-                    st3 <- get
-                    let lst0 = Set.toList (fromMaybe Set.empty (Map.lookup (var, pol) (sctxCooccurs st3)))
-                    forM lst0 (\co_oc -> do
-                        case co_oc of
-                            (STyVar tel) -> do
-                                st4 <- get
-                                if tel /= var && not (Map.member tel (sctxVarSubs st4)) && (Map.member tel (sctxRecVars st4) == Map.member var (sctxRecVars st4)) then do
-                                    let lst1 = Map.lookup (tel, pol) (sctxCooccurs st4)
-                                    let bool = foldr (&&) True (map (\xyz -> xyz == STyVar var) (Set.toList (fromMaybe Set.empty lst1)))
-                                    if bool then do
-                                        modify $ \ctx -> ctx {sctxVarSubs = Map.insert tel (Just var) (sctxVarSubs ctx)}
-                                        -- now, merge bounds, and co-ords from invpol
-                                        case Map.lookup tel (sctxRecVars st4) of
-                                            (Just th0nk1) -> do
-                                                modify $ \ctx -> ctx {sctxRecVars = Map.delete tel (sctxRecVars ctx)}
-                                                st6 <- get
-                                                let newth = fromJust (Map.lookup var (sctxRecVars st6))
-                                                let newthonk = do
-                                                        t1 <- th0nk1
-                                                        t2 <- newth
-                                                        return $ mergeITypes pol t1 t2
-                                                modify $ \ctx -> ctx {sctxRecVars = Map.insert var newthonk (sctxRecVars ctx)}
-                                            (Nothing) -> do
-                                                let (Just telco) = (Map.lookup (tel, invp pol) (sctxCooccurs st4))
-                                                let (Just varco) = (Map.lookup (var, invp pol) (sctxCooccurs st4))
-                                                let newvarco = filter (\y -> y == (STyVar var) || Set.member y telco) (Set.toList varco)
-                                                modify $ \ctx -> ctx {sctxCooccurs = Map.insert (var, invp pol) (Set.fromList newvarco) (sctxCooccurs ctx)}
-                                        return ()
-                                    else return ()
-                                else return ()
-                            (STyCon tycn []) -> do
-                                st4 <- get
-                                if Set.member (STyCon tycn []) (fromMaybe Set.empty (Map.lookup (var, invp pol) (sctxCooccurs st4))) then
-                                    modify $ \ctx -> ctx { sctxVarSubs = Map.insert var Nothing (sctxVarSubs ctx)}
-                                else return ()
-                            otherwis4 -> return ()
-                        return ())
-                    return ())
-                return ()
-            return ()) -- yes I need this return wall for aestetic spacing purposes
-        type' <- th0nk
-        return type'
-
-
--- see ashley's comment on https://lptk.github.io/programming/2020/03/26/demystifying-mlsub.html
--- to see what this solves. (as opposed to the simpler compactification alg)
-compactify :: SType -> InferM ITypeScheme
-compactify ty = do
-    (res, st) <- runStateT (compactify0 ty Positive) (Map.empty, [])
-    (res2, (rec, recv)) <- runStateT (compactify1 res Positive Set.empty) st
-    return $ ITypeScheme (res2, recv)
-
-compactify0 :: SType -> Polarity -> StateT (Map.Map (IType, Polarity) TypeVariable, [(TypeVariable, IType)]) (StateT InferCtx Identity) IType
-compactify0 (STyCon t lst) pol = do
-    res <- forM lst (\(var, val) -> do
-        val' <- case var of 
-                        Covariant -> compactify0 val pol
-                        Contravariant -> compactify0 val (invp pol)
-        return (var, val')
-        )
-    return $ emptyIType {iTyCons = Set.singleton (t, res)}
-compactify0 (SRec r) pol = do
-    r' <- forM r (\(k, v) -> do
-        v' <- compactify0 v pol
-        return (k, v'))
-    return $ emptyIType {iRec = Just r'}
-compactify0 (STuple t) pol = do
-    t' <- forM t (\v -> do
-        v' <- compactify0 v pol
-        return v')
-    return $ emptyIType {iTuple = Just t'}
-compactify0 (STyVar v) pol = do
-    -- here we want to add the var, all vars in its bounds, all vars in their bounds, 
-    -- etc etc etc.
-    vars <- lift $ evalStateT (magic (Set.singleton v) pol) (Set.singleton v)
-    return $ emptyIType {iVars = vars}
-    where
-    magic :: (Set.Set TypeVariable) -> Polarity -> StateT (Set.Set TypeVariable) (StateT InferCtx Identity) (Set.Set TypeVariable)
-    magic vars pol | vars == Set.empty = return Set.empty
-    magic vars pol = do
-        lb23 <- forM (Set.toList vars) (\v15 -> do
-            (lb15, ub15) <- lift $ getBounds v15
-            return lb15)
-        let lb = foldr (<>) [] lb23
-        ub23 <- forM (Set.toList vars) (\v15 -> do
-            (lb15, ub15) <- lift $ getBounds v15
-            return ub15)
-        let ub = foldr (<>) [] ub23
-        let b = if pol == Positive then lb else ub
-        let b' = map (\y -> case y of 
-                (STyVar v0) -> Just v0
-                els3 -> Nothing) b
-        let b'' = catMaybes b'
-        old <- get
-        let new = Set.union (Set.fromList b'') old
-        put new
-        final <- magic (Set.difference new old) pol
-        return $ Set.union final old
-
-compactify1 :: IType -> Polarity -> Set.Set (IType, Polarity) -> StateT (Map.Map (IType, Polarity) TypeVariable, [(TypeVariable, IType)]) (StateT InferCtx Identity) IType
-compactify1 ty pol proc | ty == emptyIType = return ty
-compactify1 ty pol proc = do
-    let pty = (ty, pol)
-    if Set.member pty proc then do
-        (rec, recv) <- get
-        vars <- case Map.lookup pty rec of
-            (Just v) -> return (Set.singleton v)
-            Nothing -> do
-                frv' <- lift $ fresh 0
-                let (STyVar frv) = frv'
-                put $ (Map.insert pty frv rec, recv)
-                return $ (Set.singleton frv)
-        return $ emptyIType {iVars = vars}
-    else do
-        bounds <- forM (Set.elems (iVars ty)) (\tv -> do
-            (lb, ub) <- lift $ getBounds tv
-            let b = if pol == Positive then lb else ub
-            b' <- forM b (\bd -> do
-                case bd of 
-                    STyVar v0 -> return $ emptyIType
-                    otherwis3 -> compactify0 otherwis3 pol)
-            return b')
-        let bounds0 = foldl Set.union Set.empty (map Set.fromList bounds)
-        let bounds' = foldl (mergeITypes pol) emptyIType bounds0
-        let res = mergeITypes pol ty bounds'
-        let proc' = Set.insert pty proc
-        con' <- forM (Set.toList (iTyCons res)) (\(k, lst) -> do
-            lst' <- forM lst (\(c, v) -> do
-                v' <- case c of
-                            Covariant -> compactify1 v pol proc'
-                            Contravariant -> compactify1 v (invp pol) proc'
-                return (c, v'))
-            return (k, lst'))
-        rec' <- case iRec res of
-            (Just rs) -> do
-                rs' <- forM rs (\(k, v) -> do
-                    v' <- compactify1 v pol proc'
-                    return (k, v'))
-                return $ (Just rs')
-            Nothing -> return Nothing
-        tup' <- case iTuple res of
-            (Just t) -> do
-                t' <- forM t (\v -> do
-                    v' <- compactify1 v pol proc'
-                    return v')
-                return $ (Just t')
-            Nothing -> return Nothing
-        let adapt = IType {
-            iVars = iVars res,
-            iTyCons = Set.fromList con',
-            iRec = rec',
-            iTuple = tup'
-        }
-        (rec, recv) <- get
-        case Map.lookup pty rec of
-            Just v0 -> do
-                let recv' = recv <> [(v0, adapt)]
-                put (rec, recv')
-                return $ emptyIType {iVars = Set.singleton v0}
-            Nothing -> return $ adapt
-
-{--
-produced types targeted by the type inference engine.
--}
-data Typ = 
-          Top 
-        | Bot 
-        | Meet Typ Typ
-        | Join Typ Typ 
-        | Tup [Typ]
-        | Rec [(String, Typ)] 
-        | Recur TypeVariable Typ -- mu
-        | TyVar TypeVariable 
-        | TyCon String [Typ] deriving (Eq, Show, Ord)
-
-
-stBool = STyCon "bool" []
-stInt = STyCon "int" []
-stString = STyCon "string" []
-stFunc l r = STyCon "func" [(Contravariant, l), (Covariant, r)]
-stArray a = STyCon "array" [(Covariant, a)]
-stTuple l = STuple l
-stRec rs = SRec rs
-stVoid = STuple []
-
-ty2ast :: Typ -> Either Typ MonoType
-ty2ast (Tup ts) = Tuple <$> (mapM ty2ast ts)
-ty2ast (Rec rs) = Record <$> (mapM (\(k, v) -> ty2ast v >>= \x -> return (k, x)) rs)
-ty2ast (TyCon "cfunc" [t1, t2]) = liftM2 Function (ty2ast t1) (ty2ast t2)
-ty2ast (TyVar tv) = Right $ General tv
-ty2ast (TyCon "bool" []) = Right BoolT
-ty2ast (TyCon "string" []) = Right StringT
-ty2ast (TyCon "int" []) = Right IntT
-ty2ast others = Left others
-
-ast2ty :: MonoType -> SType
-ast2ty (Tuple t) = STuple (map ast2ty t)
-ast2ty (Record rs) = SRec (map (\(k, v) -> (k, ast2ty v)) rs)
-ast2ty (IntT) = STyCon "int" []
-ast2ty (BoolT) = STyCon "bool" []
-ast2ty (StringT) = STyCon "string" []
-ast2ty (Function l r) = stFunc (ast2ty l) (ast2ty r)
-ast2ty (Array c) = error "todo"
-ast2ty (General tv) = error "todo2"
-
-
-data Polarity = Negative | Positive deriving (Eq, Show, Ord)
-
-invp Negative = Positive
-invp Positive = Negative
+instance Show Name where
+    show n = disp n
 
 type InferM a = State InferCtx a
 
 data InferCtx = InferCtx {
-    iEnv :: Env, -- gamma
-    iExEnv :: ExEnv, 
-    iBounds :: [(TypeVariable, Int, [SType], [SType])],
-    iCount :: Int,
-    iCache :: Set.Set (SType, SType),
-    iFnRetty :: Maybe SType,
-    iErrs :: [String],
-    iMsgs :: [String],
-    recHack :: Map.Map (TypeVariable, Polarity) TypeVariable
-}
+    env :: Env, -- gamma
+    gmMap :: Map.Map Int TVar,
+    cons :: [Constraint],
+    errors :: [String],
+    numName :: Int,
+    iMsgs :: String,
+    fnTy :: Typ -- function type.
+} deriving Show
 
-printBounds b = intercalate "," (map show b)
+instance Disp InferCtx where
+    disp i = disp (env i) ++ "\n" ++ "\n" ++ (show (errors i)) 
 
-addMsg :: String -> InferM ()
-addMsg str = modify $ \st -> st {iMsgs = iMsgs st <> [str]}
+data Constraint = Constraint Typ Typ deriving (Show, Eq)
 
--- inferC: infers constraints from the ast
-inferC ast = do
-    mgc3 <- forM (astDefns ast) (\e -> do
-        let (Plain ev) = identifier e
-        st <- newVar 1 ev
-        return $ st)
-    let h = zip mgc3 (astDefns ast)
-    _ <- forM h (uncurry inferTLD)
+instance Disp Constraint where
+    disp (Constraint t1 t2) = (disp t1) <> " ~ " <> (disp t2)
+
+-- monotype
+data Typ = 
+    TyVar TVar | 
+    TyCon String | -- constant
+    TyApp String [Typ] |  -- application of a type function. example: "->" Int String is function from int to string.
+    TyNamedApp String [(String, Typ)] | -- like tyapp except with names.
+    TyNamedType (Maybe Int, Name)
+    deriving (Show, Eq)
+    
+
+instance Disp Typ where
+    disp (TyVar s) = disp s
+    disp (TyCon s) = s
+    disp (TyApp s tys) = s <> "[" <> (intercalate "," (map disp tys)) <> "]"
+    
+data TyScheme = TyScheme [TVar] Typ deriving (Show, Eq)
+
+instance Disp TyScheme where
+    disp (TyScheme tv ty) = "∀" <> (intercalate "," (map disp tv)) <> ". " <> (disp ty)
+
+newtype Sub = Sub (Map.Map TVar Typ) deriving (Show, Eq, Semigroup, Monoid)
+
+
+typeInt = TyCon "int"
+typeBool = TyCon "boolean"
+typeStr = TyCon "string"
+typeArray oft = TyApp "array" [oft]
+typeFunction a b = TyApp "func" [a, b]
+typeTuple ty = TyApp "tuple" ty
+typeRecord = TyNamedApp "record"
+typeType h = TyApp "ptr" [h]
+
+-- bijection ast types tyinfer types
+-- NOTE:  poly types need fresh tvs, so they dont conflict with generated tvs.
+-- (poly types appear when importing symbols / natives etc) 
+
+ast2tyinfer (StringT) = return typeStr
+ast2tyinfer (Function t1 t2) = liftM2 typeFunction (ast2tyinfer t1) (ast2tyinfer t2)
+ast2tyinfer (Tuple tys) = typeTuple <$> (mapM ast2tyinfer tys)
+ast2tyinfer (IntT) = return typeInt
+ast2tyinfer (BoolT) = return typeBool
+ast2tyinfer (Record _) = error "not yet impl"
+ast2tyinfer (Union _) = error "not yet impl2"
+ast2tyinfer (General ig) = do
+    st <- get 
+    let g2 = gmMap st
+    case Map.lookup ig g2 of
+         (Just tv) -> return $ TyVar tv
+         Nothing -> do
+             tv <- fresh
+             let g2' = Map.insert ig tv g2
+             modify $ \y -> y{gmMap = g2'}
+             return $ TyVar tv
+             
+
+{-
+N.B: this could cause issues in future, with distinct uses of $1 etc
+getting mapped to same tv, when they should be different.
+--}
+ast2tyscheme (Poly nt mt) = do
+    thing <- forM nt $ \n -> do
+        st <- get 
+        let g2 = gmMap st
+        case Map.lookup n g2 of
+            (Just tv) -> return tv
+            Nothing -> do
+                tv <- fresh
+                let g2' = Map.insert n tv g2
+                modify $ \y -> y{gmMap = g2'}
+                return tv
+    ty0 <- ast2tyinfer mt
+    return $ TyScheme thing ty0
+
+tyinfer2ast (TyCon "string") = StringT
+tyinfer2ast (TyCon "boolean") = BoolT
+tyinfer2ast (TyCon "int") = IntT
+tyinfer2ast (TyApp "func" [t1, t2]) = Function (tyinfer2ast t1) (tyinfer2ast t2)
+tyinfer2ast (TyApp "tuple" t) = Tuple (map tyinfer2ast t)
+tyinfer2ast (TyApp "array" [t]) = Array (tyinfer2ast t)
+tyinfer2ast (TyVar (TVar ii)) = General (read ii)
+tyinfer2ast p = error (disp p) 
+
+tyscheme2astty (TyScheme tvs p) = Poly (map (read . (\(TVar t) -> t)) tvs) (tyinfer2ast p)
+
+
+class Substitutable a where
+    apply :: Sub -> a -> a
+    ftv   :: a -> Set.Set TVar
+
+instance Substitutable Typ where
+    apply _ (TyCon a) = TyCon a
+    apply (Sub s) t@(TyVar a) = Map.findWithDefault t a s
+    apply s (TyApp u t) = TyApp u (apply s t)
+
+    ftv (TyCon a) = Set.empty
+    ftv (TyVar a) = Set.singleton a
+    ftv (TyApp s t) = ftv t
+
+instance Substitutable TyScheme where
+    apply (Sub s) (TyScheme as t)   = TyScheme as $ apply (Sub s') t
+                            where s' = foldr Map.delete s as
+    ftv (TyScheme as t) = ftv t `Set.difference` Set.fromList as
+
+instance Substitutable Constraint where
+   apply s (Constraint t1 t2) = Constraint (apply s t1)  (apply s t2)
+   ftv (Constraint t1 t2) = ftv t1 `Set.union` ftv t2
+
+instance Substitutable a => Substitutable [a] where
+    apply = fmap . apply
+    ftv   = foldr (Set.union . ftv) Set.empty
+
+instance Substitutable Env where
+    apply s (Env env) =  Env $ Map.map (apply s) env
+    ftv (Env env) = ftv $ (Map.elems (Map.filterWithKey (\k _ -> vars k) env))
+        where vars (Left (Nothing, _)) = True
+              vars _ = False
+    
+
+writeMsgs :: String -> InferM ()
+writeMsgs str = do
+    ctx <- get
+    put $ ctx { iMsgs = (iMsgs ctx) <> str }
+  
+setFnType :: Typ -> InferM ()
+setFnType ty = do
+    ctx <- get
+    put $ ctx { fnTy = ty } 
+  
+getFnType :: InferM Typ
+getFnType = do
+    ctx <- get
+    return $ fnTy ctx
+
+-- gen fresh tvar
+fresh :: InferM TVar
+fresh = do
+    st <- get
+    let n = numName st
+    put st {numName = n + 1}
+    return (TVar (show n))
+
+freshN :: Int -> InferM [TVar]
+freshN 0 = return []
+
+freshN n = do
+    i <- freshN (n-1)
+    f <- fresh
+    return $ f:i
+    
+
+-- applies substitutions to monad, so env
+applyCtx :: Sub -> InferM ()
+applyCtx sub = do
+    st <- get
+    let e = (env st)
+    let newenv =  apply sub e
+    put $ st {env = newenv} 
     return ()
+
+
+generalize :: Env -> Typ -> TyScheme
+generalize env ty = TyScheme fvs ty
+    where fvs = Set.toList $ Set.difference (ftv ty) (ftv env)
+
+instantiate :: TyScheme -> InferM Typ
+instantiate (TyScheme as ty) = do
+    as' <- mapM (\x -> do
+        v <- fresh
+        return (TyVar v)
+        )  as
+    let s = Sub $ Map.fromList $ zip as as'
+    return $ apply s ty
+    
+mkCons :: Typ -> Typ -> InferM [Constraint]
+mkCons tv ty = do
+    return [Constraint tv ty]
+    
+getVar :: (Maybe Int, Name) -> InferM (Maybe Typ)
+getVar (mi, n) = do
+    st <- get
+    let (Env e) = (env st)
+    -- should check for (mi, n), but this is only called once so its okay.
+    case Map.lookup (Left (Nothing, n)) e of 
+         Just t -> do
+             monotype <- instantiate t
+             let e' = Env $ Map.insert (Left (mi, n)) (TyScheme [] monotype) e
+             modify $ \st0 -> st0{env = e'}
+             return (Just monotype)
+         Nothing -> return Nothing
+         
+
+clearVar :: (Maybe Int, Name) -> InferM ()
+clearVar (mi, n) = do
+    st <- get
+    let (Env e) = (env st)
+    put $ st {env = (Env (Map.delete (Left (Nothing, n)) e))}
+
+newVar :: (Maybe Int, Name) -> InferM Typ
+newVar (mi, a@(NativeName n)) = do
+    v <- getVar (mi, a)
+    case v of
+         (Just tv) -> return tv
+         Nothing -> do
+             actualty <- typeofn n
+             st <- get
+             let (Env emap) = (env st)
+             put $ st {env = Env (Map.insert (Left (Nothing, a)) actualty emap) } 
+             mt <- instantiate actualty
+             st0 <- get
+             let (Env ae) = (env st0)
+             let ae' = Env $ Map.insert (Left (mi, a)) (TyScheme [] mt) ae
+             modify $ \st01 -> st01 {env = ae'}
+             return mt
+
+newVar (mi, a@(Symbol str ty fi)) = do
+    v <- getVar (mi, a)
+    case v of
+         (Just tv) -> return tv
+         Nothing -> do
+             actualty <- (ast2tyscheme ty)
+             st <- get
+             let (Env emap) = (env st)
+             put $ st {env = Env (Map.insert (Left (Nothing, a)) actualty emap) } 
+             mt <- instantiate actualty
+             st0 <- get
+             let (Env ae) = (env st0)
+             let ae' = Env $ Map.insert (Left (mi, a)) (TyScheme [] mt) ae
+             modify $ \st01 -> st01 {env = ae'}
+             return mt
+
+newVar (mi, a@(Name _ _)) = do
+    v <- getVar (mi, a)
+    case v of
+         (Just tv) -> return tv
+         Nothing -> do
+             tv <- fresh
+             st <- get
+             let (Env emap) = (env st)
+             put $ st {env = Env (Map.insert (Left (Nothing, a)) (TyScheme [] (TyVar tv)) emap) }
+             return (TyVar tv)
+
+newVar (mi, a@(NameError)) = error "NAME ERROR"
 
 infer ast = do
-    inferC ast
-    solve
-
--- solve: solves the constrain graph given
-solve = do
-    ctx <- get
-    solved <- forM (Map.toList (iEnv ctx)) (\(k, v) -> do
-        v34 <- instantiate v 0
-        com <- compactify v34
-        com' <- simplify com
-        v' <- coalesceI com'
-        --v' <- coalesce v34
-        addMsg ((disp k) <> "=" <> show v34 <> ":" <> show v')
-        return $ (k, v'))
-    solvedex <- forM (Map.toList (iExEnv ctx)) (\(k, v) -> do
-        com <- compactify v
-        com' <- simplify com
-        v' <- coalesceI com'
-        addMsg ((disp k) <> "=" <> show v <> ":" <> show v')
-        return $ (k, v')
-        )
-    ctx' <- get
-    let msg2 = map (\(tv, l, lb, rb) -> printBounds lb <> "<:" <> show tv <> "<:" <> printBounds rb <> "\n") (iBounds ctx')
-    addMsg ("\n" <> (foldl (<>) [] msg2) <> "\n\n")
-    st0 <- get
-    trace (intercalate "\n" (iMsgs st0)) (return ())
-    --modify $ \st -> st {iErrs = iErrs st0 <> (map show $ lefts solved) <> (map show $ lefts solvedex)}
-    return $ (solved, solvedex)
+    infer1 (astDefns ast)
+    infer2 (astDefns ast)
     
--- instantiate a type with fresh variables (if there level > lv),
--- at the desired level d.
-instantiate :: TypeScheme -> Int -> InferM SType
-instantiate (TypeScheme ((-1), t)) d = return t
-instantiate (TypeScheme (lv, t)) d = do
-    evalStateT (inst2 t) Map.empty
-    where
-        inst2 :: SType -> StateT (Map.Map TypeVariable TypeVariable) (StateT InferCtx Identity) SType
-        inst2 t0@(STyVar tv) = do
-            tlv <- lift $ getLevel t0
-            if (tlv <= lv) then do
-               return t0
-            else do
-                ctx <- get
-                case Map.lookup tv ctx of
-                    (Just tv0) -> return $ STyVar tv0
-                    Nothing -> do
-                        v98324 <- lift $ fresh d
-                        let (STyVar v) = v98324
-                        modify $ Map.insert tv v
-                        (b1, b2) <- lift $ getBounds tv
-                        -- double reverse? magic. dont ask.
-                        -- okay but according to the paper the order here
-                        -- gives better simplification later on. 
-                        b1' <- forM (reverse b1) inst2
-                        b2' <- forM (reverse b2) inst2
-                        lift $ setBounds v (reverse b1') (reverse b2')
-                        return $ STyVar v
-        inst2 t0@(STyCon kind vals) = do
-            tlv <- lift $ getLevel t0
-            if (tlv <= lv) then do
-                return t0
-            else do
-                vals' <- forM vals (\(k, v) -> do
-                    v' <- inst2 v
-                    return $ (k, v'))
-                return $ (STyCon kind vals')
-        inst2 t0@(SRec r) = do
-            tlv <- lift $ getLevel t0
-            if (tlv <= lv) then do
-                return t0
-            else do
-                r' <- forM r (\(k, v) -> do
-                    v' <- inst2 v
-                    return (k, v'))
-                return $ SRec r'
-        inst2 t0@(STuple tp) = do
-            tlv <- lift $ getLevel t0
-            if (tlv <= lv) then do
-                return t0
-            else do
-                t' <- forM tp inst2
-                return (STuple t')
-                
--- performs a deep copy of the given type; i.e copies lhs, rhs vars and their vars etc.
-copy :: SType -> [(TypeVariable, TypeVariable)] -> InferM (SType, [(TypeVariable, TypeVariable)])
-copy sty tvmap = runStateT (go sty) tvmap
-    where
-    go :: SType -> StateT ([(TypeVariable, TypeVariable)]) (State InferCtx) SType
-    go (STyVar s) = do
-        b <- get
-        case lookup s b of
-             Just t -> return (STyVar t)
-             Nothing -> do
-                 (lb, ub) <- lift $ getBounds s
-                 lvl <- lift $ getLevel (STyVar s)
-                 s'' <- lift $ fresh lvl
-                 let (STyVar s') = s''
-                 modify $ \st -> (s, s'):st
-                 lb' <- forM lb go
-                 ub' <- forM ub go
-                 lift $ setBounds s' lb' ub'
-                 return (STyVar s')
-    go (STyCon kind vals) = do
-        vals' <- forM vals (\(k, v) -> do
-            v' <- go v
-            return (k, v'))
-        return (STyCon kind vals')
-    go (SRec r) = do
-        r' <- forM r (\(k, v) -> do
-            v' <- go v
-            return (k, v'))
-        return $ SRec r'
-    go (STuple t) = do
-        t' <- forM t go
-        return $ STuple t'
+-- gen \/ 1 . $1  for tlfs
+infer1 (d:ds) = do
+    case identifier d of
+         (TupleUnboxing _) -> error "todo: prohibit tuple top-level defns"
+         (Plain (_, ident)) -> do
+             tv <- fresh
+             let tys = TyScheme [tv] (TyVar tv)
+             st <- get
+             let (Env emap) = env st
+             put $ st {env = Env (Map.insert (Left (Nothing, ident)) tys emap)}
+    infer1 ds
 
-lookupID :: Int -> InferM SType
-lookupID id_ = do
-    ctx <- get
-    return $ fromJust $ Map.lookup id_ (iExEnv ctx)
+infer1 [] = return ()
 
-setID :: Int -> SType -> InferM ()
-setID id_ sty = do
-    modify $ \ctx -> ctx {iExEnv = Map.insert id_ sty (iExEnv ctx)}
+infer2 (d:ds) = do
+    c1 <- inferD d
+    c2 <- infer2 ds
+    return $ c1 <> c2
 
-getFnReturnType :: InferM (Maybe SType)
-getFnReturnType = do
-    ctx <- get
-    return (iFnRetty ctx)
+infer2 [] = return []
 
-setFnReturnTy :: Maybe SType -> InferM ()
-setFnReturnTy ty = do
-    modify $ \ctx -> ctx {iFnRetty = ty}
-
-getLevel :: SType -> InferM Int
-getLevel (STyVar tv) = do
-    ctx <- get
-    case find (\(x, l, y, z) -> x == tv) (iBounds ctx)  of
-         Just (tv, l2, lhs, rhs) -> return l2
-         Nothing -> error "no typevar!"
-
-getLevel (STyCon t s) = do
-    lvs <- forM s (\(_, v) -> getLevel v)
-    return $ foldr max 0 lvs
-
-getLevel (SRec s) = do
-    lvs <- forM s (\(k, v) -> getLevel v)
-    return $ foldr max 0 lvs
-
-getLevel (STuple s) = do
-    lvs <- forM s getLevel
-    return $ foldr max 0 lvs
-    
-getBounds :: TypeVariable -> InferM ([SType], [SType])
-getBounds tv = do
-    ctx <- get
-    case find (\(x, l, y, z) -> x == tv) (iBounds ctx)  of
-         Just (tv, l2, lhs, rhs) -> return (lhs, rhs)
-         Nothing -> error "no typevar!"
-
-setBounds :: TypeVariable -> [SType] -> [SType] -> InferM ()
-setBounds tv nlhs nrhs = do
-    ctx <- get
-    let fn = \(x, l, y, z) -> if (x == tv) then (x, l, nlhs, nrhs) else (x, l, y, z)
-    let nb = map fn (iBounds ctx)
-    put $ ctx {iBounds = nb}
-    return ()
-
-fresh :: Int -> InferM SType
-fresh lv = do
-    ctx <- get
-    let ret = STyVar (iCount ctx)
-    put $ ctx {iCount = iCount ctx + 1, iBounds = iBounds ctx <> [((iCount ctx), lv, [], [])]}
-    return ret
-    
-
-cfuncize sty = evalStateT (go sty) []
-    where
-    go :: SType -> StateT [TypeVariable] (State InferCtx) SType
-    go (STyCon "func" [(Contravariant, l), (Covariant, r)]) = do
-        l' <- go l
-        r' <- go r
-        return $ STyCon "cfunc" [(Covariant, l), (Covariant, r)]
-        
-    go (STyCon o u) = do
-        u' <- forM u (\(k, v) -> do
-            v' <- go v
-            return (k, v'))
-        return $ STyCon o u'
-
-    go (SRec r) = do
-        r' <- forM r (\(k, v) -> do
-            v' <- go v
-            return (k, v'))
-        return $ SRec r'
-
-    go (STuple r) = do
-        r' <- forM r (\v -> do
-            v' <- go v
-            return v')
-        return $ STuple r' 
-        
-    go (STyVar v) = do
-        st <- get
-        if v `elem` st then
-            return (STyVar v)
-        else do
-            modify $ \ctx -> v:ctx
-            (lb, ub) <- lift $ getBounds v
-            lb' <- forM lb go
-            ub' <- forM ub go
-            lift $ setBounds v lb' ub'
-            return (STyVar v)
-    
--- constrain: lhs <: rhs
-constrain :: SType -> SType -> InferM ()
-constrain lhs rhs = do
-    -- trace ("Constrain = " <> show lhs <> " <: " <> show rhs <> "\n") (return ())
-    ctx <- get
-    if ((lhs, rhs) `Set.member` iCache ctx) || lhs == rhs then
-        return ()
-    else do
-        let newcache = Set.insert (lhs, rhs) (iCache ctx)
-        put $ ctx {iCache = newcache}
-        case (lhs, rhs) of
-             (STyCon t1 rs1, STyCon t2 rs2) -> do 
-                 if t1 == t2 then return () else error "fixme"
-                 forM (zip rs1 rs2) (\((c, v1), (_, v2)) -> do
-                     case c of
-                          Covariant -> constrain v1 v2
-                          Contravariant -> constrain v2 v1
-                     return ())
-                 return ()
-             (SRec f1, SRec f2) -> do
-                 p <- forM f2 (\(k, v) -> do
-                     case find (\x -> fst x == k) f1 of
-                          Nothing -> error "??? field rec"
-                          Just (_, v2) -> constrain v2 v)
-                 return ()
-             (STuple t1, STuple t2) -> do
-                 if (length t1 /= length t2) then
-                     error "tuple length"
-                 else do
-                     _ <- mapM (uncurry constrain) (zip t1 t2)
+updateGen :: Name -> InferM ()
+updateGen nam = do
+    st <- get
+    let (Env e) = env st
+    let tyscheme = (e Map.! (Left (Nothing, nam)))
+    forM (lefts (Map.keys e)) (\(mlnt, nam2) -> do
+        if nam2 == nam && mlnt /= Nothing then do
+            f <- instantiate tyscheme
+            let (TyScheme [] mot) = (e Map.! (Left (mlnt, nam2)))
+            con <- mkCons f mot
+            case (runSolve con) of
+                 Left e -> do
+                     modify $ \st0 -> st0 {errors = errors st0 <> [disp e, "Constraints:\n"] <> (map disp con)}
                      return ()
-             (STyVar tv, aaaaaaa) -> do
-                 rhslv <- getLevel rhs
-                 lhslv <- getLevel lhs
-                 if rhslv <= lhslv then do
-                    (lb, rb) <- getBounds tv
-                    let rb' = rb <> [rhs]
-                    setBounds tv lb rb'
-                    forM lb (\x -> constrain x rhs)
-                    return ()
-                 else do
-                    rhs' <- extrude rhs lhslv Negative
-                    constrain lhs rhs'
-                    return ()
-                 return ()
-             (aaaaaaa, STyVar tv) -> do
-                 rhslv <- getLevel rhs
-                 lhslv <- getLevel lhs
-                 if lhslv <= rhslv then do
-                    (lb, rb) <- getBounds tv
-                    let lb' = lb <> [lhs]
-                    setBounds tv lb' rb
-                    forM rb (\x -> constrain lhs x)
-                    return ()
-                 else do
-                    lhs' <- extrude lhs rhslv Positive
-                    constrain lhs' rhs
-             (other, wise) -> error $ "todo: error on: " <> (show other) <> " <: " <> (show wise)
-        return ()
-
--- "fixes" levels of a given type.
--- https://github.com/LPTK/simple-sub/commit/c80390b0e17ed40614f74c9e05750fbe8e9c99b0
--- and commit d07daef in same repo.
-extrude :: SType -> Int -> Polarity -> InferM SType
-extrude ty lv polarity = do
-    res <- evalStateT (exc ty lv polarity) Map.empty
-    return res
-    where
-    exc :: SType -> Int -> Polarity -> StateT (Map.Map (Polarity, TypeVariable) TypeVariable) (StateT InferCtx Identity) SType
-    exc (STyCon str lst) lv pol = do
-        lst' <- forM lst (\(c, v) -> do
-            v' <- case c of
-                       Covariant -> exc v lv pol
-                       Contravariant -> exc v lv (invp pol)
-            return (c, v'))
-        return $ STyCon str lst'
-    exc (SRec kv) lv pol = do
-        kv' <- forM kv (\(k, v) -> do
-            v' <- exc v lv pol
-            return (k, v'))
-        return $ SRec kv'
-
-    exc (STuple t) lv pol = do
-        t' <- forM t (\a -> exc a lv pol)
-        return $ STuple t'
-
-    exc (STyVar v) lv pol = do
-        ctx <- get
-        case Map.lookup (pol, v) ctx of
-            (Just ans) -> return (STyVar ans)
-            Nothing -> do
-                v3984 <- lift $ fresh lv
-                let (STyVar v') = v3984
-                modify $ \st -> Map.insert (pol, v) v' st
-                (lb, up) <- lift $ getBounds v
-                case pol of
-                    Positive -> do
-                        lift $ setBounds v lb ((STyVar v'):up)
-                        nvlb <- forM lb (\y -> exc y lv pol)
-                        (lb', up') <- lift $ getBounds v'
-                        lift $ setBounds v' nvlb up'
-                    Negative -> do
-                        lift $ setBounds v ((STyVar v'):lb) up
-                        nvup <- forM up (\y -> exc y lv pol)
-                        (lb', up') <- lift $ getBounds v'
-                        lift $ setBounds v' lb' nvup
-                return (STyVar v')
-    
-{--
-unused.
-this can be used if the main one breaks, to verify mutual subsumption
-with the main pipeline (SType -> IType -> Typ)
---}
-coalesce :: SType -> InferM Typ
-coalesce sty = do
-    modify $ \ctx -> ctx {recHack = Map.empty}
-    recC sty Positive Set.empty
-    where
-    recC :: SType -> Polarity -> Set.Set (TypeVariable, Polarity) -> InferM Typ
-    recC (STyCon str lst) pol proc = do 
-        error "todo"
-    recC (SRec kv) pol proc = do
-        kv' <- forM kv (\(k, v) -> do
-            v' <- recC v pol proc
-            return (k, v'))
-        return $ Rec kv'
-        
-    recC (STuple t) pol proc = do
-        t' <- mapM (\a -> recC a pol proc) t
-        return $ Tup t'
-
-    recC (STyVar v) pol proc = do
-        if (v, pol) `Set.member` proc then do
-            -- lookup in rec / add
-            ctx <- get
-            let rh = recHack ctx
-            case Map.lookup (v, pol) rh of 
-                (Just v') -> return $ TyVar v'
-                Nothing -> do
-                    let rh' = Map.insert (v, pol) v rh
-                    put $ ctx{recHack = rh'}
-                    return $ TyVar v
-        else do
-            (b1, b2) <- getBounds v
-            let b = if pol == Positive then b1 else b2
-            let proc' = Set.insert (v, pol) proc
-            tys <- forM b (\x -> recC x pol proc')
-            let merger = if pol == Positive then Join else Meet
-            let r = foldl merger (TyVar v) tys
-            ctx <- get
-            let rh = recHack ctx
-            case Map.lookup (v, pol) rh of
-                Nothing -> return r
-                (Just r2) -> return (Recur r2 r)
-
-coalesceI :: ITypeScheme -> InferM Typ
-coalesceI cty@(ITypeScheme (ty5, rec)) = do
-    resulttyp <- evalStateT (coal (Left ty5) Positive Map.empty) Set.empty
-    return resulttyp
-    where 
-
-    coal :: Either IType TypeVariable -> Polarity -> Map.Map (Either IType TypeVariable, Polarity) TypeVariable -> StateT (Set.Set (Either IType TypeVariable, Polarity)) (StateT InferCtx Identity) Typ
-    coal ty pol proc = do
-        case Map.lookup (ty, pol) proc of
-            Just val -> do 
-                modify $ \st -> Set.union st (Set.singleton (ty, pol))
-                return (TyVar val)
-            Nothing -> do
-                v <- case ty of 
-                    (Right tv) -> return tv
-                    (Left _) -> do
-                        newtv <- lift $ fresh 0 
-                        let (STyVar newtv') = newtv
-                        return newtv'
-                let proc' = Map.insert (ty, pol) v proc
-                res0 <- case ty of
-                    (Right tv) -> do 
-                        case lookup tv rec of
-                            Just ty0 -> coal (Left ty0) pol proc'
-                            Nothing -> return (TyVar tv)
-                    (Left ityp) -> do
-                        let merger = if pol == Positive then Join else Meet
-                        let extreme = if pol == Positive then Bot else Top
-                        vars <- mapM (\v -> coal v pol proc') (map Right (Set.toList (iVars ityp)))
-                        tycons <- forM (Set.toList (iTyCons ityp)) (\(k, lst) -> do
-                            lst' <- forM lst (\(c, v) -> do
-                                v' <- case c of
-                                     Covariant -> coal (Left v) pol proc'
-                                     Contravariant -> coal (Left v) (invp pol) proc'
-                                return v')
-                            return $ TyCon k lst')
-                        recs <- case iRec ityp of
-                            Nothing -> return []
-                            Just reco -> do 
-                                reco' <- forM reco (\(k, v) -> do
-                                    v' <- coal (Left v) pol proc'
-                                    return (k, v'))
-                                return [Rec reco']
-                        tups <- case (iTuple ityp) of
-                            Nothing -> return []
-                            Just tupl -> do
-                                tup' <- forM tupl (\v -> coal (Left v) pol proc')
-                                return $ [Tup tup']
-                        let result = (case (vars <> tycons <> recs <> tups) of
-                                ([]) -> extreme 
-                                xs -> foldl1 merger xs)
-                        return $ result
-                st0 <- get
-                if Set.member (ty, pol) st0 then do
-                    return $ Recur v res0
-                else return res0
-
-newVar lv name = do
-    tv <- fresh lv
-    modify $ \ctx -> ctx {iEnv = Map.insert name (TypeScheme (-1, tv)) (iEnv ctx)}
-    return tv
-
-setExprTy :: AnnExpr Name -> SType -> InferM ()
-setExprTy ae ty = do
-    modify $ \ctx -> ctx {iExEnv = Map.insert (aId ae) ty (iExEnv ctx)}
-
-newPVar :: Name -> TypeScheme -> InferM ()
-newPVar name typ = do
-    modify $ \ctx -> ctx {iEnv = Map.insert name typ (iEnv ctx)}
-
-getVar :: Name -> InferM TypeScheme
-getVar a@(NativeName n) = do
-    n' <- typeofn n
-    st <- get
-    case Map.lookup a (iEnv st) of
-         (Just _) -> return n'
-         Nothing -> do
-             modify $ \ctx -> ctx {iEnv = Map.insert a n' (iEnv ctx)}
-             return n'
-    where 
-    typeofn Native_Exit = return $ TypeScheme (-1, stFunc stInt stVoid)
-    typeofn Native_Print = return $ TypeScheme (-1, stFunc stString stVoid)
-    typeofn Native_Panic = return $ TypeScheme (-1, stFunc stVoid stVoid)
-    typeofn Native_IntToString = return $ TypeScheme (-1, stFunc stInt stString)
-    typeofn Native_Addition = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
-    typeofn Native_Subtraction = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
-    typeofn Native_Multiplication = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stInt)
-    typeofn Native_Equal = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_Greater = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_Less = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_GreaterEqual = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_LesserEqual = return $ TypeScheme (-1, stFunc (STuple [stInt, stInt]) stBool)
-    typeofn Native_Or = return $ TypeScheme (-1, stFunc (STuple [stBool, stBool]) stBool)
-    typeofn Native_And = return $ TypeScheme (-1, stFunc (STuple [stBool, stBool]) stBool)
-    typeofn Native_ArrayGet = do 
-        a <- fresh 1 
-        return $ TypeScheme (0, stFunc (STuple [(stArray a), stInt]) a)
-    typeofn Native_ArraySet = do
-        a <- fresh 1
-        return $ TypeScheme (0, stFunc (STuple [(stArray a), stInt, a]) stVoid)
-
-getVar a@(Symbol str (Poly t mt) fi) = do
-    let t = (TypeScheme (-1, ast2ty mt))
-    st <- get
-    case Map.lookup a (iEnv st) of
-         (Just _) -> return t
-         Nothing -> do
-             modify $ \ctx -> ctx {iEnv = Map.insert a t (iEnv ctx)}
-             return t
-
-getVar name = do
-    ctx <- get
-    case Map.lookup name (iEnv ctx) of
-         (Just sty) -> return sty
-         Nothing -> error "use-before-defn; namer should have caught this."
-
-inferTLD :: SType -> Definition Name -> InferM ()
-inferTLD sty defn = do
-    -- invariants (for now)
-    let (Plain a) = identifier defn
-    -- note: ALWAYS do inferAE, not inferE on aExpr, so inferAE will associate id for example.
-    val <- inferAE 1 (value defn)
-    constrain val sty
-    -- note: this should overwrite the current var.
-    newPVar a (TypeScheme (0, sty))
-
-inferD :: Int -> Definition Name -> InferM ()
-inferD lv defn = do
-    case identifier defn of
-        (Plain a) -> case (aExpr $ value defn) of
-            (fl@(FunctionLiteral _ _)) -> do
-                val <- inferAE (lv+1) (value defn)
-                newPVar a (TypeScheme (lv, val))
-                -- ?constrain tv
-            other -> do
-                tv <- newVar lv a
-                val <- inferAE lv (value defn)
-                constrain val tv
-                return ()
-        (TupleUnboxing a) -> do
-            tvs <- mapM (newVar lv) a
-            val <- inferAE lv (value defn)
-            constrain val (STuple tvs)
-            return ()
-             
-    
-inferAE :: Int -> AnnExpr Name -> InferM SType
-inferAE lv ae = do
-    e <- inferE lv (aExpr ae)
-    setExprTy ae e
-    return $ e
-    
-inferE :: Int -> Expression Name -> InferM SType
-inferE lv (Block ((Yield y):s)) = do
-    inferAE lv y
-
-inferE lv (Block ((Return r):s)) = do
-    rty <- inferAE lv r
-    setFnReturnTy (Just rty)
-    return stVoid
-
-inferE lv (Block (b:bs)) = do
-    inferS lv b
-    inferE lv (Block bs)
-
-inferE lv (FunctionCall e1 e2) = do
-    res <- fresh lv
-    e1ty <- inferAE lv e1
-    e2ty <- inferAE lv e2
-    constrain e1ty (stFunc e2ty res)
-    return res
-
-inferE lv (Variable a) = do
-    tysc <- getVar a
-    sty <- instantiate tysc lv
-    -- associate a sty
-    return sty
-    
-inferE lv (Selector e SelDot str) = do
-    res <- fresh lv
-    ety <- inferAE lv e
-    constrain ety (SRec [(str, res)])
-    return res
-
-inferE lv (Initialize a b) = error "Not yet impl"
-
-inferE lv (IfStmt e1 e2 e3) = do
-    tv <- fresh lv
-    e1ty <- inferAE lv e1
-    e2ty <- inferAE lv e2
-    e3ty <- inferAE lv e3
-    constrain e1ty stBool
-    constrain e2ty tv
-    constrain e3ty tv
-    return tv
-
-inferE lv (Constant l) = return stInt
-inferE lv (BooleanLiteral b) = return stBool
-inferE lv (StringLiteral l) = return stString
-
-inferE lv (FunctionLiteral (Plain a) e) = do
-    tv <- newVar lv a
-    et <- inferAE lv e
-    fnrt <- getFnReturnType
-    case fnrt of
-         Nothing -> return (stFunc tv et)
-         Just et' -> do
-             setFnReturnTy Nothing
-             return (stFunc tv et')
-
-inferE lv (FunctionLiteral (TupleUnboxing ts) e) = do
-    tvs <- forM ts (newVar lv)
-    et <- inferAE lv e
-    fnrt <- getFnReturnType
-    case fnrt of
-         Nothing -> return (stFunc (STuple tvs) et)
-         Just et' -> do
-             setFnReturnTy Nothing
-             return (stFunc (STuple tvs) et')
-
-inferE lv (TupleLiteral ts) = do
-    ts' <- forM ts (inferAE lv)
-    return $ STuple ts'
-
-inferE lv (RecordLiteral rs) = do
-    rs' <- forM rs (\(k, v) -> do
-        v' <- inferAE lv v
-        return (k, v'))
-    return $ SRec rs'
-
-inferE lv (ArrayLiteral l) = do
-    a <- fresh lv
-    let ty = stArray a
-    l' <- forM l (\v -> do 
-        r <- inferAE lv v
-        constrain r a
-        )
-    return ty
-
-inferE lv the_rest = error "todo"
-
-inferS lv (Defn d) = do
-    inferD lv d
-
-inferS lv (Expr e) = do
-    inferAE lv e
+                 Right sub -> do
+                     applyCtx sub
+                     return ()
+        else return ())
     return ()
     
-inferS lv (Assignment (Singleton p []) e) = do
-    ety <- inferAE lv e
-    vl <- inferE lv (Variable p)
-    constrain ety vl
+inferD d = do
+    csc <- case (identifier d) of
+                (Plain s) -> do 
+                    st2 <- get
+                    let oldenv = (env st2)
+                    clearVar s
+                    n <- newVar s
+                    c <- inferAE (value d) n
+                    case aExpr (value d) of 
+                         (FunctionLiteral args value) -> do
+                             writeMsgs $ "Attempting solve with constraints:\n" <> (intercalate "\n" (map disp c))
+                             case runSolve c of 
+                                  Left e -> do
+                                      st <- get
+                                      put st {errors = errors st <> [disp e, "Constraints:\n"] <> (map disp c) }
+                                      return mempty
+                                  Right sub -> do
+                                      applyCtx sub
+                                      -- clearVar s
+                                      nm <- newVar s
+                                      st <- get
+                                      -- NOTE: debug with trace doesnt work here for some reason. not sure why.
+                                      -- oldenv nessecary to make sure body of func is not considered part of env
+                                      let gen = generalize oldenv nm
+                                      let (Env th) = (env st)
+                                      let tr3 = Map.insert (Left (Nothing, (snd s))) gen th
+                                      put st {env = (Env tr3)}
+                                      updateGen (snd s)
+                                      return mempty
+                         expr -> return c
+                (TupleUnboxing ss) -> do
+                    ns <- forM ss (newVar)
+                    tc <- fresh
+                    c1 <- mkCons (TyVar tc) (typeTuple ns)
+                    c2 <- inferAE (value d) (TyVar tc)
+                    return $ c1 <> c2
 
-inferS lv (Assignment (TupleUnboxingA t) e) = do
-    ety <- inferAE lv e
-    vls <- mapM (inferE lv) (map Variable t)
-    constrain ety (STuple vls)
+    return csc
+
+inferE :: Expression (Maybe Int, Name) -> Typ -> InferM [Constraint]
+inferE (Constant _) tv = do
+    mkCons tv typeInt
+
+inferE (StringLiteral s) tv = do
+    mkCons tv typeStr
+    
+inferE (BooleanLiteral s) tv = do
+    mkCons tv typeBool
+
+inferE (ArrayLiteral (r:rs)) tv = do
+    nn <- fresh
+    c1 <- mkCons tv (typeArray (TyVar nn))
+    c2 <- inferAE r (TyVar nn)
+    c3 <- inferE (ArrayLiteral (rs)) tv
+    return $ c1 <> c2 <> c3
+
+inferE (ArrayLiteral []) n = return []
+
+inferE (TupleLiteral rs) n = do
+    nn <- freshN (length rs)
+    c1 <- mkCons n (typeTuple (fmap TyVar nn))
+    c2 <- inferEL rs (fmap TyVar nn)
+    return $ c1 <> c2
+
+
+inferE (FunctionLiteral f t) n = do
+    (c, nf) <- case f of
+               (Plain s) -> do 
+                   nf0 <- newVar s
+                   return ([], nf0)
+               (TupleUnboxing ss) -> do
+                   ns <- forM ss newVar
+                   tc <- fresh
+                   c4 <- mkCons (TyVar tc) (typeTuple (ns))
+                   return (c4, TyVar tc)
+    nt <- fresh
+    c0 <- mkCons n (typeFunction (nf) (TyVar nt))
+    ot <- getFnType
+    setFnType (typeFunction (nf) (TyVar nt))
+    c1 <- inferAE t (TyVar nt)
+    setFnType ot
+    return $ c <> c0 <> c1
+
+inferE (FunctionCall f x) n = do
+    nf <- fresh
+    nx <- fresh
+    c0 <- mkCons (TyVar nf) (typeFunction (TyVar nx) n)
+    c1 <- inferAE f (TyVar nf)
+    c2 <- inferAE x (TyVar nx)
+    return $ c0 <> c1 <> c2
+    
+inferE (Selector e SelDot n2) n = do
+    ne <- fresh
+    c0 <- mkCons (TyVar ne) (typeRecord [(n2, n)])
+    c1 <- inferAE e (TyVar ne)
+    return $ c0 <> c1
+    
+inferE (Selector e SelArrow n2) n = do
+    ne <- fresh
+    c0 <- mkCons (TyVar ne) (typeType (typeRecord [(n2, n)]))
+    c1 <- inferAE e (TyVar ne)
+    return $ c0 <> c1
+
+inferE (Initialize a lit) n = do
+    ne <- fresh
+    c0 <- mkCons n (TyNamedType a)
+    le <- fresh
+    c1 <- inferAE lit (TyVar le) -- <- basically just type checking
+    c2 <- mkCons (typeType (TyVar le)) (TyNamedType a)
+    return $ c0 <> c1 <> c2
+
+inferE (Variable u) n = do
+    n2 <- newVar u
+    c <- mkCons n n2
+    return c
+
+inferE (IfStmt i t e) n = do
+    ni <- fresh
+    c0 <- mkCons (TyVar ni) typeBool
+    nt <- fresh
+    ne <- fresh
+    c1 <- mkCons (TyVar nt) (TyVar ne)
+    c2 <- mkCons n (TyVar nt)
+    c3 <- inferAE i (TyVar ni)
+    c4 <- inferAE t (TyVar nt)
+    c5 <- inferAE e (TyVar ne)
+    return $ c0 <> c1 <> c2 <> c3 <> c4 <> c5
+
+inferE (Block ((Yield e):ss)) n = do
+    c1 <- inferAE e n
+    c2 <- inferE (Block ss) n
+    return $ c1 <> c2
+
+inferE (Block ((Return r):ss)) n = do
+    fn <- getFnType
+    rt <- fresh
+    c0 <- inferAE r (TyVar rt)
+    fnt <- fresh
+    fa <- fresh
+    c1 <- mkCons (TyVar fnt) (typeFunction (TyVar fa) (TyVar rt))
+    c2 <- mkCons (TyVar fnt) fn
+    return $ c0 <> c1 <> c2
+    
+inferE (Block (s:ss)) n = do
+    c0 <- inferS s
+    c1 <- inferE (Block ss) n
+    return $ c0 <> c1
+
+inferE (Block []) n = return []
+
+genConsExpr (Block []) n = return ()
+-- could use zip & mapM here instead
+inferEL (e:es) (n:ns) = do 
+    c0 <- inferAE e n
+    c1 <- inferEL es ns
+    return $ c0 <> c1
+
+inferEL [] [] = return []
+
+inferEL _ _ = undefined
+
+inferAE aexpr = do
+    inferE (aExpr aexpr)
+
+inferS (Expr e) = do
+    n <- fresh
+    inferAE e (TyVar n)
+    
+-- genconsdef d >> return () ?
+inferS (Defn d) = do 
+    inferD d
+
+inferS (Assignment a e) = do
+    case a of
+         (Singleton a2 sels) -> do 
+             n <- newVar a2
+             n2 <- fresh
+             c1 <- inferAE e (TyVar n2)
+             c2 <- inferSH n sels (TyVar n2)
+             return $ c1 <> c2
+         (TupleUnboxingA ss) -> do
+             ns <- forM ss newVar 
+             tc <- fresh
+             c1 <- mkCons (TyVar tc) (typeTuple ns)
+             c2 <- inferAE e (TyVar tc)
+             return $ c1 <> c2
+    where
+        inferSH s ((SelDot, a):rest) endexpr = do
+            ns <- fresh
+            c0 <- mkCons s (typeRecord [(a, TyVar ns)])
+            c1 <- inferSH (TyVar ns) rest endexpr
+            return $ c0 <> c1
+        inferSH s ((SelArrow, a):rest) endexpr = do
+            ns <- fresh
+            c0 <- mkCons s (typeType (typeRecord [(a, TyVar ns)]))
+            c1 <- inferSH (TyVar ns) rest endexpr
+            return $ c0 <> c1
+        inferSH s [] endexpr = do
+            mkCons s endexpr
+        
+        
+
+inferS (Return r) = error "handled in blk #234235"
+inferS (Yield y) = error "handled in blk #29588"
+
+
+-- | Constraint solver monad
+type Solve a = ExceptT TypeError Identity a
+
+-- | Compose substitutions
+compose :: Sub -> Sub -> Sub
+(Sub s1) `compose` (Sub s2) = Sub $ Map.map (apply (Sub s1)) s2 `Map.union` s1
+
+runSolve :: [Constraint] -> Either TypeError Sub
+runSolve cs = runIdentity $ runExceptT $ solver st
+  where st = (mempty, cs)
+
+unifyMany :: [Typ] -> [Typ] -> Solve Sub
+unifyMany [] [] = return mempty
+unifyMany (t1 : ts1) (t2 : ts2) = do
+    su1 <- unifies t1 t2
+    su2 <- unifyMany (apply su1 ts1) (apply su1 ts2)
+    return (su2 `compose` su1)
+unifyMany t1 t2 = error "sz t1 != sz t2" 
+
+unifies :: Typ -> Typ -> Solve Sub
+unifies t1 t2 | t1 == t2 = return mempty
+unifies (TyVar v) t = v `bind` t
+unifies t (TyVar v) = v `bind` t
+unifies (TyCon p) (TyCon p2) | p == p2 = return mempty -- redundant, but here for clarity
+unifies (TyApp p t) (TyApp p2 t2) | p == p2 = unifyMany t t2
+unifies t1 t2 = throwError $ UnificationFail t1 t2
+
+solver :: (Sub, [Constraint]) -> Solve Sub
+solver (su, cs) =
+  case cs of
+    [] -> return su
+    (Constraint t1 t2: cs0) -> do
+      su1  <- unifies t1 t2
+      solver (su1 `compose` su, apply su1 cs0)
+
+
+bind ::  TVar -> Typ -> Solve Sub
+bind a t | t == TyVar a     = return mempty
+         | occursCheck a t = throwError $ InfiniteType a t
+         | otherwise       = return (Sub $ Map.singleton a t)
+
+occursCheck ::  Substitutable a => TVar -> a -> Bool
+occursCheck a t = a `Set.member` ftv t
+
+data TypeError =
+    UnificationFail Typ Typ |
+    InfiniteType TVar Typ deriving Show
+    
+
+instance Disp TypeError where
+    disp (UnificationFail t1 t2) = "Error solving " <> disp t1 <> " ~ " <> disp t2 
+    disp (InfiniteType tv ty) = "Occurs check when solving " <> disp tv <> " ~ " <> disp ty
+    
+
+typeofn Native_Exit = (TyScheme []) <$> ast2tyinfer (Function (IntT) (Tuple []))
+typeofn Native_Print = (TyScheme []) <$> ast2tyinfer (Function (StringT) (Tuple []))
+typeofn Native_Panic = (TyScheme []) <$> ast2tyinfer (Function (Tuple []) (Tuple []))
+typeofn Native_IntToString = (TyScheme []) <$> ast2tyinfer (Function (IntT) (StringT))
+
+typeofn Native_Addition = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
+typeofn Native_Subtraction = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
+typeofn Native_Multiplication = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
+-- for now. this will change in the future (after polymorphism is added)
+typeofn Native_Equal = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_Greater = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_Less = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_GreaterEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_LesserEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_Or = (TyScheme []) <$> ast2tyinfer (Function (Tuple [BoolT, BoolT]) (BoolT))
+typeofn Native_And = (TyScheme []) <$> ast2tyinfer (Function (Tuple [BoolT, BoolT]) (BoolT))
+typeofn Native_ArraySize = do
+    tv <- fresh
+    return $ TyScheme [tv] (typeFunction (typeArray (TyVar tv)) typeInt)
+    
+typeofn Native_ArrayGet = do
+    tv <- fresh
+    return $ TyScheme [tv] (typeFunction (typeTuple [typeArray (TyVar tv), typeInt]) (TyVar tv))
+    
+typeofn Native_ArraySet = do
+    tv <- fresh
+    return $ TyScheme [tv] (typeFunction (typeTuple [typeArray (TyVar tv), typeInt, (TyVar tv)]) (typeTuple []))
+    
+typeofn Native_ArrayAppend = do
+    tv <- fresh
+    return $ TyScheme [tv] (typeFunction (typeTuple [typeArray (TyVar tv), typeArray (TyVar tv)]) (typeArray (TyVar tv)))
+    
+    
