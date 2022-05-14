@@ -300,6 +300,14 @@ getVar (mi, n) = do
              return (Just monotype)
          Nothing -> return Nothing
          
+idVar :: Int -> InferM TVar
+idVar lnt = do
+    st <- get
+    let (Env e) = (env st)
+    v <- fresh
+    let e' = Env $ Map.insert (Right lnt) (TyScheme [] (TyVar v)) e
+    put $ st {env = e'}
+    return v
 
 clearVar :: (Maybe Int, Name) -> InferM ()
 clearVar (mi, n) = do
@@ -559,8 +567,10 @@ inferEL [] [] = return []
 
 inferEL _ _ = undefined
 
-inferAE aexpr = do
-    inferE (aExpr aexpr)
+inferAE aexpr n = do
+    n2 <- idVar (aId aexpr)
+    mkCons n (TyVar n2)
+    inferE (aExpr aexpr) n
 
 inferS (Expr e) = do
     n <- fresh

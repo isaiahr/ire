@@ -33,11 +33,17 @@ typeast (Env e) ast = runReader (runTraversal traversal ast) e
 
 traversal = Traveller {
     travExpr = traverseExpr traversal,
-    travAExpr = traverseAExpr traversal,
+    travAExpr = typeAExpr,
     travStmt = traverseStmt traversal,
     travDefn = traverseDefn traversal,
     travMapper = typeIdent
 }
+
+typeAExpr ae = do
+    e' <- (travExpr traversal) (aExpr ae)
+    env <- ask
+    case Map.lookup (Right (aId ae)) env of
+         Just ty -> return $ ae {aType = Just (tyscheme2astty ty), aExpr = e'}
 
 typeIdent :: (Maybe Int, Name) -> Reader (Map.Map (Either (Maybe Int, Name) Int) TyScheme) TypedName
 typeIdent x@(lnt, nam) = do

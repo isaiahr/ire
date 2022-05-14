@@ -30,6 +30,7 @@ import Pass.Namer
 import Pass.NameTyper
 import Pass.TypeChecker
 import Pass.Specialization
+import Pass.Identify
 import IR.Monomorphization
 import qualified IR.Syntax as IR.Syntax
 import IR.DirectCall
@@ -146,6 +147,7 @@ pipeline1 x pr = (pr >>>>
               passYieldInj >>>=
               passName x >>>=
               passSubScript >>>=
+              passIdentify >>>=
               passType) -- >>>
 
 -- hack kind of 
