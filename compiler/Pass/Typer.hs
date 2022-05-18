@@ -96,6 +96,7 @@ data InferCtx = InferCtx {
     env :: Env, -- gamma
     gmMap :: Map.Map Int TVar,
     cons :: [Constraint],
+    classcons :: [(Typ, [TypeClass])],
     errors :: [String],
     numName :: Int,
     iMsgs :: String,
@@ -105,10 +106,13 @@ data InferCtx = InferCtx {
 instance Disp InferCtx where
     disp i = disp (env i) ++ "\n" ++ "\n" ++ (show (errors i)) 
 
-data Constraint = Constraint Typ Typ deriving (Show, Eq)
+data Constraint = 
+    ConsEq Typ Typ
+    deriving (Show, Eq)
+    
 
 instance Disp Constraint where
-    disp (Constraint t1 t2) = (disp t1) <> " ~ " <> (disp t2)
+    disp (ConsEq t1 t2) = (disp t1) <> " ~ " <> (disp t2)
 
 -- monotype
 data Typ = 
@@ -130,6 +134,10 @@ data TyScheme = TyScheme [TVar] Typ deriving (Show, Eq)
 instance Disp TyScheme where
     disp (TyScheme tv ty) = "∀" <> (intercalate "," (map disp tv)) <> ". " <> (disp ty)
 
+data TypeClass = 
+    RecMember Typ
+    deriving (Show, Eq)
+
 newtype Sub = Sub (Map.Map TVar Typ) deriving (Show, Eq, Semigroup, Monoid)
 
 
@@ -139,7 +147,7 @@ typeStr = TyCon "string"
 typeArray oft = TyApp "array" [oft]
 typeFunction a b = TyApp "func" [a, b]
 typeTuple ty = TyApp "tuple" ty
-typeRecord = TyNamedApp "record"
+typeRecord tys = TyNamedApp "record" tys
 typeType h = TyApp "ptr" [h]
 
 -- bijection ast types tyinfer types
@@ -151,7 +159,9 @@ ast2tyinfer (Function t1 t2) = liftM2 typeFunction (ast2tyinfer t1) (ast2tyinfer
 ast2tyinfer (Tuple tys) = typeTuple <$> (mapM ast2tyinfer tys)
 ast2tyinfer (IntT) = return typeInt
 ast2tyinfer (BoolT) = return typeBool
-ast2tyinfer (Record _) = error "not yet impl"
+ast2tyinfer (Record rs) = typeRecord <$> (forM rs (\(k, v) -> do
+    v' <- ast2tyinfer v
+    return (k, v')))
 ast2tyinfer (Union _) = error "not yet impl2"
 ast2tyinfer (General ig) = do
     st <- get 
@@ -189,6 +199,7 @@ tyinfer2ast (TyCon "int") = IntT
 tyinfer2ast (TyApp "func" [t1, t2]) = Function (tyinfer2ast t1) (tyinfer2ast t2)
 tyinfer2ast (TyApp "tuple" t) = Tuple (map tyinfer2ast t)
 tyinfer2ast (TyApp "array" [t]) = Array (tyinfer2ast t)
+tyinfer2ast (TyNamedApp "record" tys) = Record (map (\(k, v) -> (k, tyinfer2ast v)) tys)
 tyinfer2ast (TyVar (TVar ii)) = General (read ii)
 tyinfer2ast p = error (disp p) 
 
@@ -203,10 +214,12 @@ instance Substitutable Typ where
     apply _ (TyCon a) = TyCon a
     apply (Sub s) t@(TyVar a) = Map.findWithDefault t a s
     apply s (TyApp u t) = TyApp u (apply s t)
+    apply s (TyNamedApp u ts) = TyNamedApp u (map (\(k, v) -> (k, (apply s v))) ts)
 
     ftv (TyCon a) = Set.empty
     ftv (TyVar a) = Set.singleton a
     ftv (TyApp s t) = ftv t
+    ftv (TyNamedApp u ts) = ftv (snd $ unzip $ ts)
 
 instance Substitutable TyScheme where
     apply (Sub s) (TyScheme as t)   = TyScheme as $ apply (Sub s') t
@@ -214,8 +227,8 @@ instance Substitutable TyScheme where
     ftv (TyScheme as t) = ftv t `Set.difference` Set.fromList as
 
 instance Substitutable Constraint where
-   apply s (Constraint t1 t2) = Constraint (apply s t1)  (apply s t2)
-   ftv (Constraint t1 t2) = ftv t1 `Set.union` ftv t2
+   apply s (ConsEq t1 t2) = ConsEq (apply s t1)  (apply s t2)
+   ftv (ConsEq t1 t2) = ftv t1 `Set.union` ftv t2
 
 instance Substitutable a => Substitutable [a] where
     apply = fmap . apply
@@ -227,6 +240,9 @@ instance Substitutable Env where
         where vars (Left (Nothing, _)) = True
               vars _ = False
     
+instance Substitutable TypeClass where
+    apply s (RecMember ty) = RecMember (apply s ty)
+    ftv _ = error "unsupported"
 
 writeMsgs :: String -> InferM ()
 writeMsgs str = do
@@ -266,7 +282,18 @@ applyCtx sub = do
     st <- get
     let e = (env st)
     let newenv =  apply sub e
-    put $ st {env = newenv} 
+    -- classcons :: [(Typ, [TypeClass])],
+    let cc = (classcons st)
+    cc' <- forM cc (\(typ, tc) -> do
+        let typ' = apply sub typ
+        let tc' = map (apply sub) tc
+        return (typ', tc'))
+    -- propogate classcons
+    cc'' <- forM cc' (\(typ, tc) -> do
+        cc0 <- forM cc' (\(typ2, tc2) -> do
+            if typ2 == typ then return tc2 else return [])
+        return (typ, concat cc0))
+    put $ st {env = newenv, classcons = cc''}
     return ()
 
 
@@ -285,7 +312,14 @@ instantiate (TyScheme as ty) = do
     
 mkCons :: Typ -> Typ -> InferM [Constraint]
 mkCons tv ty = do
-    return [Constraint tv ty]
+    return [ConsEq tv ty]
+    
+mkClassCon :: Typ -> TypeClass -> InferM ()
+mkClassCon typ tc = do
+    st <- get
+    -- another pass will consolidate these, so this is okay.
+    let st' = st {classcons = (typ, [tc]):(classcons st)}
+    put st'
     
 getVar :: (Maybe Int, Name) -> InferM (Maybe Typ)
 getVar (mi, n) = do
@@ -302,9 +336,9 @@ getVar (mi, n) = do
          
 idVar :: Int -> InferM TVar
 idVar lnt = do
+    v <- fresh
     st <- get
     let (Env e) = (env st)
-    v <- fresh
     let e' = Env $ Map.insert (Right lnt) (TyScheme [] (TyVar v)) e
     put $ st {env = e'}
     return v
@@ -470,6 +504,15 @@ inferE (TupleLiteral rs) n = do
     c2 <- inferEL rs (fmap TyVar nn)
     return $ c1 <> c2
 
+inferE (RecordLiteral rs) n = do
+    ret <- forM rs (\(st, ae) -> do
+        n0 <- fresh
+        c0 <- inferAE ae (TyVar n0)
+        return ((st, TyVar n0), c0))
+    let (rs', cons) = unzip ret
+    let cons' = concat cons
+    c1 <- mkCons n (typeRecord rs')
+    return $ cons' <> c1
 
 inferE (FunctionLiteral f t) n = do
     (c, nf) <- case f of
@@ -499,10 +542,10 @@ inferE (FunctionCall f x) n = do
     
 inferE (Selector e SelDot n2) n = do
     ne <- fresh
-    c0 <- mkCons (TyVar ne) (typeRecord [(n2, n)])
-    c1 <- inferAE e (TyVar ne)
-    return $ c0 <> c1
-    
+    c0 <- inferAE e (TyVar ne)
+    mkClassCon (TyVar ne) (RecMember n)
+    return $ c0
+{-
 inferE (Selector e SelArrow n2) n = do
     ne <- fresh
     c0 <- mkCons (TyVar ne) (typeType (typeRecord [(n2, n)]))
@@ -515,7 +558,7 @@ inferE (Initialize a lit) n = do
     le <- fresh
     c1 <- inferAE lit (TyVar le) -- <- basically just type checking
     c2 <- mkCons (typeType (TyVar le)) (TyNamedType a)
-    return $ c0 <> c1 <> c2
+    return $ c0 <> c1 <> c2-}
 
 inferE (Variable u) n = do
     n2 <- newVar u
@@ -569,8 +612,9 @@ inferEL _ _ = undefined
 
 inferAE aexpr n = do
     n2 <- idVar (aId aexpr)
-    mkCons n (TyVar n2)
-    inferE (aExpr aexpr) n
+    c0 <- mkCons n (TyVar n2)
+    c1 <- inferE (aExpr aexpr) n
+    return $ c0 <> c1
 
 inferS (Expr e) = do
     n <- fresh
@@ -645,7 +689,7 @@ solver :: (Sub, [Constraint]) -> Solve Sub
 solver (su, cs) =
   case cs of
     [] -> return su
-    (Constraint t1 t2: cs0) -> do
+    (ConsEq t1 t2: cs0) -> do
       su1  <- unifies t1 t2
       solver (su1 `compose` su, apply su1 cs0)
 
