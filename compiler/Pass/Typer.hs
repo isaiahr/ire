@@ -77,7 +77,7 @@ newtype TVar = TVar String deriving (Show, Eq, Ord)
 
 instance Disp TVar where 
     disp (TVar s) = "$" <> s
-    
+
 -- environment. this holds 
 -- specific inst of polymorphic functions.
 newtype Env = Env (Map.Map (Either (Maybe Int, Name) Int) TyScheme) deriving (Show, Eq)
@@ -96,7 +96,7 @@ data InferCtx = InferCtx {
     env :: Env, -- gamma
     gmMap :: Map.Map Int TVar,
     cons :: [Constraint],
-    classcons :: [(Typ, [TypeClass])],
+    classcons :: Map.Map Typ [TypeClass],
     errors :: [String],
     numName :: Int,
     iMsgs :: String,
@@ -104,7 +104,7 @@ data InferCtx = InferCtx {
 } deriving Show
 
 instance Disp InferCtx where
-    disp i = disp (env i) ++ "\n" ++ "\n" ++ (show (errors i)) 
+    disp i = disp (env i) ++ "\n" ++ (Map.foldrWithKey (\k v acc -> acc <> "\n" <> disp k <> " ∈ " <> (intercalate "," (map disp v))) "" (classcons i)) ++ "\n" ++ (show (errors i)) 
 
 data Constraint = 
     ConsEq Typ Typ
@@ -121,22 +121,27 @@ data Typ =
     TyApp String [Typ] |  -- application of a type function. example: "->" Int String is function from int to string.
     TyNamedApp String [(String, Typ)] | -- like tyapp except with names.
     TyNamedType (Maybe Int, Name)
-    deriving (Show, Eq)
+    deriving (Show, Ord, Eq)
     
 
 instance Disp Typ where
     disp (TyVar s) = disp s
     disp (TyCon s) = s
     disp (TyApp s tys) = s <> "[" <> (intercalate "," (map disp tys)) <> "]"
+    disp (TyNamedApp r kv) = r <> "[" <> (intercalate "," (map (\(k, v) -> k <> ": " <> disp v) kv)) <> "]"
     
 data TyScheme = TyScheme [TVar] Typ deriving (Show, Eq)
 
 instance Disp TyScheme where
     disp (TyScheme tv ty) = "∀" <> (intercalate "," (map disp tv)) <> ". " <> (disp ty)
 
+
 data TypeClass = 
-    RecMember Typ
-    deriving (Show, Eq)
+    RecMember String Typ
+    deriving (Show, Eq, Ord)
+
+instance Disp TypeClass where
+    disp (RecMember k v) = k <> ": " <> (disp v)
 
 newtype Sub = Sub (Map.Map TVar Typ) deriving (Show, Eq, Semigroup, Monoid)
 
@@ -239,10 +244,57 @@ instance Substitutable Env where
     ftv (Env env) = ftv $ (Map.elems (Map.filterWithKey (\k _ -> vars k) env))
         where vars (Left (Nothing, _)) = True
               vars _ = False
-    
+        
 instance Substitutable TypeClass where
-    apply s (RecMember ty) = RecMember (apply s ty)
-    ftv _ = error "unsupported"
+    apply s (RecMember k ty) = RecMember k (apply s ty)
+    ftv (RecMember k v) = ftv v
+
+
+getCCons :: Typ -> InferM [TypeClass]
+getCCons ty = do
+    st <- get
+    case Map.lookup ty (classcons st) of
+         (Just cons) -> return cons
+         Nothing -> return []
+
+-- ftv class type
+-- like ftv ty except include class vars associated with type
+-- or any parts of type.
+ftvCT :: Typ -> InferM (Set.Set TVar)
+ftvCT ty = do
+    let fv1 = ftv ty
+    cons <- getCCons ty
+    let fv2 = ftv cons
+    return $ fv1 `Set.union` fv2
+
+ftvC t@(TyVar v) = thisC t
+ftvC t@(TyCon s) = thisC t
+ftvC t@(TyApp s tys) = do
+    fv <- forM tys (\v -> do
+        ftvC v)
+    fv0 <- thisC t
+    return $ fv0 `Set.union` (foldr Set.union Set.empty fv)
+fvC t@(TyNamedApp s kv) = do
+    fv <- forM kv (\(k, v) -> do
+        ftvC v)
+    fv0 <- thisC t
+    return $ fv0 `Set.union` (foldr Set.union Set.empty fv)
+fvC t@(TyNamedType _) = error "TODO89070898905"
+
+thisC :: Typ -> InferM (Set.Set TVar)
+thisC ty = do
+    cons <- getCCons ty
+    let fv2 = ftv cons
+    return fv2
+
+-- ftv class env
+-- like ftv env except include class fv's too.
+ftvCE = do
+    st <- get
+    let c1 = ftv (env st)
+    cc <- forM (Map.elems (classcons st)) (\c ->
+        return $ ftv c)
+    return $ c1 `Set.union` (foldr Set.union Set.empty cc)
 
 writeMsgs :: String -> InferM ()
 writeMsgs str = do
@@ -264,7 +316,8 @@ fresh :: InferM TVar
 fresh = do
     st <- get
     let n = numName st
-    put st {numName = n + 1}
+    let cc = classcons st
+    put st {numName = n + 1, classcons = (Map.insert (TyVar (TVar $ show n)) [] cc)}
     return (TVar (show n))
 
 freshN :: Int -> InferM [TVar]
@@ -283,7 +336,7 @@ applyCtx sub = do
     let e = (env st)
     let newenv =  apply sub e
     -- classcons :: [(Typ, [TypeClass])],
-    let cc = (classcons st)
+    let cc = Map.toList (classcons st)
     cc' <- forM cc (\(typ, tc) -> do
         let typ' = apply sub typ
         let tc' = map (apply sub) tc
@@ -292,14 +345,17 @@ applyCtx sub = do
     cc'' <- forM cc' (\(typ, tc) -> do
         cc0 <- forM cc' (\(typ2, tc2) -> do
             if typ2 == typ then return tc2 else return [])
-        return (typ, concat cc0))
-    put $ st {env = newenv, classcons = cc''}
+        return (typ, concat cc0)) -- note cc0 will contain tc
+    put $ st {env = newenv, classcons = (Map.fromList cc'')}
     return ()
 
 
-generalize :: Env -> Typ -> TyScheme
-generalize env ty = TyScheme fvs ty
-    where fvs = Set.toList $ Set.difference (ftv ty) (ftv env)
+generalize :: Typ -> InferM TyScheme
+generalize ty = do 
+    tyfv <- ftvCT ty
+    envfv <- ftvCE
+    let fvs = Set.toList $ Set.difference tyfv envfv
+    return $ TyScheme fvs ty
 
 instantiate :: TyScheme -> InferM Typ
 instantiate (TyScheme as ty) = do
@@ -308,7 +364,33 @@ instantiate (TyScheme as ty) = do
         return (TyVar v)
         )  as
     let s = Sub $ Map.fromList $ zip as as'
-    return $ apply s ty
+    applyWClass ty s
+    
+-- apply sub but propogate class constraints at each level.
+applyWClass :: Typ -> Sub -> InferM Typ
+applyWClass ty@(TyVar t) sub = do
+    instantiateccs ty sub
+
+applyWClass t@(TyCon s) sub = return t
+applyWClass (TyApp s tr) sub = do
+    tr' <- forM tr (\y -> applyWClass y sub)
+    return (TyApp s tr')
+applyWClass (TyNamedApp s rs) sub = do
+    rs' <- forM rs (\(k, v) -> do
+        v' <- applyWClass v sub
+        return (k, v'))
+    return (TyNamedApp s rs')
+applyWClass (TyNamedType _) s = error "todo03435"
+
+instantiateccs :: Typ -> Sub -> InferM Typ
+instantiateccs ty sub = do
+    ccs <- getCCons ty
+    ccs' <- forM ccs (\cc -> do
+        return $ apply sub cc)
+    let ty' = apply sub ty
+    st <- get
+    put $ st {classcons = (Map.insert ty' ccs' (classcons st))}
+    return $ ty'
     
 mkCons :: Typ -> Typ -> InferM [Constraint]
 mkCons tv ty = do
@@ -316,9 +398,10 @@ mkCons tv ty = do
     
 mkClassCon :: Typ -> TypeClass -> InferM ()
 mkClassCon typ tc = do
-    st <- get
     -- another pass will consolidate these, so this is okay.
-    let st' = st {classcons = (typ, [tc]):(classcons st)}
+    cc <- getCCons typ
+    st <- get
+    let st' = st {classcons = Map.insert typ (tc:cc) (classcons st)}
     put st'
     
 getVar :: (Maybe Int, Name) -> InferM (Maybe Typ)
@@ -398,6 +481,7 @@ newVar (mi, a@(NameError)) = error "NAME ERROR"
 infer ast = do
     infer1 (astDefns ast)
     infer2 (astDefns ast)
+    checkClasses
     
 -- gen \/ 1 . $1  for tlfs
 infer1 (d:ds) = do
@@ -419,6 +503,25 @@ infer2 (d:ds) = do
     return $ c1 <> c2
 
 infer2 [] = return []
+
+checkClasses = do
+    st <- get
+    forM (Map.toList (classcons st)) (\(tr, tc) -> do
+        if foldr (&&) True (map (satisfy tr) tc) then do
+            return ()
+        else do
+            modify $ \st -> st{errors = (errors st) <> ["type " <> disp tr <> " does not satisfy one of the class constraints " <> (intercalate ", " (map disp tc))]}
+        return ())
+    return ()
+
+satisfy (TyVar t) _ = True
+satisfy ty (RecMember str tgf) = case ty of
+    (TyNamedApp "record" rs) -> case lookup str rs of
+                               Nothing -> False
+                               Just f -> case runSolve [ConsEq tgf f] of
+                                              Right (Sub _) -> True
+                                              Left _ -> False
+    _ -> False
 
 updateGen :: Name -> InferM ()
 updateGen nam = do
@@ -462,8 +565,10 @@ inferD d = do
                                       nm <- newVar s
                                       st <- get
                                       -- NOTE: debug with trace doesnt work here for some reason. not sure why.
-                                      -- oldenv nessecary to make sure body of func is not considered part of env
-                                      let gen = generalize oldenv nm
+                                      -- oldenv (st2) nessecary to make sure body of func is not considered part of env
+                                      put st2
+                                      gen <- generalize nm
+                                      put st
                                       let (Env th) = (env st)
                                       let tr3 = Map.insert (Left (Nothing, (snd s))) gen th
                                       put st {env = (Env tr3)}
@@ -540,10 +645,10 @@ inferE (FunctionCall f x) n = do
     c2 <- inferAE x (TyVar nx)
     return $ c0 <> c1 <> c2
     
-inferE (Selector e SelDot n2) n = do
+inferE (Selector e SelDot str) n = do
     ne <- fresh
     c0 <- inferAE e (TyVar ne)
-    mkClassCon (TyVar ne) (RecMember n)
+    mkClassCon (TyVar ne) (RecMember str n)
     return $ c0
 {-
 inferE (Selector e SelArrow n2) n = do
