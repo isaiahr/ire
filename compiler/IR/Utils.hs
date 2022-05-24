@@ -6,6 +6,7 @@ import Common.Common
 import Common.Natives
 
 import Data.List
+import Data.Maybe
 import Control.Monad
 import Control.Monad.Identity
 import Control.Monad.State
@@ -77,14 +78,17 @@ exprType (Close fn nms) = case nType fn of
                                   _ -> error "closing a non-environment function"
 exprType (Let nm e1 e2) = exprType e2
 exprType (Prim (MkTuple t)) = Function t (Tuple t)
+exprType (Prim (MkRec t)) = Function (map snd t) (Rec t)
 exprType (Prim (MkArray t)) = Function [t] (Array t)
 exprType (Prim (GetPtr t)) = Function [Ptr t] t
 exprType (Prim (SetPtr t)) = Function [Ptr t, t] (Tuple [])
 exprType (Prim (CreatePtr t)) = Function [t] (Ptr t)
 exprType (Prim (GetTupleElem (Tuple tys) indx)) = Function [Tuple tys] (tys !! indx)
 exprType (Prim (GetPtrTupleElem (Tuple tys) indx)) = Function [Ptr (Tuple tys)] (tys !! indx)
+exprType (Prim (GetRecElem (Rec kv) str)) = Function [Rec kv] (fromJust $ lookup str kv)
 exprType (Prim (SetTupleElem (Tuple tys) indx)) = Function [Tuple tys, tys !! indx] (Tuple [])
 exprType (Prim (SetPtrTupleElem (Tuple tys) indx)) = Function [Ptr (Tuple tys), tys !! indx] (Tuple [])
+exprType (Prim (SetRecElem (Rec kv) str)) = Function [Rec kv, (fromJust $ lookup str kv)] (Tuple [])
 exprType (Prim (IntAdd)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
 exprType (Prim (IntSub)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
 exprType (Prim (IntMul)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
@@ -179,9 +183,11 @@ needs gc ; or - should this value be tracked as a root?
 true iff value is heap-allocated or an aggregate composed of at least one heap-allocated value
 -}
 needsGC (Tuple tys) = foldr (\a b -> needsGC a || b) (False) tys
+needsGC (Rec rs) = needsGC . Tuple $ map snd rs
 needsGC (Function p r) = False
 needsGC (EnvFunction params cl ret) = foldr (\a b -> needsGC a || b) False cl
 needsGC (Bits nt) = False
 needsGC (Array t) = True
 needsGC (Ptr t) = True
 needsGC (StringIRT) = True
+needsGC oth = error $ "calling needsgc on" <> disp oth

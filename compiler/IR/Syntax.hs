@@ -41,10 +41,13 @@ data Expr
 data PrimE
     = MkTuple [Type] -- primitive function, int -> arity. so (1,2,3) would be App (MkTuple 3, 1, 2, 3)
     | MkArray Type -- primitive function, create array with n > 0 elems
+    | MkRec [(String, Type)]
     | GetTupleElem Type Int -- prim to get nth elem from tuple of type
     | GetPtrTupleElem Type Int -- similarly except with ptrs
+    | GetRecElem Type String
     | SetTupleElem Type Int -- prim to set nth elem from tuple of type
     | SetPtrTupleElem Type Int -- similarly except with ptrs
+    | SetRecElem Type String
     | GetPtr Type -- primitive function to derefence pointers
     | SetPtr Type -- primitive function to update pointed-to data
     | CreatePtr Type -- primitive function to create pointers 
@@ -75,6 +78,7 @@ data LitE
 data Type
     = Tuple [Type] -- cartesion product of types
     | TV Int -- type variable, for polymorphism. note: should not appear when codegen.
+    | Rec [(String, Type)] -- acts similarly as tuple.
     | Function [Type] Type
     | EnvFunction [Type] [Type] Type -- top-level function with environment (second param) (closure)
     | Bits Int

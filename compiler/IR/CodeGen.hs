@@ -6,6 +6,7 @@ module IR.CodeGen (passGenLLVM) where
 
 
 import Data.Maybe (fromJust)
+import Data.List
 import qualified Data.Text (pack)
 import qualified Data.ByteString (unpack)
 import qualified Data.Text.Encoding (encodeUtf8)
@@ -329,6 +330,17 @@ genE (App (Prim (MkTuple ty)) eargs) = (do
               return nv
           repeatIV tty [] cur idx = return cur
 
+genE (App (Prim (MkRec kv)) eargs) = (do
+    eargs' <- forM eargs genE
+    let tty = ir2llvmtype (Rec kv)
+    final <- repeatIV tty (zip eargs' (map (ir2llvmtype . snd) kv)) LZeroInit 0
+    return final)
+    where repeatIV tty ((l, lty):vs) cur idx = do
+              ncur <- promote $ createInsertValue tty cur lty l [idx]
+              nv <- repeatIV tty vs ncur (idx + 1)
+              return nv
+          repeatIV tty [] cur idx = return cur
+    
     
 genE (App (Prim (MkArray ty)) eargs) = do
     eargs' <- forM eargs genE
@@ -380,7 +392,24 @@ genE (App (Prim (SetTupleElem ty idx)) [arg, val]) = do
     gep <- promote $ createGEP ty' arg' [(LLVMInt 32, LIntLit idx)]
     result <- promote $ createStore ty' val' gep
     return (error "no lvalue for prim settuplelem app")
-    
+
+genE (App (Prim (GetRecElem (Rec kv) a)) [arg]) = do
+    let ty = map snd kv
+    let (Just idx) = elemIndex a (map fst $ sortBy (\x y -> compare (fst x) (fst y)) kv)
+    arg' <- genE arg
+    result <- promote $ createExtractValue (ir2llvmtype (Tuple ty)) arg' [idx]
+    return result
+
+genE (App (Prim (SetRecElem (Rec kv) a)) [arg, val]) = do
+    let ty = map snd kv
+    let (Just idx) = elemIndex a (map fst $ sortBy (\x y -> compare (fst x) (fst y)) kv)
+    arg' <- genE arg
+    val' <- genE val
+    let ty' = ir2llvmtype (Tuple ty)
+    gep <- promote $ createGEP ty' arg' [(LLVMInt 32, LIntLit idx)]
+    result <- promote $ createStore ty' val' gep
+    return (error "no lvalue for prim setrecelem app")
+
 genE (App (Prim (IntAdd)) [argtuple]) = do
     argtuple' <- genE argtuple
     r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
@@ -602,6 +631,8 @@ genE (If cond e1 e2) = do
     result <- promote $ createLoad llvmty ptrresult
     return result
     
+genE other = error $ "no codegen for: " <> disp other
+
 createGCMeta :: Type -> State Ctx LValue
 createGCMeta ty = do
     let lty = ir2llvmtype ty
@@ -631,6 +662,7 @@ NOTE2: ok if its nonnull, but needs to be no-op metadata. (basically 1 child at 
 -- needs a subfield entry. ie dont immediatly derefence it.
 -- not applicable for not gc-able items (like bits)
 needsSubfield (Tuple ty) = True
+needsSubfield (Rec kv) = True
 needsSubfield (Function p r) = False
 needsSubfield (EnvFunction p cl r) = error "TODO: envfunction gc / testing/ etc #83490809345890345890"
 needsSubfield (Bits n) = False
@@ -669,6 +701,8 @@ createNewGCMeta ty@(Tuple stys) = do
     modify $ \ctx -> ctx {heapmetas = (ir2llvmtype ty, p):(heapmetas ctx)}
     addGlobal g
     return $ p
+
+createNewGCMeta ty@(Rec tys) = createNewGCMeta $ Tuple (map snd tys)
     
 createNewGCMeta ty@(Bits n) = do
     error "shouldnt happen#548989034589045"
@@ -826,6 +860,7 @@ promote computation = do
 convert ir types to llvms. 
 -}
 ir2llvmtype (Tuple tys) = LLVMStruct False (map ir2llvmtype tys) -- cartesion product of types
+ir2llvmtype (Rec kv) = ir2llvmtype $ Tuple (map snd kv)
 ir2llvmtype (Function params ret) = LLVMFunction (ir2llvmtype ret) (map ir2llvmtype params)
 ir2llvmtype (EnvFunction params cl ret) = LLVMFunction (ir2llvmtype ret) (([LLVMPtr (LLVMPtr (LLVMInt 8))]  ++ map ir2llvmtype  params)) -- IMPORTANT: CL FIRST
 ir2llvmtype (Bits nt) = (LLVMInt nt)

@@ -55,7 +55,8 @@ lower fi x ast = let a = evalState (lowerAll (astDefns ast)) (Context {nameTbl =
             return []
         
 
-convTy (AST.AST.Record r) = IR.Syntax.Tuple (map (convTy . snd) (sortBy (\x y -> compare (fst x) (fst y)) r))
+convTy (AST.AST.Record r) =  IR.Syntax.Rec $ zip (map fst sorted) (map (convTy . snd) sorted)
+    where sorted = (sortBy (\x y -> compare (fst x) (fst y)) r)
 convTy (AST.AST.Array ty) = IR.Syntax.Array (convTy ty)
 convTy (AST.AST.DType _ mts) = IR.Syntax.Ptr (convTy mts)
 convTy (AST.AST.StringT) = IR.Syntax.StringIRT
@@ -220,24 +221,24 @@ lexp (Block ((Assignment a e):bs)) = do
         repeatSel astty baseir [(SelDot, mem)] ex = do
             let (Record ty) = astty
             let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
-            return $ App (Prim $ SetTupleElem (convTy $ rec2tuple (Record ty)) idx) [baseir, ex]
+            return $ App (Prim $ SetTupleElem (convTy $ Record ty) idx) [baseir, ex]
 
         repeatSel astty baseir ((SelDot,mem):rest) ex = do
             let (Record ty) = astty
             let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
-            let baseir' = App (Prim $ GetTupleElem (convTy $ rec2tuple (Record ty)) idx) [baseir]
+            let baseir' = App (Prim $ GetTupleElem (convTy $ Record ty) idx) [baseir]
             expr0 <- repeatSel ((map snd ty)  !! idx) baseir' rest ex
             return $ expr0
             
         repeatSel astty baseir [(SelArrow, mem)] ex = do
             let (DType _ (Record ty)) = astty
             let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
-            return $ App (Prim $ SetPtrTupleElem (convTy $ rec2tuple (Record ty)) idx) [baseir, ex]
+            return $ App (Prim $ SetPtrTupleElem (convTy $ (Record ty)) idx) [baseir, ex]
 
         repeatSel astty baseir ((SelArrow,mem):rest) ex = do
             let (DType _ (Record ty)) = astty
             let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
-            let baseir' = App (Prim $ GetPtrTupleElem (convTy $ rec2tuple (Record ty)) idx) [baseir]
+            let baseir' = App (Prim $ GetPtrTupleElem (convTy $ (Record ty)) idx) [baseir]
             expr0 <- repeatSel ((map snd ty)  !! idx) baseir' rest ex
             return $ expr0
 
@@ -251,15 +252,10 @@ lexp (Block []) = error "Block must terminate in yield or return"
 
 lexp (Selector ex SelDot a) = do
     ex' <- laexp ex
-    let (Just (Poly _ (Record ty))) = aType ex
-    let (Just idx) = elemIndex a (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
-    return $ App (Prim $ GetTupleElem (convTy (rec2tuple (Record ty))) idx) [ex']
+    let (Just (Poly _ ty)) = aType ex
+    return $ App (Prim $ GetRecElem (convTy ty) a) [ex']
 
-lexp (Selector ex SelArrow a) = do
-    ex' <- laexp ex
-    let (DType _ (Record ty)) = error "todo2"
-    let (Just idx) = elemIndex a (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
-    return $ App (Prim $ GetPtrTupleElem (convTy (rec2tuple (Record ty))) idx) [ex']
+lexp (Selector ex SelArrow a) = error "todo24424"
 
 lexp (IfStmt cond thn els) = do
     cond' <- laexp cond
@@ -301,7 +297,7 @@ lexp (TupleLiteral ea) = do
     return $ App (Prim (MkTuple (map (\x -> exprType x) nm))) nm
 
 lexp (ArrayLiteral []) = do
-    -- not an easy problem to solve
+    -- todo solve this, should be easy with aexprs.
     return (error "TODO: typing the empty array")
     
 -- nonempty, all elements have same type. 
@@ -311,8 +307,11 @@ lexp (ArrayLiteral ea) = do
     
 lexp (RecordLiteral r) = do
     let r' = (sortBy (\x y -> compare (fst x) (fst y)) r)
-    r'' <- mapM (laexp . snd) r'
-    return $ App (Prim (MkTuple (map (\x -> exprType x) r''))) r''
+    r'' <- forM r' (\(k, v) -> do
+        v' <- laexp v
+        return v')
+    
+    return $ App (Prim (MkRec $ zip (map fst r') (map (\x -> exprType x) r''))) r''
 
 {--
 N.B. (FunctionLiteral lowering): 
@@ -344,5 +343,4 @@ magic3 (l:lst) tupleexpr tty indx restexpr = do
 magic3 [] tupleexpr tty indx restexpr = do
     return $ restexpr
 
-    
-rec2tuple (Record r) = AST.AST.Tuple $ map snd (sortBy (\x y -> compare (fst x) (fst y)) r)
+

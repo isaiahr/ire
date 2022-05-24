@@ -32,6 +32,10 @@ doGCPrep fi ((TLFunction n1 ns ns2 e):tlfs) = do
                 eargs' <- mapM go eargs
                 newexpr <- transform [] eargs' fi (\y -> App (Prim (MkTuple u2)) y)
                 return newexpr
+          go u@(App (Prim (MkRec u2)) eargs) = do
+                eargs' <- mapM go eargs
+                newexpr <- transform [] eargs' fi (\y -> App (Prim (MkRec u2)) y)
+                return newexpr
           go expr = traverseExpr go expr
 
 doGCPrep _ [] = return []

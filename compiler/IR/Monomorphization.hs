@@ -110,7 +110,11 @@ mono ex = traverseExpr mono ex
 changePrim sub ex = go ex
     where go (Prim (MkTuple tys)) = Prim (MkTuple (map (applySubs sub) tys))
           go (Prim (MkArray ty)) = Prim (MkArray (applySubs sub ty))
+          go (Prim (MkRec kv)) = Prim (MkRec $ zip (map fst kv) (map ((applySubs sub) . snd) kv))
           go (Prim (GetTupleElem ty lnt)) = Prim (GetTupleElem (applySubs sub ty) lnt)
+          go (Prim (GetRecElem ty str)) = Prim (GetRecElem (applySubs sub ty) str)
+          go (Prim (SetTupleElem ty lnt)) = Prim (SetTupleElem (applySubs sub ty) lnt)
+          go (Prim (SetRecElem ty str)) = Prim (SetRecElem (applySubs sub ty) str)          
           go (Prim (GetPtr ty)) = Prim (GetPtr (applySubs sub ty))
           go (Prim (SetPtr ty)) = Prim (SetPtr (applySubs sub ty))
           go (Prim (CreatePtr ty)) = Prim (CreatePtr (applySubs sub ty))
@@ -163,11 +167,13 @@ applySubs tbl (Array t) = Array (applySubs tbl t)
 applySubs tbl (Bits nt) = Bits nt
 applySubs tbl StringIRT = StringIRT
 applySubs tbl (Ptr t) = Ptr (applySubs tbl t)
+applySubs tbl (Rec kv) = Rec $ zip (map fst kv) (map ((applySubs tbl) . snd) kv)
 
 getSub :: [Int] -> Type -> Type -> [(Int, Type)]
 getSub quan (TV i) inst = [(i, inst)]
 getSub quan (Tuple (ty:s)) (Tuple (ty2:s2)) = getSub quan ty ty2 ++ getSub quan (Tuple s) (Tuple s2)
 getSub quan (Tuple []) (Tuple []) = []
+getSub quan (Rec r1) (Rec r2) = getSub quan (Tuple $ map snd r1) (Tuple $ map snd r2)
 getSub quan (Function (t:ts) r) (Function (t2:t2s) r2) = getSub quan t t2 ++ getSub quan (Function ts r) (Function t2s r2)
 getSub quan (Function [] r) (Function [] r2) = getSub quan r r2
 getSub quan (EnvFunction (t1:t1s) u1 r1) (EnvFunction (t2:t2s) u2 r2) = getSub quan t1 t2 ++ getSub quan (EnvFunction t1s u1 r1) (EnvFunction t2s u2 r2)
