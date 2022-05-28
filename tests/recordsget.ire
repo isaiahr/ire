@@ -1,0 +1,23 @@
+// Ok (9, "oao")
+//
+
+
+main := \() -> {
+    r := @{x = "o", y = 2}
+    __ire__print__(r.x)
+    r2 := @{w = "o", x = "a"}
+    __ire__print__(r2.x)
+    __ire__print__(r2.w)
+    b := getx @{x=3}
+    (c, d) := getx(@{a = 3, x=(2, 4)})
+    __ire__exit__(b+c+d)
+    
+    //b := @{x = 4}
+    //__ire__exit__(getx b)
+}
+
+
+getx := \r -> {
+    return r.x
+}
+

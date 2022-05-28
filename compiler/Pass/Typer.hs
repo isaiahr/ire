@@ -5,48 +5,26 @@ This is the type inference code.
 
 This is based off of the HM rules for type inference https://en.wikipedia.org/wiki/Hindley%E2%80%93Milner_type_system
 
-significant change: to support "bidirectional let-polymorphism" (basically, use-before defn), 
+slight change: to support "bidirectional let-polymorphism" (basically, use-before defn), 
  - first assign top-level names (the ones that can be used before defn) a type of forall 1 . $1 
    this ensures they create fresh tvs when used. then, after actually processing the defn, we instantiate the
    new type, and create constraints with all uses. this ensures the correct type is inferred.
+   
+significant change: support type classes.
+this is done by: creating a new constraint type (this is hacky and not returned, but embedded in the state monad)
+between types and tcs. then unifying as normal-ish, and check satisfyability post.
+note: MUST UNIFY TYPES BEFORE TYPECLASS CONSTRAINTS.
+im not actually sure this is good enough for full inference, you might need recursion until fixed point is achieved
+to properly unify typeclasses.
+note; this should be cleaned up and added properly to substitutable or something, the current thing uses state alot
+when the rest is designed better. 
 
 
 Originally, this code was written without support for parametric polymorphism. 
 (original: https://github.com/isaiahr/ire/blob/e1f632fa9fa5d717d5ff105366f97eacde323d31/compiler/Pass/Typer.hs)
 
 The code for constraint generation is the same, but the representation of types is different now. 
-(this is to make type inference support new types easier). to handle this a isomorphism between AST types and Typer types is established.
-
-there is still some more work to be done by supporting mutual recursion (untested)
-
-note some of the code is from this link: http://dev.stephendiehl.com/fun/ (
-This is mostly the Substitutable typeclass, which I copied because I thought it was a good idea,
-and the constraint solving code. (although I already had a working constraint solver - see above)
-
-here is the copyright notice for the bits of code that are included: 
-
-Copyright (c) 2014-2016, Stephen Diehl
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to
-deal in the Software without restriction, including without limitation the
-rights to use, copy, modify, merge, publish, distribute, sublicense, and/or
-sell copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
-FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
-IN THE SOFTWARE.
-
-
-
+(this is to make type inference to support new types easier). to handle this a isomorphism between AST types and Typer types is established.
 
 
 --}
@@ -55,6 +33,7 @@ IN THE SOFTWARE.
 
 -- should probably clean this up and remove it
 {-# LANGUAGE GeneralizedNewtypeDeriving #-}
+{-# LANGUAGE FlexibleInstances #-} -- hack
 
 module Pass.Typer where 
 
@@ -106,6 +85,8 @@ data InferCtx = InferCtx {
 instance Disp InferCtx where
     disp i = disp (env i) ++ "\n" ++ (Map.foldrWithKey (\k v acc -> acc <> "\n" <> disp k <> " ∈ " <> (intercalate "," (map disp v))) "" (classcons i)) ++ "\n" ++ (show (errors i)) 
 
+instance Disp (Map.Map Typ [TypeClass]) where
+    disp cc = (Map.foldrWithKey (\k v acc -> acc <> "\n" <> disp k <> " ∈ " <> (intercalate "," (map disp v))) "" cc)
 data Constraint = 
     ConsEq Typ Typ
     deriving (Show, Eq)
@@ -371,15 +352,19 @@ applyWClass :: Typ -> Sub -> InferM Typ
 applyWClass ty@(TyVar t) sub = do
     instantiateccs ty sub
 
-applyWClass t@(TyCon s) sub = return t
-applyWClass (TyApp s tr) sub = do
+applyWClass t@(TyCon s) sub = do
+    instantiateccs t sub
+
+applyWClass t@(TyApp s tr) sub = do
     tr' <- forM tr (\y -> applyWClass y sub)
-    return (TyApp s tr')
-applyWClass (TyNamedApp s rs) sub = do
+    instantiateccs t sub
+
+applyWClass t@(TyNamedApp s rs) sub = do
     rs' <- forM rs (\(k, v) -> do
         v' <- applyWClass v sub
         return (k, v'))
-    return (TyNamedApp s rs')
+    instantiateccs t sub
+
 applyWClass (TyNamedType _) s = error "todo03435"
 
 instantiateccs :: Typ -> Sub -> InferM Typ
@@ -514,11 +499,12 @@ checkClasses = do
         return ())
     return ()
 
+-- pointless now probably if checks are added to solver.
 satisfy (TyVar t) _ = True
 satisfy ty (RecMember str tgf) = case ty of
     (TyNamedApp "record" rs) -> case lookup str rs of
                                Nothing -> False
-                               Just f -> case runSolve [ConsEq tgf f] of
+                               Just f -> case runSolve [ConsEq tgf f] [] of
                                               Right (Sub _) -> True
                                               Left _ -> False
     _ -> False
@@ -533,7 +519,7 @@ updateGen nam = do
             f <- instantiate tyscheme
             let (TyScheme [] mot) = (e Map.! (Left (mlnt, nam2)))
             con <- mkCons f mot
-            case (runSolve con) of
+            case (runSolve con []) of
                  Left e -> do
                      modify $ \st0 -> st0 {errors = errors st0 <> [disp e, "Constraints:\n"] <> (map disp con)}
                      return ()
@@ -553,8 +539,9 @@ inferD d = do
                     c <- inferAE (value d) n
                     case aExpr (value d) of 
                          (FunctionLiteral args value) -> do
-                             writeMsgs $ "Attempting solve with constraints:\n" <> (intercalate "\n" (map disp c))
-                             case runSolve c of 
+                             ccs <- classcons <$> get
+                             writeMsgs $ "Attempting solve with constraints:\n" <> (intercalate "\n" (map disp c)) <> "\n" <> disp ccs
+                             case runSolve c (Map.toList ccs) of 
                                   Left e -> do
                                       st <- get
                                       put st {errors = errors st <> [disp e, "Constraints:\n"] <> (map disp c) }
@@ -744,16 +731,12 @@ inferS (Assignment a e) = do
              c2 <- inferAE e (TyVar tc)
              return $ c1 <> c2
     where
-        inferSH s ((SelDot, a):rest) endexpr = do
-            ns <- fresh
-            c0 <- mkCons s (typeRecord [(a, TyVar ns)])
-            c1 <- inferSH (TyVar ns) rest endexpr
-            return $ c0 <> c1
-        inferSH s ((SelArrow, a):rest) endexpr = do
-            ns <- fresh
-            c0 <- mkCons s (typeType (typeRecord [(a, TyVar ns)]))
-            c1 <- inferSH (TyVar ns) rest endexpr
-            return $ c0 <> c1
+        inferSH base ((SelDot, next):rest) endexpr = do
+            nexts <- TyVar <$> fresh
+            mkClassCon base (RecMember next nexts)
+            c1 <- inferSH nexts rest endexpr
+            return $ c1
+        inferSH s ((SelArrow, a):rest) endexpr = error "todo"
         inferSH s [] endexpr = do
             mkCons s endexpr
         
@@ -770,9 +753,9 @@ type Solve a = ExceptT TypeError Identity a
 compose :: Sub -> Sub -> Sub
 (Sub s1) `compose` (Sub s2) = Sub $ Map.map (apply (Sub s1)) s2 `Map.union` s1
 
-runSolve :: [Constraint] -> Either TypeError Sub
-runSolve cs = runIdentity $ runExceptT $ solver st
-  where st = (mempty, cs)
+runSolve :: [Constraint] -> [(Typ, [TypeClass])] -> Either TypeError Sub
+runSolve cs cs0 = runIdentity $ runExceptT $ solver st
+    where st = (mempty, cs, cs0)
 
 unifyMany :: [Typ] -> [Typ] -> Solve Sub
 unifyMany [] [] = return mempty
@@ -788,16 +771,39 @@ unifies (TyVar v) t = v `bind` t
 unifies t (TyVar v) = v `bind` t
 unifies (TyCon p) (TyCon p2) | p == p2 = return mempty -- redundant, but here for clarity
 unifies (TyApp p t) (TyApp p2 t2) | p == p2 = unifyMany t t2
+unifies (TyNamedApp p kv) (TyNamedApp p2 kv2) | p == p2 = (uncurry unifyMany) (zipkvpairs kv kv2)
+    where zipkvpairs kv9 kv8 = (map snd $ sort $ filter (\(x, _) -> x `elem` (intersect (map fst kv9) (map fst kv8))) kv9, map snd $ sort $ filter (\(x, _) -> x `elem` (intersect (map fst kv9) (map fst kv8))) kv8)
 unifies t1 t2 = throwError $ UnificationFail t1 t2
 
-solver :: (Sub, [Constraint]) -> Solve Sub
-solver (su, cs) =
+
+unifyTC (TyNamedApp "record" kv) (RecMember x t) = case lookup x kv of
+                                                           Just t0 -> unifies t t0 -- prefer subbing tcs, although it shouldn't matter.
+                                                           Nothing -> return mempty
+unifyTC oth ers = return mempty
+
+unifiesTCs :: Typ -> [TypeClass] -> Solve Sub
+unifiesTCs ty0 (tc:tcs) = do
+    su1 <- unifyTC ty0 tc
+    -- first apply not nessecary here.
+    su2 <- unifiesTCs (apply su1 ty0) (apply su1 tcs)
+    return (su2 `compose` su1)
+    
+unifiesTCs ty0 [] = return mempty
+
+solver :: (Sub, [Constraint], [(Typ, [TypeClass])]) -> Solve Sub
+solver (su, cs, ccs) =
   case cs of
-    [] -> return su
+    [] -> case ccs of
+               (ty, tcs):ccs0 -> do
+                   su1 <- unifiesTCs ty tcs
+                   solver (su1 `compose` su, [], apply0 su1 ccs0)
+               [] -> return su
     (ConsEq t1 t2: cs0) -> do
       su1  <- unifies t1 t2
-      solver (su1 `compose` su, apply su1 cs0)
+      solver (su1 `compose` su, apply su1 cs0, apply0 su1 ccs)
+    
 
+apply0 sub tcs = map (\(x, y) -> (apply sub x, apply sub y)) tcs
 
 bind ::  TVar -> Typ -> Solve Sub
 bind a t | t == TyVar a     = return mempty
