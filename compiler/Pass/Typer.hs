@@ -37,6 +37,7 @@ The code for constraint generation is the same, but the representation of types 
 
 module Pass.Typer where 
 
+
 import Common.Common
 import Common.Pass
 import Common.Natives
@@ -315,7 +316,7 @@ applyCtx :: Sub -> InferM ()
 applyCtx sub = do
     st <- get
     let e = (env st)
-    let newenv =  apply sub e
+    let newenv = apply sub e
     -- classcons :: [(Typ, [TypeClass])],
     let cc = Map.toList (classcons st)
     cc' <- forM cc (\(typ, tc) -> do
@@ -513,13 +514,17 @@ updateGen :: Name -> InferM ()
 updateGen nam = do
     st <- get
     let (Env e) = env st
+    -- possible future bug: move into loop (update for ctx)
     let tyscheme = (e Map.! (Left (Nothing, nam)))
     forM (lefts (Map.keys e)) (\(mlnt, nam2) -> do
         if nam2 == nam && mlnt /= Nothing then do
             f <- instantiate tyscheme
-            let (TyScheme [] mot) = (e Map.! (Left (mlnt, nam2)))
+            ne' <- env <$> get
+            let (Env ne) = ne'
+            let (TyScheme [] mot) = (ne Map.! (Left (mlnt, nam2)))
             con <- mkCons f mot
-            case (runSolve con []) of
+            ccs <- classcons <$> get
+            case (runSolve con (Map.toList ccs)) of
                  Left e -> do
                      modify $ \st0 -> st0 {errors = errors st0 <> [disp e, "Constraints:\n"] <> (map disp con)}
                      return ()

@@ -40,6 +40,7 @@ instance Disp TLFunction where
 instance Disp Type where
     disp (Tuple tys) = "(" <> intercalate ", " (map disp tys) <> ")"
     disp (Function tys to) = "(" <> intercalate ", " (map disp tys) <> ") -> " <> disp to
+    disp (Rec rs) = "(" <> intercalate ", " (map (\(k, v) -> k <> ": " <> disp v) rs) <> ")"
     disp (EnvFunction tys a to) = "(" <> intercalate ", " (map disp tys) <> ") -(" <> intercalate ", " (map disp a) <> ")> " <> disp to
     disp (Bits nt) = "i" <> disp nt
     disp (Array ty) = "[" <> disp ty <> "]"
