@@ -114,7 +114,6 @@ changePrim sub ex = go ex
           go (Prim (GetTupleElem ty lnt)) = Prim (GetTupleElem (applySubs sub ty) lnt)
           go (Prim (GetRecElem ty str)) = Prim (GetRecElem (applySubs sub ty) str)
           go (Prim (SetTupleElem ty lnt)) = Prim (SetTupleElem (applySubs sub ty) lnt)
-          go (Prim (SetRecElem ty str)) = Prim (SetRecElem (applySubs sub ty) str)          
           go (Prim (GetPtr ty)) = Prim (GetPtr (applySubs sub ty))
           go (Prim (SetPtr ty)) = Prim (SetPtr (applySubs sub ty))
           go (Prim (CreatePtr ty)) = Prim (CreatePtr (applySubs sub ty))

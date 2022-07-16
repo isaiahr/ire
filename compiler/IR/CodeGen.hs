@@ -285,6 +285,32 @@ genE (Assign name expr) = do
     promote $ createStore (ir2llvmtype exprty) expr' lvn
     return (error "store does not yield type")
 
+genE (SetRecElem name chain expr) = do   
+    lvn <- lookupName name
+    lv <- genE (Var name)
+    expr' <- genE expr
+    let rkv = exprType (Var name)
+    reslv <- sreH lv rkv chain expr'
+    promote $ createStore (ir2llvmtype rkv) reslv lvn
+    return (error "SetRecElem does not yield type")
+    where 
+    sreH :: LValue -> Type -> [String] -> LValue -> State Ctx LValue
+    sreH lv kv [sel] fe = do
+        let (Rec kv') = kv
+        let (Just idx) = elemIndex sel (map fst $ sortBy (\x y -> compare (fst x) (fst y)) kv')
+        r <- promote $ createExtractValue (ir2llvmtype (Tuple (map snd kv'))) lv [idx]
+        r'' <- promote $ createInsertValue (ir2llvmtype (Tuple (map snd kv'))) lv (ir2llvmtype ((map snd kv') !! idx) ) fe [idx]
+        return r''
+    sreH lv kv (sel:sels) fe = do
+        let (Rec kv') = kv
+        let (Just idx) = elemIndex sel (map fst $ sortBy (\x y -> compare (fst x) (fst y)) kv')
+        r <- promote $ createExtractValue (ir2llvmtype (Tuple (map snd kv'))) lv [idx]
+        let (Just next) = (lookup sel kv')
+        r' <- sreH r next sels fe
+        r'' <- promote $ createInsertValue (ir2llvmtype (Tuple (map snd kv'))) lv (ir2llvmtype ((map snd kv') !! idx)) r' [idx]
+        return r''
+        
+
 genE (Let name e1 e2) = do
     e1' <- genE e1
     e1ty <- getIRType e1
@@ -399,16 +425,6 @@ genE (App (Prim (GetRecElem (Rec kv) a)) [arg]) = do
     arg' <- genE arg
     result <- promote $ createExtractValue (ir2llvmtype (Tuple ty)) arg' [idx]
     return result
-
-genE (App (Prim (SetRecElem (Rec kv) a)) [arg, val]) = do
-    let ty = map snd kv
-    let (Just idx) = elemIndex a (map fst $ sortBy (\x y -> compare (fst x) (fst y)) kv)
-    arg' <- genE arg
-    val' <- genE val
-    let ty' = ir2llvmtype (Tuple ty)
-    gep <- promote $ createGEP ty' arg' [(LLVMInt 32, LIntLit idx)]
-    result <- promote $ createStore ty' val' gep
-    return (error "no lvalue for prim setrecelem app")
 
 genE (App (Prim (IntAdd)) [argtuple]) = do
     argtuple' <- genE argtuple

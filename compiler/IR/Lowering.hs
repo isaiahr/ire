@@ -218,29 +218,9 @@ lexp (Block ((Assignment a e):bs)) = do
         repeatSel astty (Var v) [] ex = do
             return $ Assign v ex
 
-        repeatSel astty baseir [(SelDot, mem)] ex = do
-            let (Record ty) = astty
-            let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
-            return $ App (Prim $ SetTupleElem (convTy $ Record ty) idx) [baseir, ex]
+        repeatSel astty (Var v) selchain ex = do
+            return $ SetRecElem v (map snd selchain) ex
 
-        repeatSel astty baseir ((SelDot,mem):rest) ex = do
-            let (Record ty) = astty
-            let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
-            let baseir' = App (Prim $ GetTupleElem (convTy $ Record ty) idx) [baseir]
-            expr0 <- repeatSel ((map snd ty)  !! idx) baseir' rest ex
-            return $ expr0
-            
-        repeatSel astty baseir [(SelArrow, mem)] ex = do
-            let (DType _ (Record ty)) = astty
-            let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
-            return $ App (Prim $ SetPtrTupleElem (convTy $ (Record ty)) idx) [baseir, ex]
-
-        repeatSel astty baseir ((SelArrow,mem):rest) ex = do
-            let (DType _ (Record ty)) = astty
-            let (Just idx) = elemIndex mem (map fst $ sortBy (\x y -> compare (fst x) (fst y)) ty)
-            let baseir' = App (Prim $ GetPtrTupleElem (convTy $ (Record ty)) idx) [baseir]
-            expr0 <- repeatSel ((map snd ty)  !! idx) baseir' rest ex
-            return $ expr0
 
 lexp (Block ((Expr b):bs)) = do
     nb <- laexp b

@@ -28,6 +28,7 @@ mapName f (IR ((TLFunction nm nms nms2 e):tlfs) fi) = IR ((TLFunction (f nm) (ma
         go (Close n nms) = (Close (f n) (map f nms))
         go (Let n e1 e2) = Let (f n) (go e1) (go e2)
         go (Assign n ex) = Assign (f n) (go ex)
+        go (SetRecElem n d ex) = SetRecElem (f n) d (go ex)
         go ex = traverseExprId go ex
 mapName f (IR [] fi) = IR [] fi
 
@@ -46,6 +47,7 @@ mapNameCtx f (IR ((TLFunction nm nms nms2 ex):tlfs) fi) = do
         go (Close n nms) = liftM2 Close (f n) (mapM f nms)
         go (Let n e1 e2) = liftM3 Let (f n) (go e1) (go e2)
         go (Assign n e) = liftM2 Assign (f n) (go e)
+        go (SetRecElem n d ex) = liftM3 SetRecElem (f n) (return d) (go ex)
         go ex = traverseExpr go ex
 mapNameCtx f ir@(IR [] fi) = return ir
         
@@ -57,6 +59,7 @@ mapNameExpr f e = go e
         go (Close n nms) = (Close (f n) (map f nms))
         go (Let n e1 e2) = Let (f n) (go e1) (go e2)
         go (Assign n ex) = Assign (f n) (go ex)
+        go (SetRecElem n d ex) = SetRecElem (f n) d (go ex)
         go ex = traverseExprId go ex
         
           
@@ -88,7 +91,6 @@ exprType (Prim (GetPtrTupleElem (Tuple tys) indx)) = Function [Ptr (Tuple tys)] 
 exprType (Prim (GetRecElem (Rec kv) str)) = Function [Rec kv] (fromJust $ lookup str kv)
 exprType (Prim (SetTupleElem (Tuple tys) indx)) = Function [Tuple tys, tys !! indx] (Tuple [])
 exprType (Prim (SetPtrTupleElem (Tuple tys) indx)) = Function [Ptr (Tuple tys), tys !! indx] (Tuple [])
-exprType (Prim (SetRecElem (Rec kv) str)) = Function [Rec kv, (fromJust $ lookup str kv)] (Tuple [])
 exprType (Prim (IntAdd)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
 exprType (Prim (IntSub)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
 exprType (Prim (IntMul)) = Function [Tuple [Bits 64, Bits 64]] (Bits 64)
@@ -105,6 +107,7 @@ exprType (Prim (ArraySet ty)) = Function [Tuple [Array ty, Bits 64, ty]] (Tuple 
 exprType (Prim (ArrayGet ty)) = Function [Tuple [Array ty, Bits 64]] ty
 exprType (Prim (LibPrim lb)) = libtypeof lb
 exprType (Assign n _) = (Tuple [])
+exprType (SetRecElem _ _ _) = (Tuple [])
 exprType (Seq e1 e2) = exprType e2
 exprType (If e1 e2 e3) = exprType e2 -- if e2 == e3 then e2 else error "ifstmt bad ty"
 exprType (Ret e) = (Tuple [])
@@ -142,6 +145,7 @@ exprSubExprs (Prim _) = []
 exprSubExprs (Assign _ e) = [e]
 exprSubExprs (Seq e1 e2) = [e1, e2]
 exprSubExprs (If e1 e2 e3) = [e1, e2, e3]
+exprSubExprs (SetRecElem _ _ e) = [e]
 exprSubExprs (Lit _) = []
 exprSubExprs (Ret e) = [e]
 
@@ -169,7 +173,7 @@ traverseExpr f (Seq e1 e2) = liftM2 Seq (f e1) (f e2)
 traverseExpr f (If e1 e2 e3) = liftM3 If (f e1) (f e2) (f e3)
 traverseExpr f e@(Lit _) = return e
 traverseExpr f (Ret e) = liftM Ret (f e)
-
+traverseExpr f (SetRecElem n d e) = liftM (SetRecElem n d) (f e)
 
 libtypeof Native_Exit = Function [Bits 64] (Tuple [])
 libtypeof Native_Print = Function [StringIRT] (Tuple [])

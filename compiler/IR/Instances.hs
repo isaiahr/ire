@@ -67,6 +67,7 @@ instance Disp Expr where
     disp (If e1 e2 e3) = "IF[" <> disp e1 <> ", " <> disp e2 <> ", " <> disp e3 <> "]"
     disp (Ret e) = "RET[" <> disp e <> "]"
     disp (Lit le) = "LIT[" <> disp le <> "]"
+    disp (SetRecElem name sels expr) = "@SetRecElem!(" <> disp name <> ", " <> (intercalate "." (map disp sels)) <> ", " <> disp expr <> ")"
 
 instance Disp LitE where
     disp (IntL i) = "$" <> disp i
@@ -81,7 +82,6 @@ instance Disp PrimE where
     disp (GetTupleElem ty indx) = "@GetTupleElem!(" <> disp ty <> ", " <> disp indx <> ")"
     disp (SetTupleElem ty indx) = "@SetTupleElem!(" <> disp ty <> ", " <> disp indx <> ")"
     disp (GetRecElem ty name) = "@GetRecElem!(" <> disp ty <> ", " <> name <> ")"
-    disp (SetRecElem ty name) = "@SetRecElem!(" <> disp ty <> ", " <> name <> ")"
     disp (GetPtr ty) = "@GetPtr!" <> disp ty
     disp (SetPtr ty) = "@SetPtr!" <> disp ty
     disp (CreatePtr ty) = "@CreatePtr!" <> disp ty

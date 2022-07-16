@@ -26,6 +26,7 @@ data IR = IR [TLFunction] FileInfo
 data Expr 
     = Var Name -- variable
     | Call Name [Expr] -- "direct" function call. this is for calling non closures, the codegen is different
+    | SetRecElem Name [String] Expr -- set record elem. this should be changed when monomorphization happens earlier.
     | App Expr [Expr] -- function application (or call)
     | Abs [Name] Expr -- function abstraction (lambda)
     | Close Name [Name] -- closing a top level function into a gfunction
@@ -47,7 +48,6 @@ data PrimE
     | GetRecElem Type String
     | SetTupleElem Type Int -- prim to set nth elem from tuple of type
     | SetPtrTupleElem Type Int -- similarly except with ptrs
-    | SetRecElem Type String
     | GetPtr Type -- primitive function to derefence pointers
     | SetPtr Type -- primitive function to update pointed-to data
     | CreatePtr Type -- primitive function to create pointers 
