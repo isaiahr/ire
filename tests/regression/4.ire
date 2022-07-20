@@ -1,0 +1,14 @@
+// Ok (4, "")
+//
+
+main := \() -> {
+    g := @{x = 3, z = "u"}
+    b := setx(g, 4)
+    __ire__exit__(b.x)
+}
+
+
+setx := \(r, x) -> {
+    r.x = x
+    return r
+}

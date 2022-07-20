@@ -148,7 +148,7 @@ genTLFe (tlf@(TLFunction name clvars params expr), fh) = do
             promote (createRet (ir2llvmtype exprty) lv)
         else return ()
         promote $ closeFunction fh    
-                         else do
+    else do
         modify $ \ctx -> ctx {ntbl = (zip params (map (LTemp . show) [0..((length params) - 1)])) ++ ntbl ctx}
         pushgcchain expr
         lv <- genE expr
@@ -335,7 +335,9 @@ genE (Let name e1 e2) = do
     createName name lvn
     promote $ createStore (ir2llvmtype e1ty) e1' lvn
     e2' <- genE e2
-    if needsGC e1ty then do
+    wr <- writRet <$> get
+    if (needsGC e1ty) && not wr then do
+        -- if return is written, we have popped the gcchain and no point nulling this var.
         -- ptr goes out of scope, null the corresponding ssnum.
         aoe <- promote $ createLoad (LLVMPtr (LLVMDType "%gcchain")) (LGlob "gc_root_chain")
         --aoe2 <- promote $ createLoad ((LLVMDType "%gcchain")) aoe

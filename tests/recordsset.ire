@@ -1,0 +1,17 @@
+// Ok (9, "world")
+//
+
+main := \() -> {
+    e := @{x = 2}
+    f := setx(e, 5)
+    g := @{x = (3, 5), y = @{a = "hello"}, z = "a", yy = 4}
+    g.y.a = "world"
+    __ire__print__(g.y.a)
+    __ire__exit__(f.x + g.yy)
+}
+
+
+setx := \(r, x) -> {
+    r.x = x
+    return r
+}
