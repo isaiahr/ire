@@ -150,7 +150,7 @@ parseAssignLHS :: Parser (AssignLHS String)
 parseAssignLHS = infbuild (fmap change parsePatMatch) magic2
     where change (Plain a) = Singleton a []
           change (TupleUnboxing t) = TupleUnboxingA t
-          magic2 (TupleUnboxingA t) = pure $ TupleUnboxingA t
+          magic2 (TupleUnboxingA t) = Parser (\x -> ParseFailure)
           magic2 (Singleton a rs) = liftA2 (\x y -> Singleton a (rs ++ [(x, y)])) ((parseToken Arrow *> pure SelArrow) <|> (parseToken Dot *> pure SelDot)) parseIdentifier
 
 parsePatMatch :: Parser (PatternMatching String)
