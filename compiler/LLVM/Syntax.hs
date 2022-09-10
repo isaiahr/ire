@@ -189,6 +189,7 @@ instance Disp LInst where
 data LValue = LTemp String | -- temp, like %2
               LGlob String | -- global, like @abc
               LIntLit Int | -- integer, like 3
+              LDoubleLit Double | 
               LUndef |  -- "undef"
               LZeroInit |  -- "zeroinitializer"
               LVoid | -- "void" 
@@ -202,6 +203,7 @@ instance Disp LValue where
     disp (LTemp h) = "%" <> disp h
     disp (LGlob s) = "@" <> disp s
     disp (LIntLit nt) = disp nt
+    disp (LDoubleLit l) = show l
     disp (LUndef) = "undef"
     disp (LZeroInit) = "zeroinitializer"
     disp (LVoid) = "void"

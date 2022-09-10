@@ -139,6 +139,7 @@ parseInitalization = liftA2 Initialize (parseToken New *> parseIdentifier) (pars
 
 parseLiteral :: Parser (Expression String)
 parseLiteral = parseInt <|>
+               parseFloat <|>
                parseBoolLiteral <|>
                parseStringLiteral <|>
                parseArrayLiteral <|>
@@ -164,6 +165,12 @@ parseInt :: Parser (Expression String)
 parseInt = Constant <$> Parser (\x -> 
     case x of
          ((AnnotatedToken{annLexeme=(Integer z)}):zs) -> ParseSuccess z zs
+         _ -> ParseFailure)
+
+parseFloat :: Parser (Expression String)
+parseFloat = FloatLiteral <$> Parser (\x -> 
+    case x of
+         ((AnnotatedToken{annLexeme=(Float z)}):zs) -> ParseSuccess z zs
          _ -> ParseFailure)
          
 parseBoolLiteral :: Parser (Expression String)

@@ -20,6 +20,7 @@ data Expression a =
                     Initialize a (AnnExpr a) |
                     IfStmt (AnnExpr a) (AnnExpr a) (AnnExpr a) | -- if, like if 1==2 then expr1 else expr2
                     Constant Int |
+                    FloatLiteral (String, String) |
                     BooleanLiteral Bool |
                     StringLiteral String | 
                     ArrayLiteral [AnnExpr a] |

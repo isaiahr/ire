@@ -115,6 +115,7 @@ foldme f (TupleLiteral a) = foldMap (\x -> foldmae f x) a
 foldme f (FunctionLiteral a b) = foldpat f a <> (foldmae f b)
 foldme f (Selector a _ _) = foldmae f a
 foldme f (Constant nt) = mempty
+foldme f (FloatLiteral nt) = mempty
 foldme f (StringLiteral s) = mempty
 foldme f (BooleanLiteral b) = mempty
 
@@ -148,6 +149,7 @@ instance (Disp a) => Disp (Expression a) where
     disp (Selector e SelDot str) = disp e <> "." <> str
     disp (Constant i) = disp i
     disp (StringLiteral l) = disp l
+    disp (FloatLiteral (c, f)) = c <> "." <> f
     disp (BooleanLiteral b) = if b then "true" else "false"
     disp (ArrayLiteral e) = "[" ++ intercalate ", " (map disp e) ++ "]"
     disp (TupleLiteral t) = "(" ++ intercalate ", " (map disp t) ++ ")"

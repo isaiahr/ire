@@ -36,7 +36,8 @@ data MonoType =
             General Int | -- for polymorphism - type variable
             DType String MonoType | -- defined type. use General lnt for placeholders
             Array MonoType | -- arrays
-            IntT | -- bits (llvm i[n])
+            IntT | -- 64 bit int (llvm i64)
+            FloatT | 
             BoolT | 
             StringT | -- string
             Function MonoType MonoType | -- a -> b
@@ -57,6 +58,7 @@ instance Disp Type where
 instance Disp MonoType where 
     disp (Array t) = "[" ++ disp t ++ "]"
     disp (IntT) = "Int"
+    disp (FloatT) = "Float"
     disp (BoolT) = "Boolean"
     disp (StringT) = "String"
     disp (Function f t) = disp f ++ " -> " ++ disp t

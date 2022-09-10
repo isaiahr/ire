@@ -88,6 +88,7 @@ instance Disp InferCtx where
 
 instance Disp (Map.Map Typ [TypeClass]) where
     disp cc = (Map.foldrWithKey (\k v acc -> acc <> "\n" <> disp k <> " ∈ " <> (intercalate "," (map disp v))) "" cc)
+
 data Constraint = 
     ConsEq Typ Typ
     deriving (Show, Eq)
@@ -119,7 +120,10 @@ instance Disp TyScheme where
 
 
 data TypeClass = 
-    RecMember String Typ
+    RecMember String Typ |
+    Num | -- +, -
+    Eq | -- ==
+    Ord -- <, >
     deriving (Show, Eq, Ord)
 
 instance Disp TypeClass where
@@ -129,6 +133,7 @@ newtype Sub = Sub (Map.Map TVar Typ) deriving (Show, Eq, Semigroup, Monoid)
 
 
 typeInt = TyCon "int"
+typeFloat = TyCon "float"
 typeBool = TyCon "boolean"
 typeStr = TyCon "string"
 typeArray oft = TyApp "array" [oft]
@@ -181,6 +186,7 @@ ast2tyscheme (Poly nt mt) = do
     return $ TyScheme thing ty0
 
 tyinfer2ast (TyCon "string") = StringT
+tyinfer2ast (TyCon "float") = FloatT
 tyinfer2ast (TyCon "boolean") = BoolT
 tyinfer2ast (TyCon "int") = IntT
 tyinfer2ast (TyApp "func" [t1, t2]) = Function (tyinfer2ast t1) (tyinfer2ast t2)
@@ -229,8 +235,13 @@ instance Substitutable Env where
         
 instance Substitutable TypeClass where
     apply s (RecMember k ty) = RecMember k (apply s ty)
+    apply s Num = Num
+    apply s Ord = Ord
+    apply s Eq = Eq
     ftv (RecMember k v) = ftv v
-
+    ftv Num = Set.empty
+    ftv Ord = Set.empty
+    ftv Eq = Set.empty
 
 getCCons :: Typ -> InferM [TypeClass]
 getCCons ty = do
@@ -502,6 +513,9 @@ checkClasses = do
 
 -- pointless now probably if checks are added to solver.
 satisfy (TyVar t) _ = True
+satisfy (TyCon "float") Num = True
+satisfy (TyCon "int") Num = True
+satisfy _ Num = False
 satisfy ty (RecMember str tgf) = case ty of
     (TyNamedApp "record" rs) -> case lookup str rs of
                                Nothing -> False
@@ -579,6 +593,9 @@ inferD d = do
 inferE :: Expression (Maybe Int, Name) -> Typ -> InferM [Constraint]
 inferE (Constant _) tv = do
     mkCons tv typeInt
+
+inferE (FloatLiteral _) tv = do
+    mkCons tv typeFloat
 
 inferE (StringLiteral s) tv = do
     mkCons tv typeStr
@@ -833,7 +850,11 @@ typeofn Native_Print = (TyScheme []) <$> ast2tyinfer (Function (StringT) (Tuple 
 typeofn Native_Panic = (TyScheme []) <$> ast2tyinfer (Function (Tuple []) (Tuple []))
 typeofn Native_IntToString = (TyScheme []) <$> ast2tyinfer (Function (IntT) (StringT))
 
-typeofn Native_Addition = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
+typeofn Native_Addition = do
+    ne <- fresh
+    mkClassCon (TyVar ne) Num
+    return $ TyScheme [ne] (typeFunction (typeTuple [TyVar ne, TyVar ne]) (TyVar ne))
+
 typeofn Native_Subtraction = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
 typeofn Native_Multiplication = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
 -- for now. this will change in the future (after polymorphism is added)

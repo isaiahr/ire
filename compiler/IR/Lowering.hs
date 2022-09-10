@@ -62,6 +62,7 @@ convTy (AST.AST.DType _ mts) = IR.Syntax.Ptr (convTy mts)
 convTy (AST.AST.StringT) = IR.Syntax.StringIRT
 convTy (AST.AST.IntT) = IR.Syntax.Bits 64
 convTy (AST.AST.BoolT) = IR.Syntax.Bits 8
+convTy (AST.AST.FloatT) = IR.Syntax.FloatIRT
 convTy (AST.AST.Function ty1 ty2) = IR.Syntax.Function [convTy ty1] (convTy ty2)
 convTy (AST.AST.Tuple tys) = IR.Syntax.Tuple (map convTy tys)
 convTy (AST.AST.General i) = IR.Syntax.TV i
@@ -268,6 +269,9 @@ lexp (Constant nt) = do
 
 lexp (StringLiteral s) = do
     return (Lit (StringL s))
+
+lexp (FloatLiteral s) = do
+    return (Lit (FloatL (read ((fst s) <> "." <> (snd s))::Double)))
     
 lexp (BooleanLiteral b) = do
     return (Lit (BoolL b))

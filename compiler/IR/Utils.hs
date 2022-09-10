@@ -114,6 +114,8 @@ exprType (Ret e) = (Tuple [])
 exprType (Lit (IntL _)) = Bits 64
 exprType (Lit (BoolL _)) = Bits 8
 exprType (Lit (StringL _)) = StringIRT
+exprType (Lit (FloatL _)) = FloatIRT
+
 
 
 primName t Native_Exit = LibPrim Native_Exit
@@ -194,4 +196,5 @@ needsGC (Bits nt) = False
 needsGC (Array t) = True
 needsGC (Ptr t) = True
 needsGC (StringIRT) = True
+needsGC (FloatIRT) = False
 needsGC oth = error $ "calling needsgc on" <> disp oth

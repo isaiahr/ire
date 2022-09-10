@@ -160,7 +160,7 @@ nameExpr (IfStmt cond thn els) = do
 nameExpr (Block s) = Block <$> (mapM nameStmt s)
 
 nameExpr (Constant c) = return (Constant c)
-
+nameExpr (FloatLiteral l) = return (FloatLiteral l)
 nameExpr (StringLiteral s) = return (StringLiteral s)
 nameExpr (BooleanLiteral b) = return (BooleanLiteral b)
 

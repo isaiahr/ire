@@ -57,7 +57,7 @@ traverseExpr t (Block ss) = do
     return $ Block ss'
     
 traverseExpr t (Constant c) = return $ Constant c
-
+traverseExpr t (FloatLiteral c) = return $ FloatLiteral c
 traverseExpr t (StringLiteral s) = return $ StringLiteral s
 traverseExpr t (BooleanLiteral b) = return $ BooleanLiteral b
 

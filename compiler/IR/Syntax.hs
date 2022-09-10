@@ -72,6 +72,7 @@ data LitE
     = IntL Int -- integer literal. 
     | BoolL Bool -- boolean literal
     | StringL String -- string literal
+    | FloatL Double
 
 
 
@@ -84,4 +85,5 @@ data Type
     | Bits Int
     | Array Type
     | StringIRT
+    | FloatIRT
     | Ptr Type deriving Eq

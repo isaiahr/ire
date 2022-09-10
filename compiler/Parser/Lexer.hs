@@ -17,7 +17,7 @@ import Control.Applicative
 import Control.DeepSeq
 import GHC.Generics
 
-data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integer Int | Character Char | String String | Identifier String
+data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integer Int | Character Char | String String | Identifier String | Float (String, String)
            | Term | Comma | Equals | Return | Yield | PlusEquals | Pipe | New | Void | Type | Colon | Dot | Arrow | If | Then
            | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals | FSlash | BSlash
            | Exclamation | Else | GreaterEqual | LesserEqual | Import | Export | Error | Forall | Dollar | DoublePlus | At deriving (Show, Eq)
@@ -105,7 +105,7 @@ nextLine _ = ""
 -- note: partial function is safe here due to Just at end.
 -- also: left must take priority over right.
 lexOne :: String -> (Token, String)
-lexOne str = fromJust (lexSym str <|> lexNum str <|> lexChar str <|> lexKw str <|> lexIdent str <|> lexStr str <|> Just (Parser.Lexer.Error, ""))
+lexOne str = fromJust (lexSym str <|> lexFloat str <|> lexNum str <|> lexChar str <|> lexKw str <|> lexIdent str <|> lexStr str <|> Just (Parser.Lexer.Error, ""))
 
 {-
 Lexing functions are string -> maybe (token, string)
@@ -164,6 +164,12 @@ extractIdent2 str = ("", str)
 lexNum :: String -> Maybe (Token, String)
 -- minus case handled as unary (-) operator
 lexNum str = if num == "" then Nothing else Just (Integer (read num::Int), rest)
+    where (num, rest) = extractNumAsStr str 
+
+lexFloat :: String -> Maybe (Token, String)
+lexFloat str = if num == "" then Nothing else case rest of
+                                                 ('.' : str2) -> let (n0, rest3) = extractNumAsStr str2 in if n0 == "" then Nothing else Just (Float (num, n0), rest3)
+                                                 _ -> Nothing
     where (num, rest) = extractNumAsStr str 
 
 extractNumAsStr :: String -> (String, String)

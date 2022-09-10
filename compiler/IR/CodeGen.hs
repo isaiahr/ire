@@ -228,6 +228,9 @@ genE (Lit (IntL i)) = do
 
 genE (Lit (BoolL i)) = do
     return $ LIntLit (if i then 1 else 0)
+
+genE (Lit (FloatL i)) = do
+    return $ LDoubleLit i
     
 genE (Lit (StringL str)) = do
     let bytes = Data.ByteString.unpack . Data.Text.Encoding.encodeUtf8 . Data.Text.pack $ str
@@ -885,4 +888,5 @@ ir2llvmtype (Bits nt) = (LLVMInt nt)
 ir2llvmtype (Array t) = LLVMStruct False [(LLVMInt 64), LLVMPtr (ir2llvmtype t)]
 ir2llvmtype (Ptr t) = LLVMPtr (ir2llvmtype t)
 ir2llvmtype (StringIRT) = LLVMStruct False [(LLVMInt 64), LLVMPtr (LLVMInt 8)]
+ir2llvmtype (FloatIRT) = LLVMDouble
 ir2llvmtype (TV _) = error "hit type variable monomorphization should have removed. #80909485485"
