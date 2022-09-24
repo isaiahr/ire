@@ -13,7 +13,7 @@ debug: CCFLAGS += -g -DDEBUG=1
 debug: all
 
 prepare:
-	
+	@mkdir -p $(BINDIR)
 
 $(BINDIR)/irert_linux_amd64.o: $(SRCS:%=$(OUTDIR)/linux_amd64/%.o)
 	$(LD) $(LDFLAGS) $^ -o $@
