@@ -1,0 +1,26 @@
+// Ok (0, "-6.160520000000001E1\n1010")
+//
+
+
+main := \() -> {
+    f := 3.141
+    f = f + 10.0
+    f = f * 2.8
+    f = f - 98.4
+    fstr := __ire__floattostring__(f)
+    __ire__print__(fstr)
+    __ire__print__("\n")
+    b := 0
+    // comparison tests
+    if (f < 0.5) then {
+        b = b + 10
+    } else ()
+    if (f >= 0.5) then {
+        b = b + 100
+    } else ()
+    if (f == f) then {
+        b = b + 1000
+    } else ()
+    __ire__print__(__ire__inttostring__(b))
+    
+}

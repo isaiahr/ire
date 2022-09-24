@@ -45,6 +45,7 @@ instance Disp Type where
     disp (Bits nt) = "i" <> disp nt
     disp (Array ty) = "[" <> disp ty <> "]"
     disp (Ptr ty) = disp ty <> "*"
+    disp (FloatIRT) = "float"
     disp (StringIRT) = "str"
     disp (TV i) = "$" <> disp i
     
@@ -90,14 +91,14 @@ instance Disp PrimE where
     disp (ArrayAppend ty) = "@ArrayAppend!" <> disp ty
     disp (ArraySet ty) = "@ArraySet!" <> disp ty
     disp (ArrayGet ty) = "@ArrayGet!" <> disp ty
-    disp (IntAdd) = "@IntAdd!"
-    disp (IntSub) = "@IntSub!"
-    disp (IntMul) = "@IntMul!"
-    disp (IntEq) = "@IntEq!"
-    disp (IntGET) = "@IntGET!"
-    disp (IntGT) = "@IntGT!"
-    disp (IntLET) = "@IntLET!"
-    disp (IntLT) = "@IntLT!"
+    disp (GAdd ty) = "@GAdd!" <> disp ty
+    disp (GSub ty) = "@GSub!" <> disp ty
+    disp (GMul ty) = "@GMul!" <> disp ty
+    disp (GEq ty) = "@GEq!" <> disp ty
+    disp (GGET ty) = "@GGET!" <> disp ty
+    disp (GGT ty) = "@GGT!" <> disp ty
+    disp (GLET ty) = "@GLET!" <> disp ty
+    disp (GLT ty) = "@GLT!" <> disp ty
     disp (BoolOr) = "@BoolOr!"
     disp (BoolAnd) = "@BoolAnd!"
     disp (LibPrim lb) = "@LibPrim!" <> disp lb

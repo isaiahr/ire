@@ -55,14 +55,14 @@ data PrimE
     | ArrayGet Type -- get an element of an array
     | ArraySet Type -- mutate an element in an array
     | ArrayAppend Type -- create a new array; the first concatenated with the second
-    | IntAdd -- prim add int
-    | IntSub -- prim sub int
-    | IntMul -- prim multiply int
-    | IntEq
-    | IntGET
-    | IntGT
-    | IntLET
-    | IntLT
+    | GAdd Type -- generic add
+    | GSub Type
+    | GMul Type
+    | GEq Type
+    | GGET Type
+    | GGT Type
+    | GLET Type
+    | GLT Type
     | BoolOr
     | BoolAnd
     | LibPrim Native -- "library" primitive, this is typically a function that is linked with all binaries.

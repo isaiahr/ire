@@ -100,6 +100,11 @@ createAdd ty v1 v2 = do
     addInst $ LAdd ret ty v1 v2 False False 
     return ret
     
+createFAdd ty v1 v2 = do
+    ret <- newValue
+    addInst $ LFAdd ret ty v1 v2
+    return ret
+
 createOr ty v1 v2 = do
     ret <- newValue
     addInst $ LOr ret ty v1 v2
@@ -114,15 +119,30 @@ createIcmp op ty v1 v2 = do
     ret <- newValue
     addInst $ LIcmp ret op ty v1 v2
     return ret
-    
+
+createFcmp op ty v1 v2 = do
+    ret <- newValue
+    addInst $ LFcmp ret op ty v1 v2
+    return ret
+
 createSub ty v1 v2 = do
     ret <- newValue
     addInst $ LSub ret ty v1 v2 False False 
+    return ret
+    
+createFSub ty v1 v2 = do
+    ret <- newValue
+    addInst $ LFSub ret ty v1 v2
     return ret
 
 createMul ty v1 v2 = do
     ret <- newValue
     addInst $ LMul ret ty v1 v2 False False 
+    return ret
+    
+createFMul ty v1 v2 = do
+    ret <- newValue
+    addInst $ LFMul ret ty v1 v2
     return ret
 
 createCall ty func params =

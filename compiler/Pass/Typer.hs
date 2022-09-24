@@ -150,6 +150,7 @@ ast2tyinfer (StringT) = return typeStr
 ast2tyinfer (Function t1 t2) = liftM2 typeFunction (ast2tyinfer t1) (ast2tyinfer t2)
 ast2tyinfer (Tuple tys) = typeTuple <$> (mapM ast2tyinfer tys)
 ast2tyinfer (IntT) = return typeInt
+ast2tyinfer (FloatT) = return typeFloat
 ast2tyinfer (BoolT) = return typeBool
 ast2tyinfer (Record rs) = typeRecord <$> (forM rs (\(k, v) -> do
     v' <- ast2tyinfer v
@@ -515,6 +516,10 @@ checkClasses = do
 satisfy (TyVar t) _ = True
 satisfy (TyCon "float") Num = True
 satisfy (TyCon "int") Num = True
+satisfy (TyCon "float") Eq = True
+satisfy (TyCon "int") Eq = True
+satisfy (TyCon "float") Ord = True
+satisfy (TyCon "int") Ord = True
 satisfy _ Num = False
 satisfy ty (RecMember str tgf) = case ty of
     (TyNamedApp "record" rs) -> case lookup str rs of
@@ -849,20 +854,49 @@ typeofn Native_Exit = (TyScheme []) <$> ast2tyinfer (Function (IntT) (Tuple []))
 typeofn Native_Print = (TyScheme []) <$> ast2tyinfer (Function (StringT) (Tuple []))
 typeofn Native_Panic = (TyScheme []) <$> ast2tyinfer (Function (Tuple []) (Tuple []))
 typeofn Native_IntToString = (TyScheme []) <$> ast2tyinfer (Function (IntT) (StringT))
+typeofn Native_FloatToString = (TyScheme []) <$> ast2tyinfer (Function (FloatT) (StringT))
 
 typeofn Native_Addition = do
     ne <- fresh
     mkClassCon (TyVar ne) Num
     return $ TyScheme [ne] (typeFunction (typeTuple [TyVar ne, TyVar ne]) (TyVar ne))
 
-typeofn Native_Subtraction = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
-typeofn Native_Multiplication = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (IntT))
+typeofn Native_Subtraction = do
+    ne <- fresh
+    mkClassCon (TyVar ne) Num
+    return $ TyScheme [ne] (typeFunction (typeTuple [TyVar ne, TyVar ne]) (TyVar ne))
+
+typeofn Native_Multiplication = do
+    ne <- fresh
+    mkClassCon (TyVar ne) Num
+    return $ TyScheme [ne] (typeFunction (typeTuple [TyVar ne, TyVar ne]) (TyVar ne))
+
 -- for now. this will change in the future (after polymorphism is added)
-typeofn Native_Equal = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
-typeofn Native_Greater = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
-typeofn Native_Less = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
-typeofn Native_GreaterEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
-typeofn Native_LesserEqual = (TyScheme []) <$> ast2tyinfer (Function (Tuple [IntT, IntT]) (BoolT))
+typeofn Native_Equal = do
+    ne <- fresh
+    mkClassCon (TyVar ne) Eq
+    return $ TyScheme [ne] (typeFunction (typeTuple [TyVar ne, TyVar ne]) (typeBool))
+
+typeofn Native_Greater = do
+    ne <- fresh
+    mkClassCon (TyVar ne) Ord
+    return $ TyScheme [ne] (typeFunction (typeTuple [TyVar ne, TyVar ne]) (typeBool))
+
+typeofn Native_Less = do
+    ne <- fresh
+    mkClassCon (TyVar ne) Ord
+    return $ TyScheme [ne] (typeFunction (typeTuple [TyVar ne, TyVar ne]) (typeBool))
+
+typeofn Native_GreaterEqual = do
+    ne <- fresh
+    mkClassCon (TyVar ne) Ord
+    return $ TyScheme [ne] (typeFunction (typeTuple [TyVar ne, TyVar ne]) (typeBool))
+
+typeofn Native_LesserEqual = do
+    ne <- fresh
+    mkClassCon (TyVar ne) Ord
+    return $ TyScheme [ne] (typeFunction (typeTuple [TyVar ne, TyVar ne]) (typeBool))
+
 typeofn Native_Or = (TyScheme []) <$> ast2tyinfer (Function (Tuple [BoolT, BoolT]) (BoolT))
 typeofn Native_And = (TyScheme []) <$> ast2tyinfer (Function (Tuple [BoolT, BoolT]) (BoolT))
 typeofn Native_ArraySize = do

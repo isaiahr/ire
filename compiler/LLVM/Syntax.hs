@@ -68,6 +68,8 @@ deriving instance Generic ConstExpr
 deriving instance NFData ConstExpr
 deriving instance Generic CMPOperand
 deriving instance NFData CMPOperand
+deriving instance Generic FCMPOperand
+deriving instance NFData FCMPOperand
 
 instance Disp LMod where 
     disp lm = mdisp "source_filename = \"" (sourcefn lm) "\"\n" <>
@@ -112,8 +114,11 @@ instance Disp LBasicBlock where
 data LInst
     = LRet LType LValue -- ret ty val
     | LAdd LValue LType LValue LValue Bool Bool -- val = add ty v1 v2 nuw nsw
+    | LFAdd LValue LType LValue LValue
     | LSub LValue LType LValue LValue Bool Bool -- val = sub ty v1 v2 nuw nsw
+    | LFSub LValue LType LValue LValue
     | LMul LValue LType LValue LValue Bool Bool -- val = mul ty v1 v2 nuw nsw
+    | LFMul LValue LType LValue LValue
     | LGEP LValue Bool LType LType LValue [(LType, LValue)] -- val = getelementptr inbounds ty ty* v [i64 i[0], i64 i[1] etc]
     | LLoad LValue LType LType LValue -- val = load ty ty* v
     | LStore Bool LType LValue LType LValue -- store volatile ty v ty* ptr
@@ -129,6 +134,7 @@ data LInst
     | LOr LValue LType LValue LValue
     | LPhi LValue LType [(LValue, LLabel)]
     | LIcmp LValue CMPOperand LType LValue LValue
+    | LFcmp LValue FCMPOperand LType LValue LValue
     | LPtrToInt LValue LType LValue LType -- ptrtoint
     | LZExt LValue LType LValue LType -- zero extend
     | LSExt LValue LType LValue LType -- sign extend
@@ -136,6 +142,7 @@ data LInst
     | LUnreachable
 
 data CMPOperand = OP_eq | OP_ne | OP_ugt | OP_uge | OP_ult | OP_ule | OP_sgt | OP_sge | OP_slt | OP_sle
+data FCMPOperand = OP_oeq | OP_one | OP_ogt | OP_oge | OP_olt | OP_ole
 
 instance Disp CMPOperand where
     disp OP_eq = "eq"
@@ -149,20 +156,31 @@ instance Disp CMPOperand where
     disp OP_slt = "slt"
     disp OP_sle = "sle"
 
+instance Disp FCMPOperand where
+    disp OP_oeq = "oeq"
+    disp OP_one = "one"
+    disp OP_ogt = "ogt"
+    disp OP_oge = "oge"
+    disp OP_olt = "olt"
+    disp OP_ole = "ole"
+
 instance Disp LInst where
     disp (LRet ty val) = "ret " <> disp ty <> " " <> disp val
     disp (LAdd v ty v1 v2 False False) = disp v <> " = add " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LAdd v ty v1 v2 True False) = disp v <> " = add nuw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LAdd v ty v1 v2 True True) = disp v <> " = add nuw nsw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LAdd v ty v1 v2 False True) = disp v <> " = add nsw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LAdd v ty v1 v2 True False) = disp v <> " = add nuw " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LAdd v ty v1 v2 True True) = disp v <> " = add nuw nsw " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LAdd v ty v1 v2 False True) = disp v <> " = add nsw " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LFAdd v ty v1 v2) = disp v <> " = fadd " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LSub v ty v1 v2 False False) = disp v <> " = sub " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LSub v ty v1 v2 True False) = disp v <> " = sub nuw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LSub v ty v1 v2 True True) = disp v <> " = sub nuw nsw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LSub v ty v1 v2 False True) = disp v <> " = sub nsw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LSub v ty v1 v2 True False) = disp v <> " = sub nuw " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LSub v ty v1 v2 True True) = disp v <> " = sub nuw nsw " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LSub v ty v1 v2 False True) = disp v <> " = sub nsw " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LFSub v ty v1 v2) = disp v <> " = fsub " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LMul v ty v1 v2 False False) = disp v <> " = mul " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LMul v ty v1 v2 True False) = disp v <> " = mul nuw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LMul v ty v1 v2 True True) = disp v <> " = mul nuw nsw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
-    disp (LMul v ty v1 v2 False True) = disp v <> " = mul nsw" <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LMul v ty v1 v2 True False) = disp v <> " = mul nuw " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LMul v ty v1 v2 True True) = disp v <> " = mul nuw nsw " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LMul v ty v1 v2 False True) = disp v <> " = mul nsw " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LFMul v ty v1 v2) = disp v <> " = fmul " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LGEP v True ty1 ty2 val lnt) = disp v <> " = getelementptr inbounds " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val <> concat (map (\(x, y) -> ", " <> disp x <>  " " <> (disp y)) lnt)
     disp (LGEP v False ty1 ty2 val lnt) = disp v <> " = getelementptr " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val <> concat (map (\(x, y) -> ", " <> disp x <> " " <> (disp y)) lnt)
     disp (LLoad v ty1 ty2 val) = disp v <> " = load " <> disp ty1 <> ", " <> disp ty2 <> " " <> disp val
@@ -180,6 +198,7 @@ instance Disp LInst where
     disp (LAnd v ty v1 v2) = disp v <> " = and " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LOr v ty v1 v2) = disp v <> " = or " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LIcmp v op ty v1 v2) = disp v <> " = icmp " <> disp op <> " " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
+    disp (LFcmp v op ty v1 v2) = disp v <> " = fcmp " <> disp op <> " " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LPtrToInt v ty v1 ty2) = disp v <> " = ptrtoint " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
     disp (LZExt v ty v1 ty2) = disp v <> " = zext " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
     disp (LSExt v ty v1 ty2) = disp v <> " = sext " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2

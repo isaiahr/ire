@@ -76,6 +76,7 @@ llvmntypeof Native_Print = LLVMFunction LLVMVoid [ir2llvmtype StringIRT]
 llvmntypeof Native_Alloc = LLVMFunction (LLVMPtr (LLVMInt 8)) [LLVMInt 64, LLVMPtr $ LLVMDType "%gcheaptracker"]
 llvmntypeof Native_Panic = LLVMFunction (LLVMVoid) []
 llvmntypeof Native_IntToString = LLVMFunction (ir2llvmtype StringIRT) [LLVMInt 64]
+llvmntypeof Native_FloatToString = LLVMFunction (ir2llvmtype StringIRT) [LLVMDouble]
 
 genLLVM2 tlfs = do
     let lfs2 = map (\n -> createFunctionStub (prim2llvmname n) (llvmntypeof n) Linkage_External Nothing) llvmLibNatives ++
@@ -431,66 +432,58 @@ genE (App (Prim (GetRecElem (Rec kv) a)) [arg]) = do
     result <- promote $ createExtractValue (ir2llvmtype (Tuple ty)) arg' [idx]
     return result
 
-genE (App (Prim (IntAdd)) [argtuple]) = do
+genE (App (Prim (GAdd (Bits 64))) [argtuple]) = do
     argtuple' <- genE argtuple
     r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
     r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
     result <- promote $ createAdd (LLVMInt 64) r1 r2
     return $ result
 
-genE (App (Prim (IntSub)) [argtuple]) = do
+genE (App (Prim (GAdd (FloatIRT))) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMDouble), (LLVMDouble)]) argtuple' [0]
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMDouble), (LLVMDouble)]) argtuple' [1]
+    result <- promote $ createFAdd (LLVMDouble) r1 r2
+    return $ result
+
+genE (App (Prim (GSub (Bits 64))) [argtuple]) = do
     argtuple' <- genE argtuple
     r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
     r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
     result <- promote $ createSub (LLVMInt 64) r1 r2
     return $ result
+
+genE (App (Prim (GSub (FloatIRT))) [argtuple]) = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMDouble), (LLVMDouble)]) argtuple' [0]
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMDouble), (LLVMDouble)]) argtuple' [1]
+    result <- promote $ createFSub (LLVMDouble) r1 r2
+    return $ result
     
-genE (App (Prim (IntMul)) [argtuple]) = do
+genE (App (Prim (GMul (Bits 64))) [argtuple]) = do
     argtuple' <- genE argtuple
     r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
     r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
     result <- promote $ createMul (LLVMInt 64) r1 r2
     return $ result
 
-genE (App (Prim (IntEq)) [argtuple]) = do
+genE (App (Prim (GMul (FloatIRT))) [argtuple]) = do
     argtuple' <- genE argtuple
-    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
-    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
-    resultb <- promote $ createIcmp OP_eq (LLVMInt 64) r1 r2
-    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMDouble), (LLVMDouble)]) argtuple' [0]
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMDouble), (LLVMDouble)]) argtuple' [1]
+    result <- promote $ createFMul (LLVMDouble) r1 r2
     return $ result
 
-genE (App (Prim (IntGT)) [argtuple]) = do
-    argtuple' <- genE argtuple
-    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
-    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
-    resultb <- promote $ createIcmp OP_sgt (LLVMInt 64) r1 r2
-    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
-    return $ result
-
-genE (App (Prim (IntLT)) [argtuple]) = do
-    argtuple' <- genE argtuple
-    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
-    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
-    resultb <- promote $ createIcmp OP_slt (LLVMInt 64) r1 r2
-    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
-    return $ result
-
-genE (App (Prim (IntGET)) [argtuple]) = do
-    argtuple' <- genE argtuple
-    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
-    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
-    resultb <- promote $ createIcmp OP_sge (LLVMInt 64) r1 r2
-    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
-    return $ result
-
-genE (App (Prim (IntLET)) [argtuple]) = do
-    argtuple' <- genE argtuple
-    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
-    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
-    resultb <- promote $ createIcmp OP_sle (LLVMInt 64) r1 r2
-    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
-    return $ result
+genE (App (Prim (GEq (Bits 64))) [argtuple]) = genCMP OP_eq argtuple
+genE (App (Prim (GEq (FloatIRT))) [argtuple]) = genFCMP OP_oeq argtuple
+genE (App (Prim (GGT (Bits 64))) [argtuple]) = genCMP OP_sgt argtuple
+genE (App (Prim (GGT (FloatIRT))) [argtuple]) = genFCMP OP_ogt argtuple
+genE (App (Prim (GLT (Bits 64))) [argtuple]) = genCMP OP_slt argtuple
+genE (App (Prim (GLT (FloatIRT))) [argtuple]) = genFCMP OP_olt argtuple
+genE (App (Prim (GGET (Bits 64))) [argtuple]) = genCMP OP_sge argtuple
+genE (App (Prim (GGET (FloatIRT))) [argtuple]) = genFCMP OP_oge argtuple
+genE (App (Prim (GLET (Bits 64))) [argtuple]) = genCMP OP_sle argtuple
+genE (App (Prim (GLET (FloatIRT))) [argtuple]) = genFCMP OP_ole argtuple
     
 genE (App (Prim (BoolOr)) [argtuple]) = do
     argtuple' <- genE argtuple
@@ -653,6 +646,22 @@ genE (If cond e1 e2) = do
     return result
     
 genE other = error $ "no codegen for: " <> disp other
+
+genCMP op argtuple = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [0]
+    r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 64), (LLVMInt 64)]) argtuple' [1]
+    resultb <- promote $ createIcmp op (LLVMInt 64) r1 r2
+    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
+    return $ result
+
+genFCMP op argtuple = do
+    argtuple' <- genE argtuple
+    r1 <- promote $ createExtractValue (LLVMStruct False [LLVMDouble, LLVMDouble]) argtuple' [0]
+    r2 <- promote $ createExtractValue (LLVMStruct False [LLVMDouble, LLVMDouble]) argtuple' [1]
+    resultb <- promote $ createFcmp op LLVMDouble r1 r2
+    result <- promote $ createZExt (LLVMInt 1) resultb (LLVMInt 8)
+    return $ result
 
 createGCMeta :: Type -> State Ctx LValue
 createGCMeta ty = do

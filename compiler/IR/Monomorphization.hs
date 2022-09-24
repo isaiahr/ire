@@ -117,6 +117,7 @@ changePrim sub ex = go ex
           go (Prim (GetPtr ty)) = Prim (GetPtr (applySubs sub ty))
           go (Prim (SetPtr ty)) = Prim (SetPtr (applySubs sub ty))
           go (Prim (CreatePtr ty)) = Prim (CreatePtr (applySubs sub ty))
+          go (Prim (GAdd n)) = Prim (GAdd $ applySubs sub n)
           go ex0 = traverseExprId go ex0
 
 doMono :: Name -> TLFunction -> State Ctx ()
