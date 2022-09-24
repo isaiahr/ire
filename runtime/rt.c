@@ -4,6 +4,7 @@
 #include "platform.h"
 #include "wrapper.h"
 #include "gc.h"
+#include "ryu/ryu.h"
 
 #define NULL 0
 #define STDOUT 1
@@ -113,6 +114,18 @@ ire_string_t __irert__inttostring__(ire_int_t value){
     }
     for(int8_t j = 0; j < i; j++){
         t.ptr[j+negative] = buffer[i-j-1];
+    }
+    return t;
+}
+
+ire_string_t __irert__floattostring__(ire_float_t value){
+    char buffer[32];
+    int32_t len = d2s(value, buffer);
+    ire_string_t t;
+    t.ptr = __irert__gc_alloc__(len, ire_anon_tracker);
+    t.bytes = len;
+    while(--len >= 0){
+        t.ptr[len] = buffer[len];
     }
     return t;
 }

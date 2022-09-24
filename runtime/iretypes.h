@@ -8,6 +8,7 @@
 #include <stdint.h>
 
 typedef int64_t ire_int_t;
+typedef double ire_float_t;
 typedef struct {
     int64_t bytes;
     // Note: pointer here is always heap allocated.
@@ -17,6 +18,5 @@ typedef struct {
 typedef int8_t ire_bool_t;
 
 typedef struct {} ire_void_t;
-
 
 #endif
