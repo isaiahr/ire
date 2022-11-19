@@ -54,6 +54,12 @@ parseIdentifier = Parser (\x ->
          ((AnnotatedToken{annLexeme=(Identifier z)}):zs) -> ParseSuccess z zs
          _ -> ParseFailure)         
 
+parseUnderscore :: Parser ()
+parseUnderscore = Parser (\x ->
+    case x of
+         ((AnnotatedToken{annLexeme=(Identifier "_")}):zs) -> ParseSuccess () zs
+         _ -> ParseFailure)
+
 parseMonoType :: Parser MonoType
 parseMonoType = parseBType <|> infbuild (parseRecord <|> parseUnion <|> parseIntType <|> parseBoolType <|> parseStringType <|> parseArrayType <|> parseTuple <|> parseTV <|> parseDType) parseFunctionType
 
@@ -102,27 +108,26 @@ parseTuple :: Parser MonoType
 parseTuple = fmap Tuple $ parseToken LParen *> collect parseMonoType (parseToken Comma) <* parseToken RParen
 
 parseRecord :: Parser MonoType
-parseRecord = fmap Record $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseMonoType)) (parseToken Comma) <* parseToken RCrParen
+parseRecord = fmap Record $ parseToken LCrAndParen *> collect (liftA2 (,) parseIdentifier (parseToken Colon *> parseMonoType)) (parseToken Comma) <* parseToken RCrAndParen
 
--- future optimization: roll parseRecord and parseUnion into one func
 parseUnion :: Parser MonoType
-parseUnion = fmap Union $ parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Colon *> parseMonoType)) (parseToken Pipe) <* parseToken RCrParen
+parseUnion = fmap Union $ parseToken LCrOrParen *> collect (liftA2 (,) parseIdentifier (parseToken Colon *> parseMonoType)) (parseToken Comma)  <* parseToken RCrOrParen
 
 parseDefinition :: Parser (Definition String)
 parseDefinition = liftA3 (\x y z -> Definition {identifier=x, typeof=y, value=z}) parsePatMatch ((parseToken Colon *> fmap Just parseType) <|> (parseToken Colon $> Nothing)) (parseToken Equals *> expect "Expected Expression in Definition" parseAnnExprA)
 
 parseAnnExpr :: Parser (AnnExpr String)
-parseAnnExpr = fmap (\x -> AnnExpr {aExpr = x, aId = 0, aType = Nothing}) parseExpression
+parseAnnExpr = liftA2 (\x y -> AnnExpr {aExpr = x, aId = 0, aType = y}) parseExpression ((parseToken Colon *> fmap Just parseType) <|> pure Nothing)
 
 parseAnnExprA :: Parser (AnnExpr String)
-parseAnnExprA = fmap (\x -> AnnExpr {aExpr = x, aId = 0, aType = Nothing}) parseExpressionA
+parseAnnExprA = liftA2 (\x y -> AnnExpr {aExpr = x, aId = 0, aType = y}) parseExpressionA ((parseToken Colon *> fmap Just parseType) <|> pure Nothing)
 
 -- expressionAll. here infx is allowed. typically it isn't, so parseExpression will not parse infx
 parseExpressionA :: Parser (Expression String)
 parseExpressionA = fmap orderOps parseInfixOp
 
 parseExpression :: Parser (Expression String)
-parseExpression = infbuild (parseInitalization <|> (infbuild parseBrExpression parseSelector) <|> parseBlock <|> parseIfStmt <|> parseLiteral <|> (infbuild parseVariable parseSelector)) parseFunctionCall
+parseExpression = infbuild (parseInitalization <|> parseMatching <|> (infbuild parseBrExpression parseSelector) <|> parseBlock <|> parseIfStmt <|> parseLiteral <|> (infbuild parseVariable parseSelector)) parseFunctionCall
 
 parseIfStmt :: Parser (Expression String)
 parseIfStmt = liftA3 IfStmt (parseToken If *> parseAnnExprA) (parseToken Then *> parseAnnExprA) (parseToken Else *> parseAnnExprA)
@@ -136,6 +141,12 @@ parseBrExpression = parseToken LParen *> parseExpressionA <* parseToken RParen
 
 parseInitalization :: Parser (Expression String)
 parseInitalization = liftA2 Initialize (parseToken New *> parseIdentifier) (parseAnnExprA)
+
+parseMatching :: Parser (Expression String)
+parseMatching = liftA2 (\x y -> PatMatching (Matching x y)) (parseToken Match *> parseAnnExprA <* parseToken With) (parseToken LCrParen *> (collectM parseMatchRow $ parseToken Term) <* parseToken RCrParen)
+    where
+    parseMatchRow = liftA2 (,) (parseMatchRowLHS) (parseToken EqArrow *> parseAnnExprA)
+    parseMatchRowLHS = ((parseToken LCrOrParen *> liftA2 MVariant parseIdentifier parseMatchRowLHS <* parseToken RCrOrParen)) <|> (RMatch <$> (parseToken LParen *> (collectM parseMatchRowLHS $ parseToken Comma) <* parseToken RParen)) <|> (MVariable <$> parseIdentifier) <|> (parseUnderscore *> pure MNullVar)
 
 parseLiteral :: Parser (Expression String)
 parseLiteral = parseInt <|>
@@ -154,7 +165,7 @@ parseAssignLHS = infbuild (fmap change parsePatMatch) magic2
           magic2 (TupleUnboxingA t) = Parser (\x -> ParseFailure)
           magic2 (Singleton a rs) = liftA2 (\x y -> Singleton a (rs ++ [(x, y)])) ((parseToken Arrow *> pure SelArrow) <|> (parseToken Dot *> pure SelDot)) parseIdentifier
 
-parsePatMatch :: Parser (PatternMatching String)
+parsePatMatch :: Parser (TupDestruct String)
 parsePatMatch = (parseToken LParen *> (pure (TupleUnboxing [])) <* parseToken RParen) <|>
                 (fmap Plain parseIdentifier) <|>
                 fmap change (fmap TupleUnboxing $ parseToken LParen *> collect parseIdentifier (parseToken Comma) <* parseToken RParen)
@@ -191,7 +202,10 @@ parseTupleLiteral = (parseToken LParen *> (pure (TupleLiteral [])) <* parseToken
                     (fmap TupleLiteral $ parseToken LParen *> collect parseAnnExprA (parseToken Comma) <* parseToken RParen)
 
 parseRecordLiteral :: Parser (Expression String)
-parseRecordLiteral = fmap RecordLiteral $ parseToken At *> parseToken LCrParen *> collect (liftA2 (\x y -> (x, y)) parseIdentifier (parseToken Equals *> parseAnnExprA)) (parseToken Comma) <* parseToken RCrParen
+parseRecordLiteral = fmap RecordLiteral $ parseToken LCrAndParen *> collect (liftA2 (,) parseIdentifier (parseToken Equals *> parseAnnExprA)) (parseToken Comma) <* parseToken RCrAndParen
+
+parseVariantLiteral :: Parser (Expression String)
+parseVariantLiteral = fmap VariantLiteral (parseToken LCrOrParen *> liftA2 (,) parseIdentifier parseAnnExprA)  <* parseToken RCrOrParen
 
 -- \a -> {}
 -- or: \(x,y,z) -> {}
@@ -217,9 +231,6 @@ parseYield = fmap AST.AST.Yield $ parseToken Parser.Lexer.Yield *> parseAnnExprA
 
 parseAssignment :: Parser (Statement String)
 parseAssignment = liftA2 Assignment (parseAssignLHS <* parseToken Equals) parseAnnExprA
--- UnionLiteral ((String, Expression), [(String, Type)])
--- remove union literals for now. not completely sure on syntax for them yet
--- parseUnionLiteral = fmap UnionLiteral $ parseToken LCrParen *> liftA2 (\x y -> (x, y)) () () <* parseToken RCrParen
 
 parseFunctionCall :: (Expression String) -> Parser (Expression String)
 parseFunctionCall t = liftA2 FunctionCall (pure AnnExpr {aExpr = t, aId = 0, aType = Nothing}) parseAnnExpr

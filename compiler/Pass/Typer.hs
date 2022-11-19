@@ -121,13 +121,18 @@ instance Disp TyScheme where
 
 data TypeClass = 
     RecMember String Typ |
+    VarMember String Typ |
     Num | -- +, -
     Eq | -- ==
     Ord -- <, >
     deriving (Show, Eq, Ord)
 
 instance Disp TypeClass where
-    disp (RecMember k v) = k <> ": " <> (disp v)
+    disp (RecMember k v) = k <> "&: " <> (disp v)
+    disp (VarMember k v) = k <> "|: " <> (disp v)
+    disp Num = "Num"
+    disp Eq = "Eq"
+    disp Ord = "Ord"
 
 newtype Sub = Sub (Map.Map TVar Typ) deriving (Show, Eq, Semigroup, Monoid)
 
@@ -236,10 +241,12 @@ instance Substitutable Env where
         
 instance Substitutable TypeClass where
     apply s (RecMember k ty) = RecMember k (apply s ty)
+    apply s (VarMember k ty) = VarMember k (apply s ty)
     apply s Num = Num
     apply s Ord = Ord
     apply s Eq = Eq
     ftv (RecMember k v) = ftv v
+    ftv (VarMember k v) = ftv v
     ftv Num = Set.empty
     ftv Ord = Set.empty
     ftv Eq = Set.empty
@@ -521,6 +528,7 @@ satisfy (TyCon "int") Eq = True
 satisfy (TyCon "float") Ord = True
 satisfy (TyCon "int") Ord = True
 satisfy _ Num = False
+-- ok iff has member with same name that can be unified with its type.
 satisfy ty (RecMember str tgf) = case ty of
     (TyNamedApp "record" rs) -> case lookup str rs of
                                Nothing -> False
@@ -528,7 +536,13 @@ satisfy ty (RecMember str tgf) = case ty of
                                               Right (Sub _) -> True
                                               Left _ -> False
     _ -> False
-
+satisfy ty (VarMember str tgf) = case ty of
+    (TyNamedApp "variant" rs) -> case lookup str rs of
+                              Nothing -> False
+                              Just f -> case runSolve [ConsEq tgf f] [] of
+                                             Right (Sub _) -> True
+                                             Left _ -> False
+    _ -> False
 updateGen :: Name -> InferM ()
 updateGen nam = do
     st <- get
@@ -633,6 +647,12 @@ inferE (RecordLiteral rs) n = do
     c1 <- mkCons n (typeRecord rs')
     return $ cons' <> c1
 
+inferE (VariantLiteral (s, lit)) n = do
+    n0 <- fresh
+    c0 <- inferAE lit (TyVar n0)
+    c1 <- mkClassCon n (VarMember s (TyVar n0))
+    return $ c0
+
 inferE (FunctionLiteral f t) n = do
     (c, nf) <- case f of
                (Plain s) -> do 
@@ -659,6 +679,32 @@ inferE (FunctionCall f x) n = do
     c2 <- inferAE x (TyVar nx)
     return $ c0 <> c1 <> c2
     
+inferE (PatMatching (Matching e cases)) n = do
+    en <- fresh
+    c0 <- inferAE e (TyVar en)
+    cons <- forM cases (\(match, expr) -> do
+        typ <- getMatchTy match
+        c1 <- mkCons typ (TyVar en)
+        c0 <- inferAE expr n
+        return (c0 <> c1))
+    let cons' = (concat cons)
+    return $ (cons' <> c0)
+    where
+        getMatchTy (MVariable a) = do
+            n <- newVar a
+            return n
+        getMatchTy MNullVar = do
+            n <- fresh
+            return (TyVar n)
+        getMatchTy (RMatch m) = do
+            mc <- forM m getMatchTy
+            return $ typeTuple mc
+        getMatchTy (MVariant st rm) = do
+            rmt <- getMatchTy rm
+            n <- fresh
+            mkClassCon (TyVar n) (VarMember st rmt)
+            return (TyVar n)
+
 inferE (Selector e SelDot str) n = do
     ne <- fresh
     c0 <- inferAE e (TyVar ne)
@@ -730,8 +776,16 @@ inferEL [] [] = return []
 inferEL _ _ = undefined
 
 inferAE aexpr n = do
+
     n2 <- idVar (aId aexpr)
     c0 <- mkCons n (TyVar n2)
+    case aType aexpr of
+        Nothing -> return ()
+        Just ty -> do
+            -- HACK. for now. FIXME when type vars are allowed in type annotations.
+            (TyScheme a tys) <- ast2tyscheme ty
+            mkCons tys n
+            return ()
     c1 <- inferE (aExpr aexpr) n
     return $ c0 <> c1
 
@@ -805,6 +859,9 @@ unifies t1 t2 = throwError $ UnificationFail t1 t2
 
 unifyTC (TyNamedApp "record" kv) (RecMember x t) = case lookup x kv of
                                                            Just t0 -> unifies t t0 -- prefer subbing tcs, although it shouldn't matter.
+                                                           Nothing -> return mempty
+unifyTC (TyNamedApp "variant" kv) (VarMember x t) = case lookup x kv of
+                                                           Just t0 -> unifies t t0
                                                            Nothing -> return mempty
 unifyTC oth ers = return mempty
 

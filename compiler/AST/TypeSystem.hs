@@ -57,14 +57,14 @@ instance Disp Type where
             
 instance Disp MonoType where 
     disp (Array t) = "[" ++ disp t ++ "]"
-    disp (IntT) = "Int"
-    disp (FloatT) = "Float"
-    disp (BoolT) = "Boolean"
-    disp (StringT) = "String"
+    disp IntT = "Int"
+    disp FloatT = "Float"
+    disp BoolT = "Boolean"
+    disp StringT = "String"
     disp (Function f t) = disp f ++ " -> " ++ disp t
     disp (Tuple arr) = "(" ++ intercalate ", " (map disp arr) ++ ")"
-    disp (Record r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ ": " ++ disp y) r) ++ "}"
-    disp (Union u) = "{" ++ intercalate " | " (map (\(x, y) -> x ++ ": " ++ disp y) u) ++ "}"
+    disp (Record r) = "{&" ++ intercalate ", " (map (\(x, y) -> x ++ ": " ++ disp y) r) ++ "&}"
+    disp (Union u) = "{|" ++ intercalate " , " (map (\(x, y) -> x ++ ": " ++ disp y) u) ++ "|}"
     disp (General g) = "$" ++ disp g
 
 instance Disp DefinedType where

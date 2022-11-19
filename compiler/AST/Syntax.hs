@@ -6,7 +6,7 @@ import Common.Common
 
 
 data Definition a = Definition {
-    identifier :: PatternMatching a,
+    identifier :: TupDestruct a,
     typeof :: Maybe Type,
     value :: AnnExpr a
 } deriving (Eq)
@@ -19,6 +19,7 @@ data Expression a =
                     Selector (AnnExpr a) SelectorKind String |
                     Initialize a (AnnExpr a) |
                     IfStmt (AnnExpr a) (AnnExpr a) (AnnExpr a) | -- if, like if 1==2 then expr1 else expr2
+                    PatMatching (Matching a) |
                     Constant Int |
                     FloatLiteral (String, String) |
                     BooleanLiteral Bool |
@@ -26,7 +27,13 @@ data Expression a =
                     ArrayLiteral [AnnExpr a] |
                     TupleLiteral [AnnExpr a] |
                     RecordLiteral [(String, AnnExpr a)] |
-                    FunctionLiteral (PatternMatching a) (AnnExpr a) deriving (Eq)
+                    VariantLiteral (String, AnnExpr a) |
+                    FunctionLiteral (TupDestruct a) (AnnExpr a) deriving (Eq)
+
+data Matching a = Matching (AnnExpr a) [(Match a, AnnExpr a)] deriving (Eq)
+
+-- row
+data Match a = RMatch [Match a] | MNullVar | MVariant String (Match a) | MVariable a deriving (Eq)
 
 -- an expression annotated with a type, and a unique id for associating it with other data
 -- as passes may choose to.
@@ -48,7 +55,7 @@ data AssignLHS a =
                          Singleton a [(SelectorKind, String)]| -- "single var", no tuple unboxing, but possibly a.b.c->d->e.f 
                          TupleUnboxingA [a] deriving (Eq) -- "tuple unboxing", so binding tuples' vars to vars
 
-data PatternMatching a = 
+data TupDestruct a =
                          Plain a | -- "plain", no tuple unboxing
                          TupleUnboxing [a] deriving (Eq) -- "tuple unboxing", so binding tuples' vars to vars
 

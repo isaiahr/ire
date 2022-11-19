@@ -31,8 +31,14 @@ deriving instance (NFData a) => NFData (Statement a)
 deriving instance Generic (AnnExpr a)
 deriving instance (NFData a) => NFData (AnnExpr a)
 
-deriving instance Generic (PatternMatching a)
-deriving instance (NFData a) => NFData (PatternMatching a)
+deriving instance Generic (TupDestruct a)
+deriving instance (NFData a) => NFData (TupDestruct a)
+
+deriving instance Generic (Matching a)
+deriving instance (NFData a) => NFData (Matching a)
+
+deriving instance Generic (Match a)
+deriving instance (NFData a) => NFData (Match a)
 
 deriving instance Generic SelectorKind
 deriving instance NFData SelectorKind
@@ -147,14 +153,16 @@ instance (Disp a) => Disp (Expression a) where
     disp (IfStmt e1 e2 e3) = "if " ++ disp e1 ++ " then " ++ disp e2 ++ " else " ++ disp e3 
     disp (Selector e SelArrow str) = disp e <> "->" <> str
     disp (Selector e SelDot str) = disp e <> "." <> str
+    disp (PatMatching m) = disp m
     disp (Constant i) = disp i
     disp (StringLiteral l) = disp l
     disp (FloatLiteral (c, f)) = c <> "." <> f
     disp (BooleanLiteral b) = if b then "true" else "false"
     disp (ArrayLiteral e) = "[" ++ intercalate ", " (map disp e) ++ "]"
     disp (TupleLiteral t) = "(" ++ intercalate ", " (map disp t) ++ ")"
-    disp (RecordLiteral r) = "{" ++ intercalate ", " (map (\(x, y) -> x ++ " = " ++ disp y) r) ++ "}"
+    disp (RecordLiteral r) = "{&" ++ intercalate ", " (map (\(x, y) -> x ++ " = " ++ disp y) r) ++ "&}"
     disp (FunctionLiteral p b) = '\\' : (disp p) ++ " -> " ++ disp b
+    disp (VariantLiteral (s, r)) = "{|" ++ s ++ " " ++ disp r ++ "|}"
 
 instance (Disp a) => Disp (AnnExpr a) where
     disp ae = "[" <> (show $ aId ae) <> "%" <> disp (aExpr ae) <> "]"
@@ -166,7 +174,15 @@ instance (Disp a) => Disp (Statement a) where
     disp (Return e) = "return " ++ disp e
     disp (Yield e) = "yield " ++ disp e
 
-instance (Disp a) => Disp (PatternMatching a) where
+instance (Disp a) => Disp (Matching a) where
+    disp (Matching e ma) = disp e ++ "@" ++ "{\n" ++ intercalate "\n" (map (\(x, y) -> disp x ++ " => " ++ disp y) ma)  ++ "\n}"
+
+instance (Disp a) => Disp (Match a) where
+    disp (RMatch ma) = "(" ++ intercalate ", " (map disp ma) ++ ")"
+    disp MNullVar = "_"
+    disp (MVariable a) = disp a
+
+instance (Disp a) => Disp (TupDestruct a) where
     disp (Plain a) = disp a
     disp (TupleUnboxing a) = "(" <> intercalate ", " (map disp a) <> ")"
 
@@ -188,4 +204,4 @@ instance Disp Name where
     disp (Name s i) = disp s ++ "#" ++ disp i
     disp (NativeName n) = "n<" <> disp n <> ">"
     disp (Symbol s t fi) = "sym<" <> disp s <> ":" <> disp t <> "|" <> disp fi <> ">"
-    disp (NameError) = "NameError 143016"
+    disp NameError = "NameError 143016"

@@ -1,7 +1,7 @@
 // Ok(8, "")
 
 main := \() -> {
-    e := @{x = @{x=3}}
+    e := {&x = {&x=3&}&}
     f := getx e
     g := getx f
     __ire__exit__(8)

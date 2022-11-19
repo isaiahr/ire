@@ -19,8 +19,9 @@ import GHC.Generics
 
 data Token = LParen | RParen | LSqParen | RSqParen | LCrParen | RCrParen | Integer Int | Character Char | String String | Identifier String | Float (String, String)
            | Term | Comma | Equals | Return | Yield | PlusEquals | Pipe | New | Void | Type | Colon | Dot | Arrow | If | Then
-           | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals | FSlash | BSlash
-           | Exclamation | Else | GreaterEqual | LesserEqual | Import | Export | Error | Forall | Dollar | DoublePlus | At deriving (Show, Eq)
+           | Plus | DoubleEquals | Less | Greater | Minus | Mult | Ampersand | Caret | Tru | Fals | FSlash | BSlash | EqArrow
+           | Exclamation | Else | GreaterEqual | LesserEqual | Import | Export | Error | Forall | Dollar | DoublePlus | At | Match | With
+           | RCrAndParen | LCrAndParen | RCrOrParen | LCrOrParen deriving (Show, Eq)
 
 deriving instance Generic Token
 deriving instance NFData Token
@@ -119,7 +120,12 @@ lexSym ('>' : '=' : str) = Just (GreaterEqual, str)
 lexSym ('<' : '=' : str) = Just (LesserEqual, str)
 lexSym ('+' : '=' : str) = Just (PlusEquals, str)
 lexSym ('-' : '>' : str) = Just (Arrow, str)
+lexSym ('=' : '>' : str) = Just (EqArrow, str)
 lexSym ('+' : '+' : str) = Just (DoublePlus, str)
+lexSym ('{' : '&' : str) = Just (LCrAndParen, str)
+lexSym ('&' : '}' : str) = Just (RCrAndParen, str)
+lexSym ('{' : '|' : str) = Just (LCrOrParen, str)
+lexSym ('|' : '}' : str) = Just (RCrOrParen, str)
 lexSym ('(' : str) = Just (LParen, str)
 lexSym (')' : str) = Just (RParen, str)
 lexSym ('[' : str) = Just (LSqParen, str)
@@ -192,6 +198,8 @@ lexKw str
     | kwMatch str "import" = Just (Import, drop 6 str)
     | kwMatch str "export" = Just (Export, drop 6 str)
     | kwMatch str "forall" = Just (Forall, drop 6 str)
+    | kwMatch str "match" = Just (Match, drop 5 str)
+    | kwMatch str "with" = Just (With, drop 4 str)
     | kwMatch str "new" = Just (New, drop 3 str)
     | otherwise = Nothing
  
