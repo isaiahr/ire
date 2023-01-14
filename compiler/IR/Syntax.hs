@@ -35,6 +35,7 @@ data Expr
     | Assign Name Expr -- assignment. similar to let except writes to existing name.
     | Seq Expr Expr -- expression sequencing. if it can be determined exp1 is pure, it can be erased.
     | If Expr Expr Expr -- if stmt.
+    | Switch Expr [(String, Expr)] Expr
     | Ret Expr -- return stmt. 
     | Lit LitE
 
@@ -46,6 +47,7 @@ data PrimE
     | GetTupleElem Type Int -- prim to get nth elem from tuple of type
     | GetPtrTupleElem Type Int -- similarly except with ptrs
     | GetRecElem Type String
+    | GetVarElem Type String
     | SetTupleElem Type Int -- prim to set nth elem from tuple of type
     | SetPtrTupleElem Type Int -- similarly except with ptrs
     | GetPtr Type -- primitive function to derefence pointers
@@ -80,6 +82,7 @@ data Type
     = Tuple [Type] -- cartesion product of types
     | TV Int -- type variable, for polymorphism. note: should not appear when codegen.
     | Rec [(String, Type)] -- acts similarly as tuple.
+    | Variant [(String, Type)]
     | Function [Type] Type
     | EnvFunction [Type] [Type] Type -- top-level function with environment (second param) (closure)
     | Bits Int

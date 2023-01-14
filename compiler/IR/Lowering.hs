@@ -9,6 +9,8 @@ import Pass.NameTyper
 import AST.AST hiding (nextName)
 import IR.IR as IR.Syntax
 
+import Data.Maybe
+import Control.Applicative
 import Control.Monad.State
 import Data.List
 
@@ -244,6 +246,8 @@ lexp (IfStmt cond thn els) = do
     els' <- laexp els
     return $ IR.Syntax.If cond' thn' els'
 
+lexp (PatMatching p) = lowerMatch p
+
 lexp (FunctionCall e1 e2) = do
     ne1 <- laexp e1
     ne2 <- laexp e2
@@ -328,3 +332,116 @@ magic3 [] tupleexpr tty indx restexpr = do
     return $ restexpr
 
 
+
+lowerMatch :: Matching TypedName -> State Context IR.Syntax.Expr
+lowerMatch (Matching a rows) = do
+    e <- laexp a
+    cc e rows
+
+-- http://moscova.inria.fr/~maranget/papers/warn/warn.pdf
+-- http://moscova.inria.fr/~maranget/papers/ml05e-maranget.pdf
+{-
+u [] [] = True
+u rows [] = False
+-- Urec(P, ~q ) = Urec(S(c, P ), S(c, ~q )).
+u rows ((MVariant str m):cs) = u (specMat m rows) (m:cs)
+u rows (MNullVar:cs) = if complete (map fst rows) then foldr (||) else
+
+
+specMat c p = mapMaybe (specialize c) p
+
+specialize m ((MVariant str2 m2):ps) = if m2 == m then Just (m2:ps) else Nothing
+specialize m (MNullVar:ps) = (Just ps)
+specialize m (RMatch r:ps) = error "Typeinfer error"
+          -- bind
+specialize m ((MVariable v):ps) = (Just ps)
+-}
+
+
+
+cc :: IR.Syntax.Expr -> [(Match TypedName, AnnExpr TypedName)] -> State Context IR.Syntax.Expr
+cc o [] = error "incomplete matching"
+cc o ((row, expr):rest) | nobranch row = bindMLHS o row expr (exprType o)
+cc o m@((row, expr):rest) = case pathTo row of
+                               Nothing -> error "nobranch determined branch??#34809809380943"
+                               Just path -> do
+                                   let trees = (subtrees path m)
+                                   cc2r <- mapM (cc2 o path) trees
+                                   return $ branchOn path o (exprType o) (zip (map fst trees) cc2r) (error "")
+
+cc2 o path (str, m) = cc o' m
+    where
+        o' = buildExpr path (chty path (exprType o')) o'
+        buildExpr (p:ps) (IR.Syntax.Tuple ty) c = App (Prim $ MkTuple ty) (map (func (p:ps) ty c) ([0..(length ty)-1]))
+        buildExpr [] ty c = App (Prim $ GetVarElem ty str) [c]
+        func (p:ps) ty c idx = if idx == p then buildExpr ps (ty !! idx) (App (Prim $ GetTupleElem (IR.Syntax.Tuple ty) idx) [c]) else App (Prim $ GetTupleElem (IR.Syntax.Tuple ty) idx) [c]
+        chty :: [Int] -> IR.Syntax.Type -> IR.Syntax.Type
+        chty [] (Variant kv) = fromJust $ lookup str kv
+        chty (p:ps) (IR.Syntax.Tuple ty) = (IR.Syntax.Tuple ((take p ty) ++ [chty ps (ty!!p)] ++ (drop (p+1) ty)))
+
+
+subtrees :: [Int] -> [(Match TypedName, AnnExpr TypedName)] -> [(String, [(Match TypedName, AnnExpr TypedName)])]
+subtrees path m = ((zip sigs (map (specialize path m) sigs))::[(String, [(Match TypedName, AnnExpr TypedName)])])
+    where sigs = nub $ catMaybes (map (sigof path) (map fst m))
+          sigof [] (MVariant s _) = Just s
+          sigof [] (_) = Nothing
+          sigof (p:ps) (RMatch rm) = sigof ps (rm !! p)
+          sigof (p:ps) _ = Nothing
+
+specialize :: [Int] -> [(Match TypedName, AnnExpr TypedName)] -> String -> [(Match TypedName, AnnExpr TypedName)]
+specialize path m cons = catMaybes (map (\(x, y) -> (specializeRow path cons x >>= (\z -> Just (z, y)))) m)
+
+specializeRow :: [Int] -> String -> (Match TypedName) -> Maybe (Match TypedName)
+specializeRow [] cons (MVariant s m) = if cons == s then Just m else Nothing
+specializeRow [] cons r = Just r
+specializeRow (p:ps) cons (RMatch r) = case specializeRow ps cons (r !! p) of
+                                              (Just row) -> Just $ RMatch (take p r ++ [row] ++ drop (p+1) r)
+                                              Nothing -> Nothing
+
+-- do: next maketpl here
+branchOn [] o ty clist def = Switch o clist def
+
+branchOn (s:ss) o (IR.Syntax.Tuple ty) clist def = branchOn ss (App (Prim $ GetTupleElem (IR.Syntax.Tuple ty) s) [o]) (ty !! s) clist def
+
+-- in paper heuristics are used to select best path.
+pathTo (MVariant _ _) = Just []
+pathTo (MNullVar) = Nothing
+pathTo (MVariable _) = Nothing
+pathTo (RMatch r) = foldr (<|>) Nothing (map (\(x, y) -> (case (pathTo y) of
+                                                              (Nothing) -> Nothing
+                                                              (Just yy) -> Just (x:yy))) (zip [0..(length r)-1] r))
+
+
+nobranch MNullVar = True
+nobranch (MVariable _) = True
+nobranch (RMatch h) = foldr (&&) True (map nobranch h)
+nobranch (MVariant s tr) = False
+
+
+bindMLHS _ MNullVar e _ = laexp e
+bindMLHS o (MVariable name) e _ = do
+    newname <- registerName name
+    e' <- laexp e
+    return $ Let newname o e'
+
+bindMLHS o (MVariant _ _) e _ = error "bindMLHS#239789873798345254789"
+bindMLHS o (RMatch rs) e ty = do
+    e' <- laexp e
+    bindRM o 0 rs e' ty
+
+bindRM o idx [] e _ = return e
+bindRM o idx ((MVariable name):st) e tty = do
+    newname <- registerName name
+    let ext = (App (Prim $ GetTupleElem tty idx) [o])
+    e' <- bindRM o (idx+1) st e tty
+    return $ Let newname ext e'
+
+bindRM o idx ((MNullVar):st) e ty = do
+    bindRM o (idx+1) st e ty
+
+bindRM o idx ((MVariant _ _ ): st) e ty = error "bindRM#90872308923809423"
+bindRM o idx ((RMatch rs):st) e tty = do
+    let o' = (App (Prim $ GetTupleElem tty idx) [o])
+    e' <- bindRM o (idx+1) st e tty
+    e'' <- bindRM o' 0 rs e' tty
+    return $ e''
