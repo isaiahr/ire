@@ -145,6 +145,7 @@ typeArray oft = TyApp "array" [oft]
 typeFunction a b = TyApp "func" [a, b]
 typeTuple ty = TyApp "tuple" ty
 typeRecord tys = TyNamedApp "record" tys
+typeVariant tys = TyNamedApp "variant" tys
 typeType h = TyApp "ptr" [h]
 
 -- bijection ast types tyinfer types
@@ -160,7 +161,10 @@ ast2tyinfer (BoolT) = return typeBool
 ast2tyinfer (Record rs) = typeRecord <$> (forM rs (\(k, v) -> do
     v' <- ast2tyinfer v
     return (k, v')))
-ast2tyinfer (Union _) = error "not yet impl2"
+ast2tyinfer (Union kv) = typeVariant <$> (forM kv (\(k, v) -> do
+    v' <- ast2tyinfer v
+    return (k, v')))
+
 ast2tyinfer (General ig) = do
     st <- get 
     let g2 = gmMap st
@@ -199,6 +203,7 @@ tyinfer2ast (TyApp "func" [t1, t2]) = Function (tyinfer2ast t1) (tyinfer2ast t2)
 tyinfer2ast (TyApp "tuple" t) = Tuple (map tyinfer2ast t)
 tyinfer2ast (TyApp "array" [t]) = Array (tyinfer2ast t)
 tyinfer2ast (TyNamedApp "record" tys) = Record (map (\(k, v) -> (k, tyinfer2ast v)) tys)
+tyinfer2ast (TyNamedApp "variant" tys) = Union (map (\(k, v) -> (k, tyinfer2ast v)) tys)
 tyinfer2ast (TyVar (TVar ii)) = General (read ii)
 tyinfer2ast p = error (disp p) 
 
@@ -779,15 +784,15 @@ inferAE aexpr n = do
 
     n2 <- idVar (aId aexpr)
     c0 <- mkCons n (TyVar n2)
-    case aType aexpr of
-        Nothing -> return ()
+    mcons <- case aType aexpr of
+        Nothing -> return []
         Just ty -> do
             -- HACK. for now. FIXME when type vars are allowed in type annotations.
             (TyScheme a tys) <- ast2tyscheme ty
-            mkCons tys n
-            return ()
+            c5 <- mkCons tys n
+            return c5
     c1 <- inferE (aExpr aexpr) n
-    return $ c0 <> c1
+    return $ c0 <> mcons <> c1
 
 inferS (Expr e) = do
     n <- fresh

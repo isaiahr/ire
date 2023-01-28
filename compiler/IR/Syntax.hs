@@ -44,6 +44,7 @@ data PrimE
     = MkTuple [Type] -- primitive function, int -> arity. so (1,2,3) would be App (MkTuple 3, 1, 2, 3)
     | MkArray Type -- primitive function, create array with n > 0 elems
     | MkRec [(String, Type)]
+    | MkVar [(String, Type)] String
     | GetTupleElem Type Int -- prim to get nth elem from tuple of type
     | GetPtrTupleElem Type Int -- similarly except with ptrs
     | GetRecElem Type String

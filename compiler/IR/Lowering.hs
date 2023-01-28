@@ -57,8 +57,10 @@ lower fi x ast = let a = evalState (lowerAll (astDefns ast)) (Context {nameTbl =
             return []
         
 
-convTy (AST.AST.Record r) =  IR.Syntax.Rec $ zip (map fst sorted) (map (convTy . snd) sorted)
+convTy (AST.AST.Record r) = IR.Syntax.Rec $ zip (map fst sorted) (map (convTy . snd) sorted)
     where sorted = (sortBy (\x y -> compare (fst x) (fst y)) r)
+convTy (AST.AST.Union kv) = IR.Syntax.Variant $ zip (map fst sorted) (map (convTy . snd) sorted)
+    where sorted = (sortBy (\x y -> compare (fst x) (fst y)) kv)
 convTy (AST.AST.Array ty) = IR.Syntax.Array (convTy ty)
 convTy (AST.AST.DType _ mts) = IR.Syntax.Ptr (convTy mts)
 convTy (AST.AST.StringT) = IR.Syntax.StringIRT
@@ -159,22 +161,14 @@ newName typ = do
     return name
 
     
-magic2 (l:lst) tupleexpr tty indx restexpr = do
-    newMagic <- (magic2 lst tupleexpr tty (indx+1) restexpr)
-    return $ Seq (Assign l (App (Prim $ GetTupleElem (tty) indx) [tupleexpr])) newMagic
+laexp ep = let (Poly _ mt) = (fromJust (aType ep)) in lexp (aExpr ep) mt
 
-magic2 [] tupleexpr tty indx restexpr = do
-    restexpr' <- lexp (Block restexpr)
-    return $ restexpr'
-    
-laexp ep = lexp (aExpr ep)
-
-lexp (Block ((Defn d):bs)) = do
+lexp (Block ((Defn d):bs)) ty = do
     case identifier d of
          (Plain name) -> do     
              newname <- registerName name
              newexpr <- laexp (value d)
-             nb <- lexp (Block bs)             
+             nb <- lexp (Block bs) ty
              return $ Let newname newexpr nb
          (TupleUnboxing tu) -> do
              let tuplety = (AST.AST.Tuple (map (\(TypedName (Poly [] t) n) -> t) tu))
@@ -191,24 +185,24 @@ lexp (Block ((Defn d):bs)) = do
         return $ Let l' (App (Prim $ GetTupleElem tty indx) [tupleexpr]) newMagic
 
     buildMagic [] tupleexpr tty indx restexpr = do
-        restexpr' <- lexp (Block restexpr)
+        restexpr' <- lexp (Block restexpr) ty
         return $ restexpr'
 
-lexp (Block ((Yield y):bs)) = do
+lexp (Block ((Yield y):bs)) _ = do
     ny <- laexp y
     return ny
 
-lexp (Block ((Return r):bs)) = do
+lexp (Block ((Return r):bs)) _ = do
     nr <- laexp r
     return $ Ret nr
 
-lexp (Block ((Assignment a e):bs)) = do
+lexp (Block ((Assignment a e):bs)) ty = do
     ne <- laexp e
     case a of
          (Singleton name@(TypedName (Poly [] t) _) sels) -> do
              na <- registerEName name
              result <- repeatSel t (Var na) sels ne
-             nbs <- lexp (Block bs)
+             nbs <- lexp (Block bs) ty
              return $ Seq result nbs
          (TupleUnboxingA names) -> do
              names' <- forM names registerEName
@@ -216,90 +210,101 @@ lexp (Block ((Assignment a e):bs)) = do
              dummy <- newName (Poly [] tuplety)
              assigns <- magic2 names' (IR.Syntax.Var dummy) (convTy tuplety) 0 bs
              return $ Let dummy ne assigns
-
     where
         repeatSel astty (Var v) [] ex = do
             return $ Assign v ex
 
         repeatSel astty (Var v) selchain ex = do
             return $ SetRecElem v (map snd selchain) ex
+        magic2 (l:lst) tupleexpr tty indx restexpr = do
+            newMagic <- (magic2 lst tupleexpr tty (indx+1) restexpr)
+            return $ Seq (Assign l (App (Prim $ GetTupleElem (tty) indx) [tupleexpr])) newMagic
 
+        magic2 [] tupleexpr tty indx restexpr = do
+            restexpr' <- lexp (Block restexpr) ty
+            return $ restexpr'
 
-lexp (Block ((Expr b):bs)) = do
+lexp (Block ((Expr b):bs)) ty = do
     nb <- laexp b
-    nbs <- lexp (Block bs)
+    nbs <- lexp (Block bs) ty
     return $ Seq nb nbs
 
-lexp (Block []) = error "Block must terminate in yield or return"
+lexp (Block []) _ = error "Block must terminate in yield or return"
 
 
-lexp (Selector ex SelDot a) = do
+lexp (Selector ex SelDot a) _ = do
     ex' <- laexp ex
     let (Just (Poly _ ty)) = aType ex
     return $ App (Prim $ GetRecElem (convTy ty) a) [ex']
 
-lexp (Selector ex SelArrow a) = error "todo24424"
+lexp (Selector ex SelArrow a) _ = error "todo24424"
 
-lexp (IfStmt cond thn els) = do
+lexp (IfStmt cond thn els) _ = do
     cond' <- laexp cond
     thn' <- laexp thn
     els' <- laexp els
     return $ IR.Syntax.If cond' thn' els'
 
-lexp (PatMatching p) = lowerMatch p
+lexp (PatMatching p) _ = lowerMatch p
 
-lexp (FunctionCall e1 e2) = do
+lexp (FunctionCall e1 e2) _ = do
     ne1 <- laexp e1
     ne2 <- laexp e2
     return $ App ne1 [ne2]
 
-lexp (Initialize (TypedName t n) lit) = do
+lexp (Initialize (TypedName t n) lit) _ = do
     lit' <- laexp lit
     let t' = snd $ convTyScheme t
     return $ App (Prim $ CreatePtr t') [lit']
 
-lexp (Variable (TypedName t (NativeName n))) =  return $ Prim $ primName (convTyScheme t) n
+lexp (Variable (TypedName t (NativeName n))) _ =  return $ Prim $ primName (convTyScheme t) n
     
-lexp (Variable (TypedName t (Symbol s t2 fi))) = do
+lexp (Variable (TypedName t (Symbol s t2 fi))) _ = do
     na <- registerSymbol s t fi
     return $ Var na
 
-lexp (Variable a) = do
+lexp (Variable a) _ = do
     na <- registerEName a
     return $ Var na
                  
-lexp (Constant nt) = do
+lexp (Constant nt) _ = do
     return (Lit (IntL nt))
 
-lexp (StringLiteral s) = do
+lexp (StringLiteral s) _ = do
     return (Lit (StringL s))
 
-lexp (FloatLiteral s) = do
+lexp (FloatLiteral s) _ = do
     return (Lit (FloatL (read ((fst s) <> "." <> (snd s))::Double)))
     
-lexp (BooleanLiteral b) = do
+lexp (BooleanLiteral b) _ = do
     return (Lit (BoolL b))
 
-lexp (TupleLiteral ea) = do
+lexp (TupleLiteral ea) _ = do
     nm <- mapM laexp ea
     return $ App (Prim (MkTuple (map (\x -> exprType x) nm))) nm
 
-lexp (ArrayLiteral []) = do
+lexp (ArrayLiteral []) _ = do
     -- todo solve this, should be easy with aexprs.
     return (error "TODO: typing the empty array")
     
 -- nonempty, all elements have same type. 
-lexp (ArrayLiteral ea) = do
+lexp (ArrayLiteral ea) _ = do
     nm <- mapM laexp ea
     return $ App (Prim (MkArray (exprType (nm!!0)))) nm
     
-lexp (RecordLiteral r) = do
+lexp (RecordLiteral r) _ = do
     let r' = (sortBy (\x y -> compare (fst x) (fst y)) r)
     r'' <- forM r' (\(k, v) -> do
         v' <- laexp v
         return v')
     
     return $ App (Prim (MkRec $ zip (map fst r') (map (\x -> exprType x) r''))) r''
+
+lexp (VariantLiteral (k, v)) (AST.AST.Union kv) = do
+    let kv' = (sortBy (\x y -> compare (fst x) (fst y)) kv)
+    let kv'' = (zip (map fst kv') (map convTy (map snd kv')))
+    v' <- laexp v
+    return $ App (Prim (MkVar kv'' k)) [v']
 
 {--
 N.B. (FunctionLiteral lowering): 
@@ -310,13 +315,13 @@ this also simplifies llvm codegen.
 clang also does this. 
 -}
     
-lexp (FunctionLiteral (Plain a@(TypedName ty _)) ex) = do
+lexp (FunctionLiteral (Plain a@(TypedName ty _)) ex) _ = do
     newname <- registerName a
     nex <- laexp ex
     newparam <- newName ty
     return $ Abs [newparam] (Let newname (Var newparam) nex)
 
-lexp (FunctionLiteral (TupleUnboxing params) ex) = do
+lexp (FunctionLiteral (TupleUnboxing params) ex) _ = do
     newnames <- forM params registerName 
     nex <- laexp ex
     let tty = (AST.AST.Tuple (map (\(TypedName (Poly [] t) n) -> t) params))
@@ -324,6 +329,8 @@ lexp (FunctionLiteral (TupleUnboxing params) ex) = do
     rest <- magic3 newnames (Var newparam) (convTy tty) 0 nex
     return $ Abs [newparam] rest
     
+lexp b ty = error $  "lowering: 89035 not matched" <> (disp b) <> ":" <> disp ty
+
 magic3 (l:lst) tupleexpr tty indx restexpr = do
     newMagic <- (magic3 lst tupleexpr tty (indx+1) restexpr)
     return $ Let l (App (Prim $ GetTupleElem tty indx) [tupleexpr]) newMagic

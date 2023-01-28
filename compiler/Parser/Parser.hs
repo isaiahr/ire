@@ -17,7 +17,6 @@ import Control.Category
 import Data.List
 import Data.Functor
 
-
 passParse :: Pass [AnnotatedToken] (AST String)
 passParse = Pass {pName = "Parser", pFunc = doPs}
     where doPs x = case run parseFile x of
@@ -105,7 +104,7 @@ parseTriangleTy :: Parser [MonoType]
 parseTriangleTy = (parseToken Less *> collect parseMonoType (parseToken Comma) <* parseToken Greater) <|> pure []
 
 parseTuple :: Parser MonoType
-parseTuple = fmap Tuple $ parseToken LParen *> collect parseMonoType (parseToken Comma) <* parseToken RParen
+parseTuple = fmap Tuple $ ((parseToken LParen *> collect parseMonoType (parseToken Comma) <* parseToken RParen) <|> (parseToken LParen *> pure [] <* parseToken RParen))
 
 parseRecord :: Parser MonoType
 parseRecord = fmap Record $ parseToken LCrAndParen *> collect (liftA2 (,) parseIdentifier (parseToken Colon *> parseMonoType)) (parseToken Comma) <* parseToken RCrAndParen
@@ -156,6 +155,7 @@ parseLiteral = parseInt <|>
                parseArrayLiteral <|>
                parseTupleLiteral <|>
                parseRecordLiteral  <|>
+               parseVariantLiteral <|>
                parseFunctionLiteral
 
 parseAssignLHS :: Parser (AssignLHS String)
@@ -205,7 +205,7 @@ parseRecordLiteral :: Parser (Expression String)
 parseRecordLiteral = fmap RecordLiteral $ parseToken LCrAndParen *> collect (liftA2 (,) parseIdentifier (parseToken Equals *> parseAnnExprA)) (parseToken Comma) <* parseToken RCrAndParen
 
 parseVariantLiteral :: Parser (Expression String)
-parseVariantLiteral = fmap VariantLiteral (parseToken LCrOrParen *> liftA2 (,) parseIdentifier parseAnnExprA)  <* parseToken RCrOrParen
+parseVariantLiteral = fmap VariantLiteral (parseToken LCrOrParen *> (liftA2 (,) parseIdentifier (parseToken Equals *> parseAnnExprA)))  <* parseToken RCrOrParen
 
 -- \a -> {}
 -- or: \(x,y,z) -> {}

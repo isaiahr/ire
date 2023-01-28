@@ -40,7 +40,8 @@ instance Disp TLFunction where
 instance Disp Type where
     disp (Tuple tys) = "(" <> intercalate ", " (map disp tys) <> ")"
     disp (Function tys to) = "(" <> intercalate ", " (map disp tys) <> ") -> " <> disp to
-    disp (Rec rs) = "(" <> intercalate ", " (map (\(k, v) -> k <> ": " <> disp v) rs) <> ")"
+    disp (Rec rs) = "(&" <> intercalate ", " (map (\(k, v) -> k <> ": " <> disp v) rs) <> "&)"
+    disp (Variant kv) = "(|" <> intercalate ", " (map (\(k, v) -> k <> ": " <> disp v) kv) <> "|)"
     disp (EnvFunction tys a to) = "(" <> intercalate ", " (map disp tys) <> ") -(" <> intercalate ", " (map disp a) <> ")> " <> disp to
     disp (Bits nt) = "i" <> disp nt
     disp (Array ty) = "[" <> disp ty <> "]"
@@ -81,6 +82,7 @@ instance Disp PrimE where
     disp (MkTuple ty) = "@MkTuple!(" <> (intercalate ", " (map disp ty)) <> ")"
     disp (MkArray ty) = "@MkArray!(" <> disp ty <> ")"
     disp (MkRec ty) = "@MkRec!(" <> (intercalate ", " (map (\(k, v) -> k <> ": " <> disp v) ty)) <> ")"
+    disp (MkVar kv k) = "@MkRec!(" <> k <> "," <> (intercalate ", " (map (\(k, v) -> k <> ": " <> disp v) kv)) <> ")"
     disp (GetTupleElem ty indx) = "@GetTupleElem!(" <> disp ty <> ", " <> disp indx <> ")"
     disp (SetTupleElem ty indx) = "@SetTupleElem!(" <> disp ty <> ", " <> disp indx <> ")"
     disp (GetRecElem ty name) = "@GetRecElem!(" <> disp ty <> ", " <> name <> ")"

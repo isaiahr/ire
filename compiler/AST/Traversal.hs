@@ -79,6 +79,10 @@ traverseExpr t (RecordLiteral ks) = do
         v' <- (travAExpr t) v
         return (k, v'))
     return $ RecordLiteral ks'
+
+traverseExpr t (VariantLiteral (k, v)) = do
+    v' <- (travAExpr t) v
+    return $ VariantLiteral (k, v')
     
 traverseStmt :: Monad m => (Traveller m a b) -> Statement a -> m (Statement b)
 traverseStmt t (Defn d) = do

@@ -172,6 +172,10 @@ nameExpr (RecordLiteral ks) = do
         return (k, v'))
     return $ RecordLiteral ks'
 
+nameExpr (VariantLiteral (k, v)) = do
+    v' <-  nameAExpr v
+    return $ VariantLiteral (k, v')
+
 nameExpr (FunctionLiteral param expr) = do
     enterScope
     np <- case param of
