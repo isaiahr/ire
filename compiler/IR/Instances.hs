@@ -60,7 +60,7 @@ instance Disp Expr where
     disp (Var n) = "V[" <> disp n <> "]"
     disp (Call n ex) = "CALL[" <> disp n <> ", (" <> (intercalate ", " (map disp ex)) <> ")]"
     disp (App e ex) = "APP[" <> disp e <> ", (" <> (intercalate ", " (map disp ex)) <> ")]"
-    disp (Abs n e) = "ABS[(" <> (intercalate ", " (map disp n)) <> "), " <> disp e
+    disp (Abs n e) = "ABS[(" <> (intercalate ", " (map disp n)) <> "), " <> disp e <> "]"
     disp (Close n nm) = "CLOSE[" <> disp n <> ", (" <> (intercalate ", " (map disp nm)) <> ")]"
     disp (Let n e1 e2) = "LET[" <> disp n <> ", " <> disp e1 <> ", " <> disp e2 <> "]"
     disp (Prim pe) = "PRIM[" <> disp pe <> "]"
@@ -69,7 +69,8 @@ instance Disp Expr where
     disp (If e1 e2 e3) = "IF[" <> disp e1 <> ", " <> disp e2 <> ", " <> disp e3 <> "]"
     disp (Ret e) = "RET[" <> disp e <> "]"
     disp (Lit le) = "LIT[" <> disp le <> "]"
-    disp (SetRecElem name sels expr) = "@SetRecElem!(" <> disp name <> ", " <> (intercalate "." (map disp sels)) <> ", " <> disp expr <> ")"
+    disp (SetRecElem name sels expr) = "@SETRECELEM![" <> disp name <> ", " <> (intercalate "." (map disp sels)) <> ", " <> disp expr <> "]"
+    disp (Switch expr cases d) = "@SWITCH![" <> disp expr <> ", " <> (intercalate "." (map (\(x, y) -> x <> " -> " <> disp y) cases)) <> ";" <> disp d <> "]"
 
 instance Disp LitE where
     disp (IntL i) = "$" <> disp i
@@ -86,6 +87,7 @@ instance Disp PrimE where
     disp (GetTupleElem ty indx) = "@GetTupleElem!(" <> disp ty <> ", " <> disp indx <> ")"
     disp (SetTupleElem ty indx) = "@SetTupleElem!(" <> disp ty <> ", " <> disp indx <> ")"
     disp (GetRecElem ty name) = "@GetRecElem!(" <> disp ty <> ", " <> name <> ")"
+    disp (GetVarElem ty name) = "@GetVarElem!(" <> disp ty <> ", " <> name <> ")"
     disp (GetPtr ty) = "@GetPtr!" <> disp ty
     disp (SetPtr ty) = "@SetPtr!" <> disp ty
     disp (CreatePtr ty) = "@CreatePtr!" <> disp ty

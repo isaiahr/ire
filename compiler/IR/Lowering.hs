@@ -374,11 +374,12 @@ cc o m@((row, expr):rest) = case pathTo row of
                                Just path -> do
                                    let trees = (subtrees path m)
                                    cc2r <- mapM (cc2 o path) trees
-                                   return $ branchOn path o (exprType o) (zip (map fst trees) cc2r) (error "")
+                                   -- TODO: FIXME DEFAULT IS WRONG!!!!!!!
+                                   return $ branchOn path o (exprType o) (zip (map fst trees) cc2r) (App (Prim (MkTuple ([]))) [])
 
 cc2 o path (str, m) = cc o' m
     where
-        o' = buildExpr path (chty path (exprType o')) o'
+        o' = buildExpr path (chty path (exprType o)) o
         buildExpr (p:ps) (IR.Syntax.Tuple ty) c = App (Prim $ MkTuple ty) (map (func (p:ps) ty c) ([0..(length ty)-1]))
         buildExpr [] ty c = App (Prim $ GetVarElem ty str) [c]
         func (p:ps) ty c idx = if idx == p then buildExpr ps (ty !! idx) (App (Prim $ GetTupleElem (IR.Syntax.Tuple ty) idx) [c]) else App (Prim $ GetTupleElem (IR.Syntax.Tuple ty) idx) [c]

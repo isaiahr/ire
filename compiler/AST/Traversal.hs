@@ -52,6 +52,20 @@ traverseExpr t (IfStmt a b c) = do
     c' <- (travAExpr t) c
     return $ IfStmt a' b' c'
 
+traverseExpr t (PatMatching (Matching a1 mlist)) = do
+    a1' <- (travAExpr t) a1
+    mlist' <- forM mlist (\(m, e) -> do
+        m' <- traverseMatch m
+        e' <- (travAExpr t) e
+        return (m', e'))
+    return $ PatMatching (Matching a1' mlist')
+    where
+        traverseMatch (RMatch m) = RMatch <$> (forM m traverseMatch)
+        traverseMatch (MNullVar) = return $ MNullVar
+        traverseMatch (MVariant str m) = (MVariant str) <$> (traverseMatch m)
+        traverseMatch (MVariable a) = MVariable <$> ((travMapper t) a)
+
+
 traverseExpr t (Block ss) = do
     ss' <- forM ss (travStmt t)
     return $ Block ss'
@@ -84,6 +98,8 @@ traverseExpr t (VariantLiteral (k, v)) = do
     v' <- (travAExpr t) v
     return $ VariantLiteral (k, v')
     
+
+
 traverseStmt :: Monad m => (Traveller m a b) -> Statement a -> m (Statement b)
 traverseStmt t (Defn d) = do
     d' <- (travDefn t) d

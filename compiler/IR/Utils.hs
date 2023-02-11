@@ -90,6 +90,7 @@ exprType (Prim (CreatePtr t)) = Function [t] (Ptr t)
 exprType (Prim (GetTupleElem (Tuple tys) indx)) = Function [Tuple tys] (tys !! indx)
 exprType (Prim (GetPtrTupleElem (Tuple tys) indx)) = Function [Ptr (Tuple tys)] (tys !! indx)
 exprType (Prim (GetRecElem (Rec kv) str)) = Function [Rec kv] (fromJust $ lookup str kv)
+exprType (Prim (GetVarElem (Variant kv) str)) = Function [Variant kv] (fromJust $ lookup str kv)
 exprType (Prim (SetTupleElem (Tuple tys) indx)) = Function [Tuple tys, tys !! indx] (Tuple [])
 exprType (Prim (SetPtrTupleElem (Tuple tys) indx)) = Function [Ptr (Tuple tys), tys !! indx] (Tuple [])
 exprType (Prim (GAdd ty)) = Function [Tuple[ty, ty]] (ty)
@@ -109,6 +110,7 @@ exprType (Prim (ArrayGet ty)) = Function [Tuple [Array ty, Bits 64]] ty
 exprType (Prim (LibPrim lb)) = libtypeof lb
 exprType (Assign n _) = (Tuple [])
 exprType (SetRecElem _ _ _) = (Tuple [])
+exprType (Switch e _ d) = exprType d
 exprType (Seq e1 e2) = exprType e2
 exprType (If e1 e2 e3) = exprType e2 -- if e2 == e3 then e2 else error "ifstmt bad ty"
 exprType (Ret e) = (Tuple [])
@@ -116,6 +118,7 @@ exprType (Lit (IntL _)) = Bits 64
 exprType (Lit (BoolL _)) = Bits 8
 exprType (Lit (StringL _)) = StringIRT
 exprType (Lit (FloatL _)) = FloatIRT
+
 
 
 
@@ -152,6 +155,7 @@ exprSubExprs (If e1 e2 e3) = [e1, e2, e3]
 exprSubExprs (SetRecElem _ _ e) = [e]
 exprSubExprs (Lit _) = []
 exprSubExprs (Ret e) = [e]
+exprSubExprs (Switch e cs ed) = [e] <> (map snd cs) <> [ed]
 
 -- traversal functions. these apply a function to children of expr.
 -- this is supposed to be within a larger function transforming expressions, 
@@ -178,6 +182,13 @@ traverseExpr f (If e1 e2 e3) = liftM3 If (f e1) (f e2) (f e3)
 traverseExpr f e@(Lit _) = return e
 traverseExpr f (Ret e) = liftM Ret (f e)
 traverseExpr f (SetRecElem n d e) = liftM (SetRecElem n d) (f e)
+traverseExpr f (Switch e cs ed) = do
+     e' <- (f e)
+     cs' <- forM cs (\(x, y) -> do
+         y' <- f y
+         return (x, y'))
+     ed' <- (f ed)
+     return $ Switch e' cs' ed'
 
 libtypeof Native_Exit = Function [Bits 64] (Tuple [])
 libtypeof Native_Print = Function [StringIRT] (Tuple [])

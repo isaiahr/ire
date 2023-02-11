@@ -157,6 +157,19 @@ nameExpr (IfStmt cond thn els) = do
     els2 <- nameAExpr els
     return $ IfStmt cond2 thn2 els2
 
+nameExpr (PatMatching (Matching a ml)) = do
+    a' <- nameAExpr a
+    ml' <- forM ml (\(m, e) -> do
+        m' <- nameMatch m
+        e' <- nameAExpr e
+        return (m', e'))
+    return $ (PatMatching (Matching a' ml'))
+    where
+    nameMatch (RMatch m) = RMatch <$> (forM m nameMatch)
+    nameMatch (MNullVar) = return $ MNullVar
+    nameMatch (MVariant str m) = (MVariant str) <$> (nameMatch m)
+    nameMatch (MVariable a) = MVariable <$> (newSym a)
+
 nameExpr (Block s) = Block <$> (mapM nameStmt s)
 
 nameExpr (Constant c) = return (Constant c)
