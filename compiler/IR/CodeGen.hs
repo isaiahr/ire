@@ -7,6 +7,7 @@ module IR.CodeGen (passGenLLVM) where
 
 import Data.Maybe (fromJust)
 import Data.List
+import Data.Function
 import qualified Data.Text (pack)
 import qualified Data.ByteString (unpack)
 import qualified Data.Text.Encoding (encodeUtf8)
@@ -372,7 +373,16 @@ genE (App (Prim (MkRec kv)) eargs) = (do
               nv <- repeatIV tty vs ncur (idx + 1)
               return nv
           repeatIV tty [] cur idx = return cur
-    
+
+genE (App (Prim (MkVar kv k)) [earg]) = do
+    -- LLVMStruct False [LLVMInt 8, ]
+    earg' <- genE earg
+    let ty = ir2llvmtype (Variant kv)
+    let ity = (maximumBy (compare `on` sizeof) (map ir2llvmtype (map snd kv)))
+    let idx = fromJust $ lookup k (zip (map fst kv) [0.. (length kv)-1])
+    c1 <- promote $ createInsertValue ty LZeroInit (LLVMInt 8) (LIntLit idx) [0]
+    c2 <- promote $ createInsertValue ty c1 ity earg' [1]
+    return c2
     
 genE (App (Prim (MkArray ty)) eargs) = do
     eargs' <- forM eargs genE
@@ -498,6 +508,19 @@ genE (App (Prim (BoolAnd)) [argtuple]) = do
     r2 <- promote $ createExtractValue (LLVMStruct False [(LLVMInt 8), (LLVMInt 8)]) argtuple' [1]
     result <- promote $ createAnd (LLVMInt 8) r1 r2
     return $ result
+
+genE (App (Prim (GetVarElem (Variant kv) str)) [arg]) = do
+    arg' <- genE arg
+    let ty = (ir2llvmtype (fromJust (lookup str kv)))
+    -- LLVMStruct False [LLVMInt 8, ]
+    let ity = (maximumBy (compare `on` sizeof) (map ir2llvmtype (map snd kv)))
+    r1 <- promote $ createExtractValue (LLVMStruct False [LLVMInt 8, ity]) arg' [1]
+    r2 <- promote $ createAlloca ity
+    promote $ createStore ity r1 r2
+    r4 <- promote $ createBitcast (LLVMPtr ity) r2 (LLVMPtr ty)
+    r5 <- promote $ createLoad ty r4
+    return r5
+
 
 -- we store array length at index -1 of array
 genE (App (Prim (ArraySize ty)) [arg]) = do
@@ -644,7 +667,48 @@ genE (If cond e1 e2) = do
     modify $ \ctx -> ctx {writRet = False}
     result <- promote $ createLoad llvmty ptrresult
     return result
-    
+
+genE (Switch cond sw def) = do
+    condlv <- genE cond
+    condty <- getIRType cond
+    condlvtag <- promote $ createExtractValue (ir2llvmtype condty) condlv [0]
+    resultty <- getIRType def
+    let llvmty = ir2llvmtype resultty
+    ptrresult <- promote $ createAlloca llvmty
+    swbb <- forM sw (\s -> do
+        promote generateBB)
+    bbdef <- promote generateBB
+    bbend <- promote generateBB
+    promote $ createSwitch (LLVMInt 8) condlvtag bbdef (zip (map LIntLit [0..(length swbb)]) swbb)
+    -- TODO: MAP INTS PROPERLY FOR SKIPPED!
+    forM (zip swbb (map snd ((sortBy (compare `on` fst)) sw))) (\(bb, e) -> do
+        promote $ useBB bb
+        modify $ \ctx -> ctx {writRet = False}
+        e' <- genE e
+        ctx0 <- get
+        if writRet ctx0 then
+            return ()
+        else do
+            promote $ createStore llvmty e' ptrresult
+            promote $ createUnconditionalBr bbend
+        return ())
+    promote $ useBB bbdef
+    modify $ \ctx -> ctx {writRet = False}
+    d' <- genE def
+    ctx0 <- get
+    if writRet ctx0 then
+        return ()
+    else do
+        promote $ createStore llvmty d' ptrresult
+        promote $ createUnconditionalBr bbend
+    promote $ useBB bbend
+    modify $ \ctx -> ctx {writRet = False}
+    result <- promote $ createLoad llvmty ptrresult
+    return result
+
+
+
+
 genE other = error $ "no codegen for: " <> disp other
 
 genCMP op argtuple = do
@@ -885,12 +949,12 @@ promote computation = do
     let (retty, fs) = runState computation (bodyc ctx)
     put ctx {bodyc = fs}
     return retty
-
 {-
 convert ir types to llvms. 
 -}
 ir2llvmtype (Tuple tys) = LLVMStruct False (map ir2llvmtype tys) -- cartesion product of types
 ir2llvmtype (Rec kv) = ir2llvmtype $ Tuple (map snd kv)
+ir2llvmtype (Variant kv) = LLVMStruct False [LLVMInt 8, (maximumBy (compare `on` sizeof) (map ir2llvmtype (map snd kv)))]
 ir2llvmtype (Function params ret) = LLVMFunction (ir2llvmtype ret) (map ir2llvmtype params)
 ir2llvmtype (EnvFunction params cl ret) = LLVMFunction (ir2llvmtype ret) (([LLVMPtr (LLVMPtr (LLVMInt 8))]  ++ map ir2llvmtype  params)) -- IMPORTANT: CL FIRST
 ir2llvmtype (Bits nt) = (LLVMInt nt)
@@ -898,4 +962,14 @@ ir2llvmtype (Array t) = LLVMStruct False [(LLVMInt 64), LLVMPtr (ir2llvmtype t)]
 ir2llvmtype (Ptr t) = LLVMPtr (ir2llvmtype t)
 ir2llvmtype (StringIRT) = LLVMStruct False [(LLVMInt 64), LLVMPtr (LLVMInt 8)]
 ir2llvmtype (FloatIRT) = LLVMDouble
+
+
 ir2llvmtype (TV _) = error "hit type variable monomorphization should have removed. #80909485485"
+
+-- bytes
+sizeof :: LType -> Int
+sizeof (LLVMPtr _) = 8
+sizeof (LLVMStruct _ mem) = foldr (+) 0 (map sizeof mem)
+sizeof (LLVMDouble) = 8
+sizeof (LLVMArray nm m) = nm * (sizeof m)
+sizeof (LLVMInt nt) = ceiling((fromIntegral(nt+7)) / 8.0)

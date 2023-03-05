@@ -1,0 +1,13 @@
+// Ok (4, "")
+
+
+main := \() -> {
+    var := {|Value=4|}:{|Value:Int, nothing:()|}
+    match var with {
+        {|Value v|} => __ire__exit__(v)
+        _ => __ire__exit__(1)
+    }
+    __ire__exit__(0)
+}
+
+

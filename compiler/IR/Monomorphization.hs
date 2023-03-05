@@ -111,6 +111,7 @@ changePrim sub ex = go ex
     where go (Prim (MkTuple tys)) = Prim (MkTuple (map (applySubs sub) tys))
           go (Prim (MkArray ty)) = Prim (MkArray (applySubs sub ty))
           go (Prim (MkRec kv)) = Prim (MkRec $ zip (map fst kv) (map ((applySubs sub) . snd) kv))
+          go (Prim (MkVar kv c)) = Prim (MkVar (zip (map fst kv) (map ((applySubs sub) . snd) kv)) c)
           go (Prim (GetTupleElem ty lnt)) = Prim (GetTupleElem (applySubs sub ty) lnt)
           go (Prim (GetRecElem ty str)) = Prim (GetRecElem (applySubs sub ty) str)
           go (Prim (SetTupleElem ty lnt)) = Prim (SetTupleElem (applySubs sub ty) lnt)

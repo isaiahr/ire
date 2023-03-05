@@ -210,5 +210,5 @@ needsGC (Array t) = True
 needsGC (Ptr t) = True
 needsGC (StringIRT) = True
 needsGC (FloatIRT) = False
-needsGC (Variant _) = True
+needsGC (Variant tys) = needsGC . Tuple $ map snd tys
 needsGC oth = error $ "calling needsgc on" <> disp oth

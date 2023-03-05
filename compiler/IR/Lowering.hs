@@ -379,12 +379,13 @@ cc o m@((row, expr):rest) = case pathTo row of
 
 cc2 o path (str, m) = cc o' m
     where
+        -- TODO ??
         o' = buildExpr path (chty path (exprType o)) o
         buildExpr (p:ps) (IR.Syntax.Tuple ty) c = App (Prim $ MkTuple ty) (map (func (p:ps) ty c) ([0..(length ty)-1]))
         buildExpr [] ty c = App (Prim $ GetVarElem ty str) [c]
         func (p:ps) ty c idx = if idx == p then buildExpr ps (ty !! idx) (App (Prim $ GetTupleElem (IR.Syntax.Tuple ty) idx) [c]) else App (Prim $ GetTupleElem (IR.Syntax.Tuple ty) idx) [c]
         chty :: [Int] -> IR.Syntax.Type -> IR.Syntax.Type
-        chty [] (Variant kv) = fromJust $ lookup str kv
+        chty [] (Variant kv) = Variant kv-- fromJust $ lookup str kv
         chty (p:ps) (IR.Syntax.Tuple ty) = (IR.Syntax.Tuple ((take p ty) ++ [chty ps (ty!!p)] ++ (drop (p+1) ty)))
 
 

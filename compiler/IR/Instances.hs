@@ -83,7 +83,7 @@ instance Disp PrimE where
     disp (MkTuple ty) = "@MkTuple!(" <> (intercalate ", " (map disp ty)) <> ")"
     disp (MkArray ty) = "@MkArray!(" <> disp ty <> ")"
     disp (MkRec ty) = "@MkRec!(" <> (intercalate ", " (map (\(k, v) -> k <> ": " <> disp v) ty)) <> ")"
-    disp (MkVar kv k) = "@MkRec!(" <> k <> "," <> (intercalate ", " (map (\(k, v) -> k <> ": " <> disp v) kv)) <> ")"
+    disp (MkVar kv k) = "@MkVar!(" <> k <> "," <> (intercalate ", " (map (\(k, v) -> k <> ": " <> disp v) kv)) <> ")"
     disp (GetTupleElem ty indx) = "@GetTupleElem!(" <> disp ty <> ", " <> disp indx <> ")"
     disp (SetTupleElem ty indx) = "@SetTupleElem!(" <> disp ty <> ", " <> disp indx <> ")"
     disp (GetRecElem ty name) = "@GetRecElem!(" <> disp ty <> ", " <> name <> ")"

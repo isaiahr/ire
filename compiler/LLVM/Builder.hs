@@ -202,6 +202,10 @@ createGEP2 ty1 ty2 v idx = do
 createConditionalBr cond bbtrue bbfalse = do
     addInst (LCBr cond (bbLabel bbtrue) (bbLabel bbfalse))
     return ()
+
+createSwitch condty cond def cases = do
+    addInst (LSwitch condty cond (bbLabel def) (map (\(x, y) -> (LLVMInt 8, x, bbLabel y)) cases))
+    return ()
     
 createUnconditionalBr label = do
     addInst (LUBr (bbLabel label))

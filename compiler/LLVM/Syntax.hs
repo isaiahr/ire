@@ -130,6 +130,7 @@ data LInst
     | LBitcast LValue LType LValue LType
     | LCBr LValue LLabel LLabel -- conditional branch
     | LUBr LLabel -- unconditional branch
+    | LSwitch LType LValue LLabel [(LType, LValue, LLabel)]
     | LAnd LValue LType LValue LValue
     | LOr LValue LType LValue LValue
     | LPhi LValue LType [(LValue, LLabel)]
@@ -194,6 +195,7 @@ instance Disp LInst where
     disp (LBitcast v ty v1 ty2) = disp v <> " = bitcast " <> disp ty <> " " <> disp v1 <> " to " <> disp ty2
     disp (LCBr lv lbltrue lblfalse) = "br i1 " <> disp lv <> ", label %" <> disp lbltrue <> ", label %" <> disp lblfalse
     disp (LUBr lbl) = "br label %" <> disp lbl
+    disp (LSwitch ty val def cases) = "switch " <> disp ty <> " " <>  disp val <> ", label %" <> disp def <> " [" <> (intercalate ", " (map (\(x, y, z) -> disp x <> " " <> disp y <> ", label %" <> disp z) cases)) <> "]"
     disp (LPhi v ty vals) = disp v <> " = phi " <> disp ty <> " " <> intercalate ", " (map (\(lv, lbl) -> "[" <> disp lv <> ", %" <> disp lbl <> "]") vals)
     disp (LAnd v ty v1 v2) = disp v <> " = and " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
     disp (LOr v ty v1 v2) = disp v <> " = or " <> disp ty <> " " <> disp v1 <> ", " <> disp v2
